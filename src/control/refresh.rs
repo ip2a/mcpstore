@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::auth::AuthConfig;
-use crate::cache::models::{
+use crate::kv::models::{
     InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
 };
 use crate::config::{ServerConfig, StartupPolicy};
@@ -19,25 +19,25 @@ impl MCPStore {
         let definition_values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_entities_async("service_definitions")
             .await?;
         let instance_values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_entities_async("service_instances")
             .await?;
         let tool_values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_entities_async("tools")
             .await?;
         let tool_relation_values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_relations_async("instance_tools")
             .await?;
 
@@ -328,7 +328,7 @@ impl MCPStore {
         let Some(value) = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_entity("service_definitions", service_name)
             .await?
         else {
@@ -347,7 +347,7 @@ impl MCPStore {
         let values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_entities_async("service_definitions")
             .await?;
         let mut definitions = Vec::with_capacity(values.len());
@@ -371,7 +371,7 @@ impl MCPStore {
         let Some(value) = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_entity("service_instances", &instance_id.to_string())
             .await?
         else {
@@ -403,7 +403,7 @@ impl MCPStore {
         let values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_entities_async("service_instances")
             .await?;
         let mut instances = Vec::with_capacity(values.len());
@@ -436,7 +436,7 @@ impl MCPStore {
         let Some(value) = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_relation("instance_tools", &instance_id.to_string())
             .await?
         else {
@@ -456,7 +456,7 @@ impl MCPStore {
         let values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_entities_many("tools", &keys)
             .await?;
         let mut tools = Vec::with_capacity(relation.tools.len());

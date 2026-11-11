@@ -1,11 +1,11 @@
 use std::hash::{Hash, Hasher};
 
-use crate::cache::models::{
+use crate::kv::models::{
     ContextToolVisibilityState, InstanceToolRelation, ServiceDefinitionEntity,
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
     ToolPreferenceState,
 };
-use crate::cache::KvError;
+use crate::kv::KvError;
 use crate::identity::{InstanceId, ScopeRef};
 use crate::overrides::ToolOverrideRule;
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
@@ -34,7 +34,7 @@ impl MCPStore {
         self.upsert_definition_projection(&definition).await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_entity(
                 "service_instances",
                 &instance_id.to_string(),
@@ -97,7 +97,7 @@ impl MCPStore {
         }
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_event(
                 "instance",
                 &format!("{instance_id}:added:{}", instance.added_time),
@@ -145,7 +145,7 @@ impl MCPStore {
             };
             self.kernel
                 .persistence
-                .cache
+                .kv
                 .put_entity(
                     "tools",
                     &Self::instance_tool_key(instance_id, &tool.name),
@@ -163,7 +163,7 @@ impl MCPStore {
         };
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_relation(
                 "instance_tools",
                 &instance_id.to_string(),
@@ -172,7 +172,7 @@ impl MCPStore {
             .await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_event(
                 "instance",
                 &format!("{instance_id}:connected:{now}"),
@@ -196,7 +196,7 @@ impl MCPStore {
         if let Some(value) = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_relation("instance_tools", &instance_id.to_string())
             .await?
         {
@@ -210,7 +210,7 @@ impl MCPStore {
             for tool_name in relation.tools {
                 self.kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_entity("tools", &Self::instance_tool_key(instance_id, &tool_name))
                     .await?;
             }
@@ -218,12 +218,12 @@ impl MCPStore {
 
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_entity("service_instances", &instance_id.to_string())
             .await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_relation("instance_tools", &instance_id.to_string())
             .await?;
         self.kernel.control.state.delete(instance_id).await?;
@@ -236,7 +236,7 @@ impl MCPStore {
         let now = chrono::Utc::now().timestamp();
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_event(
                 "instance",
                 &format!("{instance_id}:removed:{now}"),
@@ -261,7 +261,7 @@ impl MCPStore {
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_entity(
                 "service_instances",
                 &instance_id.to_string(),
@@ -274,7 +274,7 @@ impl MCPStore {
     pub(crate) async fn remove_definition_projection(&self, service_name: &str) -> Result<()> {
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_entity("service_definitions", service_name)
             .await?;
         Ok(())
@@ -284,7 +284,7 @@ impl MCPStore {
         let entity = ServiceDefinitionEntity::from(definition);
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_entity(
                 "service_definitions",
                 &definition.service_name,
@@ -299,7 +299,7 @@ impl MCPStore {
         for (key, _) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_relations_async("session_services")
             .await?
         {
@@ -308,7 +308,7 @@ impl MCPStore {
                 let Some(value) = self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .get_relation("session_services", &key)
                     .await?
                 else {
@@ -338,7 +338,7 @@ impl MCPStore {
                 match self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .compare_and_put_relation(
                         "session_services",
                         &key,
@@ -365,7 +365,7 @@ impl MCPStore {
         for (key, _) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_relations_async("session_tools")
             .await?
         {
@@ -374,7 +374,7 @@ impl MCPStore {
                 let Some(value) = self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .get_relation("session_tools", &key)
                     .await?
                 else {
@@ -404,7 +404,7 @@ impl MCPStore {
                 match self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .compare_and_put_relation(
                         "session_tools",
                         &key,
@@ -452,14 +452,14 @@ impl MCPStore {
             for (key, value) in self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .get_all_states_async(state_type)
                 .await?
             {
                 if matches_instance(&value, instance_id)? {
                     self.kernel
                         .persistence
-                        .cache
+                        .kv
                         .delete_state(state_type, &key)
                         .await?;
                 }

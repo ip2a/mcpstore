@@ -2,7 +2,7 @@ use crate::config::{ComponentOverride as ConfigComponentOverride, ScopesConfig};
 use crate::overrides::{
     PromptOverridePatch, ResourceOverridePatch, ServiceOverridePatch, ToolOverridePatch,
 };
-use crate::cache::models::ToolArgumentOverride;
+use crate::kv::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
 const APPLIED_JOURNAL_STATE_TYPE: &str = "scopes_loader";
@@ -62,7 +62,7 @@ impl MCPStore {
         let previous: Vec<(String, String)> = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_state(APPLIED_JOURNAL_STATE_TYPE, APPLIED_JOURNAL_KEY)
             .await?
             .and_then(|value| serde_json::from_value::<AppliedJournal>(value).ok())
@@ -90,7 +90,7 @@ impl MCPStore {
                 if let Err(error) = self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_state(&entry.0, &entry.1)
                     .await
                 {
@@ -100,7 +100,7 @@ impl MCPStore {
         }
         self.kernel
             .persistence
-            .cache
+            .kv
             .put_state(
                 APPLIED_JOURNAL_STATE_TYPE,
                 APPLIED_JOURNAL_KEY,

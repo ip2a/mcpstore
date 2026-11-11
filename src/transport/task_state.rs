@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::cache::KvLayerManager;
+use crate::kv::KvLayerManager;
 use crate::identity::InstanceId;
 use crate::transport::tasks::{McpTask, McpTaskStatus};
 
@@ -23,12 +23,12 @@ pub struct McpTaskRecord {
 
 #[derive(Clone)]
 pub(crate) struct TaskStateStore {
-    cache: Arc<KvLayerManager>,
+    kv: Arc<KvLayerManager>,
 }
 
 impl TaskStateStore {
-    pub(crate) fn new(cache: Arc<KvLayerManager>) -> Self {
-        Self { cache }
+    pub(crate) fn new(kv: Arc<KvLayerManager>) -> Self {
+        Self { kv }
     }
 
     pub(crate) async fn observe(
@@ -36,7 +36,7 @@ impl TaskStateStore {
         instance_id: InstanceId,
         task: McpTask,
         tool_name: Option<&str>,
-    ) -> crate::cache::Result<McpTaskRecord> {
+    ) -> crate::kv::Result<McpTaskRecord> {
         let key = task_key(instance_id, &task.task_id);
         let previous = self.get_by_key(&key).await?;
         let now = Utc::now();
@@ -60,7 +60,7 @@ impl TaskStateStore {
         &self,
         instance_id: InstanceId,
         task_id: &str,
-    ) -> crate::cache::Result<Option<McpTaskRecord>> {
+    ) -> crate::kv::Result<Option<McpTaskRecord>> {
         let key = task_key(instance_id, task_id);
         self.get_by_key(&key).await
     }
@@ -68,8 +68,8 @@ impl TaskStateStore {
     pub(crate) async fn list(
         &self,
         instance_id: InstanceId,
-    ) -> crate::cache::Result<Vec<McpTaskRecord>> {
-        let entities = self.cache.get_all_entities_async(TASK_ENTITY_TYPE).await?;
+    ) -> crate::kv::Result<Vec<McpTaskRecord>> {
+        let entities = self.kv.get_all_entities_async(TASK_ENTITY_TYPE).await?;
         let mut records = Vec::new();
         for (_key, value) in entities {
             let record: McpTaskRecord = serde_json::from_value(value)?;
@@ -87,9 +87,9 @@ impl TaskStateStore {
         instance_id: InstanceId,
         task_id: &str,
         error: impl Into<String>,
-    ) -> crate::cache::Result<()> {
+    ) -> crate::kv::Result<()> {
         let key = task_key(instance_id, task_id);
-        let Some(value) = self.cache.get_entity(TASK_ENTITY_TYPE, &key).await? else {
+        let Some(value) = self.kv.get_entity(TASK_ENTITY_TYPE, &key).await? else {
             return Ok(());
         };
         let mut record: McpTaskRecord = serde_json::from_value(value)?;
@@ -101,7 +101,7 @@ impl TaskStateStore {
         &self,
         instance_id: InstanceId,
         reason: impl Into<String>,
-    ) -> crate::cache::Result<()> {
+    ) -> crate::kv::Result<()> {
         let reason = reason.into();
         let records = self.list(instance_id).await?;
         for mut record in records {
@@ -116,8 +116,8 @@ impl TaskStateStore {
         Ok(())
     }
 
-    async fn get_by_key(&self, key: &str) -> crate::cache::Result<Option<McpTaskRecord>> {
-        self.cache
+    async fn get_by_key(&self, key: &str) -> crate::kv::Result<Option<McpTaskRecord>> {
+        self.kv
             .get_entity(TASK_ENTITY_TYPE, key)
             .await?
             .map(serde_json::from_value)
@@ -125,8 +125,8 @@ impl TaskStateStore {
             .map_err(Into::into)
     }
 
-    async fn put_record(&self, key: &str, record: &McpTaskRecord) -> crate::cache::Result<()> {
-        self.cache
+    async fn put_record(&self, key: &str, record: &McpTaskRecord) -> crate::kv::Result<()> {
+        self.kv
             .put_entity(TASK_ENTITY_TYPE, key, serde_json::to_value(record)?)
             .await
     }
@@ -149,7 +149,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::cache::{memory_kv_store, KvLayerManager};
+    use crate::kv::{memory_kv_store, KvLayerManager};
     use crate::identity::{ScopeRef, ServiceInstanceKey};
 
     fn instance(service_name: &str) -> InstanceId {

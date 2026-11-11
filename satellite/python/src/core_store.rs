@@ -5,7 +5,7 @@ use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
 use mcpstore::core::store::{MCPStore, StoreOptions};
 use mcpstore::{
-    cache::models::SessionScope, Error, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView,
+    kv::models::SessionScope, Error, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView,
     Service, ServiceTarget, Tool,
 };
 use mcpstore::{

@@ -1,12 +1,12 @@
 use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "redis")]
-use crate::cache::redis::LazyRedisStore;
+use crate::kv::redis::LazyRedisStore;
 #[cfg(feature = "valkey")]
-use crate::cache::valkey::LazyValkeyStore;
-use crate::cache::store::KvStore;
+use crate::kv::valkey::LazyValkeyStore;
+use crate::kv::store::KvStore;
 #[cfg(all(feature = "shm", unix))]
-use crate::cache::{KvError, Result};
+use crate::kv::{KvError, Result};
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
 
 pub(crate) fn memory_kv_store() -> Arc<KvStore> {

@@ -243,9 +243,9 @@ fn show(path: Option<String>) -> std::result::Result<(), Box<dyn std::error::Err
     println!("Global config file: {}", m.app_config_path().display());
 
     println!("\nCache:");
-    println!("  Store: {}", app_config.cache.store);
-    println!("  Namespace: {}", app_config.cache.namespace);
-    if let Some(url) = app_config.cache.config.get("url").and_then(|v| v.as_str()) {
+    println!("  Store: {}", app_config.kv.store);
+    println!("  Namespace: {}", app_config.kv.namespace);
+    if let Some(url) = app_config.kv.config.get("url").and_then(|v| v.as_str()) {
         println!("  Backend URL: {}", url);
     }
 

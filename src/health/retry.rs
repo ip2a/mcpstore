@@ -81,7 +81,7 @@ impl MCPStore {
             Some(current) => current,
             None => {
                 // The registry still owns this instance (callers gate on
-                // find_instance), but its state record vanished (cache
+                // find_instance), but its state record vanished (kv
                 // eviction / reload race). Recreate it instead of dropping
                 // the failure on the floor — a missing record here used to
                 // strand services in phase=Starting with recovery Idle.

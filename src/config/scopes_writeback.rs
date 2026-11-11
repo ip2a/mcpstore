@@ -1,4 +1,4 @@
-use crate::cache::models::ToolArgumentOverride;
+use crate::kv::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -579,7 +579,7 @@ enabled = false
         apply_tool_override_fields(
             doc.as_table_mut(),
             &common(None, None, Some(true), vec![]),
-            &[crate::cache::models::ToolArgumentOverride {
+            &[crate::kv::models::ToolArgumentOverride {
                 original_name: "debug".to_string(),
                 new_name: None,
                 hidden: true,

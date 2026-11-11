@@ -866,11 +866,11 @@ paths:
 }
 
 async fn copy_cache_snapshot(source: &MCPStore, target: &MCPStore) {
-    let snapshot = source.cache().snapshot().await.unwrap();
+    let snapshot = source.kv().snapshot().await.unwrap();
     for (entity_type, entries) in snapshot.entities {
         for (key, value) in entries {
             target
-                .cache()
+                .kv()
                 .put_entity(&entity_type, &key, value)
                 .await
                 .unwrap();
@@ -879,7 +879,7 @@ async fn copy_cache_snapshot(source: &MCPStore, target: &MCPStore) {
     for (relation_type, entries) in snapshot.relations {
         for (key, value) in entries {
             target
-                .cache()
+                .kv()
                 .put_relation(&relation_type, &key, value)
                 .await
                 .unwrap();
@@ -888,7 +888,7 @@ async fn copy_cache_snapshot(source: &MCPStore, target: &MCPStore) {
     for (state_type, entries) in snapshot.states {
         for (key, value) in entries {
             target
-                .cache()
+                .kv()
                 .put_state(&state_type, &key, value)
                 .await
                 .unwrap();
@@ -897,7 +897,7 @@ async fn copy_cache_snapshot(source: &MCPStore, target: &MCPStore) {
     for (event_type, entries) in snapshot.events {
         for (key, value) in entries {
             target
-                .cache()
+                .kv()
                 .put_event(&event_type, &key, value)
                 .await
                 .unwrap();
@@ -928,19 +928,19 @@ async fn add_service_writes_definition_and_instance_cache_layers() {
     let instance_id = store_instance_id("svc");
 
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
         .is_some());
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_instances", &instance_id.to_string())
         .await
         .unwrap()
         .is_some());
     assert!(store
-        .cache()
+        .kv()
         .get_state("service_state", &format!("{instance_id}@control"))
         .await
         .unwrap()
@@ -960,7 +960,7 @@ async fn explicit_agent_scope_writes_agent_instance_relation() {
     let instance_id = instance_id("svc", agent_scope("agent-a"));
 
     let relation = store
-        .cache()
+        .kv()
         .get_relation("agent_instances", "agent-a")
         .await
         .unwrap()
@@ -1003,20 +1003,20 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
     store.remove_service("svc").await.unwrap();
 
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
         .is_none());
     for instance_id in [store_id, agent_id] {
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &instance_id.to_string())
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_state("service_state", &format!("{instance_id}@control"))
             .await
             .unwrap()
@@ -1024,7 +1024,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
     }
     assert_eq!(
         store
-            .cache()
+            .kv()
             .get_relation("agent_instances", "agent-a")
             .await
             .unwrap()
@@ -1055,7 +1055,7 @@ async fn db_source_add_lands_after_control_panel_consumes_the_event() {
 
     assert!(Path::new(&path).exists());
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
@@ -1182,7 +1182,7 @@ async fn local_reset_preserves_kv_schema_marker() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store
-        .cache()
+        .kv()
         .put_entity(
             "clients",
             "client-a",
@@ -1194,19 +1194,19 @@ async fn local_reset_preserves_kv_schema_marker() {
     store.reset_config().await.unwrap();
 
     assert!(store
-        .cache()
+        .kv()
         .get_entity("clients", "client-a")
         .await
         .unwrap()
         .is_none());
     assert_eq!(
         store
-            .cache()
-            .get_state(crate::cache::layer::KV_SCHEMA_STATE, "current")
+            .kv()
+            .get_state(crate::kv::layer::KV_SCHEMA_STATE, "current")
             .await
             .unwrap(),
         Some(serde_json::json!({
-            "version": crate::cache::layer::KV_SCHEMA_VERSION
+            "version": crate::kv::layer::KV_SCHEMA_VERSION
         }))
     );
 
@@ -1257,7 +1257,7 @@ async fn openapi_import_persists_shared_analysis_result() {
         .get(&instance_id)
         .is_none());
     let pending_entity = store
-        .cache()
+        .kv()
         .get_entity("service_instances", &instance_id.to_string())
         .await
         .unwrap()
@@ -1273,7 +1273,7 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap();
     assert_eq!(pending_state.phase, crate::state::RuntimePhase::Stopped);
     assert!(store
-        .cache()
+        .kv()
         .get_relation("instance_tools", &instance_id.to_string())
         .await
         .unwrap()
@@ -1309,7 +1309,7 @@ async fn openapi_import_persists_shared_analysis_result() {
         Some(service.config_revision)
     );
     let applied_entity = store
-        .cache()
+        .kv()
         .get_entity("service_instances", &instance_id.to_string())
         .await
         .unwrap()
@@ -1574,18 +1574,18 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         .map(|instance| (instance.instance_id, instance))
         .collect::<HashMap<_, _>>();
     let definition_cache_before = store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "inventory")
         .await
         .unwrap()
         .unwrap();
-    let mut instance_cache_before = HashMap::new();
+    let mut instance_projection_before = HashMap::new();
     let mut connectivity_before = HashMap::new();
     for instance_id in instances_before.keys().copied() {
-        instance_cache_before.insert(
+        instance_projection_before.insert(
             instance_id,
             store
-                .cache()
+                .kv()
                 .get_entity("service_instances", &instance_id.to_string())
                 .await
                 .unwrap()
@@ -1642,22 +1642,22 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
     );
     assert_eq!(
         store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "inventory")
             .await
             .unwrap()
             .unwrap(),
         definition_cache_before
     );
-    for (instance_id, cached_before) in instance_cache_before {
+    for (instance_id, stored_before) in instance_projection_before {
         assert_eq!(
             store
-                .cache()
+                .kv()
                 .get_entity("service_instances", &instance_id.to_string())
                 .await
                 .unwrap()
                 .unwrap(),
-            cached_before
+            stored_before
         );
         assert_eq!(
             store.kernel.execution.pool.is_connected(instance_id).await,
@@ -1672,7 +1672,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         .is_none());
     assert!(store.last_openapi_import().await.unwrap().is_none());
     assert!(store
-        .cache()
+        .kv()
         .get_all_events_async("openapi_imports")
         .await
         .unwrap()
@@ -1990,7 +1990,7 @@ paths:
     assert_eq!(first_description, &serde_json::json!("local file item id"));
 
     let states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2032,7 +2032,7 @@ paths:
         &serde_json::json!("updated local file item id after cache invalidation")
     );
     let updated_states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2144,7 +2144,7 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
         document.url == format!("{base_url}/components.json") && document.role == "external"
     }));
     let states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2199,7 +2199,7 @@ async fn openapi_bundle_ref_cache_policy_sets_ttl() {
         .unwrap();
 
     let states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2245,7 +2245,7 @@ async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
 
     assert_eq!(components_requests.load(Ordering::SeqCst), 2);
     let states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2278,7 +2278,7 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
     );
 
     let states = store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();
@@ -2296,7 +2296,7 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
         serde_json::json!(chrono::Utc::now().timestamp() - 1),
     );
     store
-        .cache()
+        .kv()
         .put_state(
             "openapi_ref_documents",
             &cache_key,
@@ -2314,7 +2314,7 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
         serde_json::json!("conditional external item id")
     );
     let refreshed = store
-        .cache()
+        .kv()
         .get_state("openapi_ref_documents", &cache_key)
         .await
         .unwrap()
@@ -4081,7 +4081,7 @@ async fn swap_store_failure_keeps_active_source_usable() {
     assert!(error.to_string().contains("does-not-exist"));
     assert_eq!(store.current_store_name().await, "memory");
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
@@ -4104,7 +4104,7 @@ async fn swap_store_migrates_runtime_cache() {
     assert!(result.copied > 0);
 
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_instances", &instance_id.to_string())
         .await
         .unwrap()
@@ -4160,7 +4160,7 @@ async fn swap_store_preserves_concurrent_writes() {
     .unwrap();
     for index in 0..500 {
         store
-            .cache()
+            .kv()
             .put_entity(
                 "clients",
                 &format!("seed-{index}"),
@@ -4174,7 +4174,7 @@ async fn swap_store_preserves_concurrent_writes() {
     let writer = async move {
         for index in 0..100 {
             writer_store
-                .cache()
+                .kv()
                 .put_entity(
                     "clients",
                     &format!("live-{index}"),
@@ -4193,7 +4193,7 @@ async fn swap_store_preserves_concurrent_writes() {
     for index in 0..100 {
         assert!(
             store
-                .cache()
+                .kv()
                 .get_entity("clients", &format!("live-{index}"))
                 .await
                 .unwrap()
@@ -4218,7 +4218,7 @@ async fn cache_inspect_includes_session_collections() {
     let session_key = "store:s1";
 
     store
-        .cache()
+        .kv()
         .put_entity(
             "sessions",
             session_key,
@@ -4239,7 +4239,7 @@ async fn cache_inspect_includes_session_collections() {
         .await
         .unwrap();
     store
-        .cache()
+        .kv()
         .put_relation(
             "session_services",
             session_key,
@@ -4253,7 +4253,7 @@ async fn cache_inspect_includes_session_collections() {
         .await
         .unwrap();
     store
-        .cache()
+        .kv()
         .put_relation(
             "session_tools",
             session_key,
@@ -4268,7 +4268,7 @@ async fn cache_inspect_includes_session_collections() {
         .await
         .unwrap();
     store
-        .cache()
+        .kv()
         .put_state(
             "session_status",
             session_key,
@@ -4283,7 +4283,7 @@ async fn cache_inspect_includes_session_collections() {
         .await
         .unwrap();
     store
-        .cache()
+        .kv()
         .put_event(
             "session_events",
             "store:s1:0001",
@@ -4348,13 +4348,13 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
 
     assert_eq!(store.current_store_name().await, "memory");
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
         .is_some());
     assert!(store
-        .cache()
+        .kv()
         .get_state(
             "service_state",
             &format!("{}@control", store_instance_id("svc")),
@@ -4376,7 +4376,7 @@ async fn swap_store_to_openkeyv_memory_migrates_runtime_cache() {
 
     assert_eq!(store.current_store_name().await, "memory");
     assert!(store
-        .cache()
+        .kv()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
@@ -4834,7 +4834,7 @@ async fn tool_preferences_are_stored_by_instance_and_tool() {
     assert_eq!(state.tool_name, "echo");
     assert_eq!(state.preferences["return_direct"], true);
     assert!(store
-        .cache()
+        .kv()
         .get_state("tool_preferences", &format!("store:{instance_id}:echo"),)
         .await
         .unwrap()
@@ -4932,7 +4932,7 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
     assert!(state.failure.is_some());
     assert_eq!(service.applied_config_revision, None);
     assert!(store
-        .cache()
+        .kv()
         .get_entity(
             "service_instances",
             &store_instance_id("broken").to_string(),
@@ -5467,7 +5467,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         .await
         .unwrap();
     let relation_before = source
-        .cache()
+        .kv()
         .get_relation("agent_instances", "agent-a")
         .await
         .unwrap()
@@ -5485,7 +5485,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     store.load_from_db().await.unwrap();
 
     let relation_after = store
-        .cache()
+        .kv()
         .get_relation("agent_instances", "agent-a")
         .await
         .unwrap()
@@ -5562,7 +5562,7 @@ async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
     .unwrap();
     for index in 0..5_000 {
         store
-            .cache()
+            .kv()
             .put_entity(
                 "clients",
                 &format!("seed-{index}"),
@@ -5571,7 +5571,7 @@ async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
             .await
             .unwrap();
     }
-    store.cache().reset_request_metrics();
+    store.kv().reset_request_metrics();
 
     let writer_store = store.clone();
     let writer = async move {
@@ -5579,7 +5579,7 @@ async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
         for index in 0..200 {
             let started_at = Instant::now();
             writer_store
-                .cache()
+                .kv()
                 .put_entity(
                     "clients",
                     &format!("live-{index}"),
@@ -5597,7 +5597,7 @@ async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
     let (max_write_ms, result) = tokio::join!(writer, migration);
     result.unwrap();
 
-    let metrics = store.cache().request_metrics_snapshot();
+    let metrics = store.kv().request_metrics_snapshot();
     println!(
         "migration write pause: p50={:.3}ms p95={:.3}ms max={max_write_ms:.3}ms",
         metrics.p50_latency_ms.unwrap_or(0.0),
@@ -5676,7 +5676,7 @@ mod scoped_contract {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    use crate::cache::models::ServiceDefinitionEntity;
+    use crate::kv::models::ServiceDefinitionEntity;
     use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     use crate::registry::{ConfigRevision, ToolInfo};
@@ -5839,13 +5839,13 @@ mod scoped_contract {
         assert_eq!(instances[0].instance_id, expected_id);
         assert_eq!(instances[0].scope, ScopeRef::Store);
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "svc")
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &expected_id.to_string())
             .await
             .unwrap()
@@ -5900,7 +5900,7 @@ mod scoped_contract {
         assert_eq!(agent_3.scope, agent_scope("agent-3"));
 
         let relation = store
-            .cache()
+            .kv()
             .get_relation("agent_instances", "agent-1")
             .await
             .unwrap()
@@ -6546,7 +6546,7 @@ mod scoped_contract {
         );
         assert_eq!(
             store
-                .cache()
+                .kv()
                 .get_entity("service_instances", &instance_id.to_string())
                 .await
                 .unwrap()
@@ -6611,7 +6611,7 @@ mod scoped_contract {
         assert!(pending.restart_required());
         assert_eq!(
             store
-                .cache()
+                .kv()
                 .get_entity("service_instances", &instance_id.to_string())
                 .await
                 .unwrap()
@@ -6648,7 +6648,7 @@ mod scoped_contract {
         );
         assert_eq!(
             store
-                .cache()
+                .kv()
                 .get_entity("service_instances", &instance_id.to_string())
                 .await
                 .unwrap()
@@ -6859,19 +6859,19 @@ mod scoped_contract {
         assert!(config_scopes.agents.contains_key("agent-1"));
         assert!(config_scopes.agents.contains_key("agent-2"));
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &store_id.to_string())
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &agent_1_id.to_string())
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &agent_2_id.to_string())
             .await
             .unwrap()
@@ -6996,25 +6996,25 @@ mod scoped_contract {
         assert!(store.find_instance(store_id).await.is_some());
         assert!(store.find_instance(agent_2_id).await.is_some());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_instances", &agent_1_id.to_string())
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("tools", &format!("{agent_1_id}:agent-1-tool"))
             .await
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("tools", &format!("{store_id}:store-tool"))
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .cache()
+            .kv()
             .get_entity("tools", &format!("{agent_2_id}:agent-2-tool"))
             .await
             .unwrap()
@@ -7057,7 +7057,7 @@ mod scoped_contract {
             ("tool_overrides", format!("{agent_1_id}:agent-1-tool")),
         ] {
             assert!(store
-                .cache()
+                .kv()
                 .get_state(state_type, &state_key)
                 .await
                 .unwrap()
@@ -7075,7 +7075,7 @@ mod scoped_contract {
             ("tool_overrides", format!("{agent_2_id}:agent-2-tool")),
         ] {
             assert!(store
-                .cache()
+                .kv()
                 .get_state(state_type, &state_key)
                 .await
                 .unwrap()
@@ -7097,16 +7097,16 @@ mod scoped_contract {
         assert!(config_scopes.store.is_some());
         assert!(!config_scopes.agents.contains_key("agent-1"));
         assert!(config_scopes.agents.contains_key("agent-2"));
-        let cached_definition: ServiceDefinitionEntity = serde_json::from_value(
+        let stored_definition: ServiceDefinitionEntity = serde_json::from_value(
             store
-                .cache()
+                .kv()
                 .get_entity("service_definitions", "svc")
                 .await
                 .unwrap()
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(cached_definition.scopes, definition.scopes);
+        assert_eq!(stored_definition.scopes, definition.scopes);
 
         let db = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
@@ -7147,7 +7147,7 @@ mod scoped_contract {
             .unwrap()
             .is_empty());
         assert!(store
-            .cache()
+            .kv()
             .get_state(
                 "context_tool_visibility",
                 &format!("agent:agent-1:{agent_1_id}"),
@@ -7156,7 +7156,7 @@ mod scoped_contract {
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_state(
                 "tool_preferences",
                 &format!("agent:agent-1:{agent_1_id}:agent-1-tool"),
@@ -7165,7 +7165,7 @@ mod scoped_contract {
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_state("tool_overrides", &format!("{agent_1_id}:agent-1-tool"))
             .await
             .unwrap()
@@ -7215,7 +7215,7 @@ mod scoped_contract {
             assert_eq!(definition.scopes, config_scopes);
             let cached: ServiceDefinitionEntity = serde_json::from_value(
                 store
-                    .cache()
+                    .kv()
                     .get_entity("service_definitions", service_name)
                     .await
                     .unwrap()
@@ -7386,13 +7386,13 @@ mod scoped_contract {
             .unwrap()
             .is_none());
         assert!(store
-            .cache()
+            .kv()
             .get_state("tool_overrides", &format!("{agent_1_id}:echo"))
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .cache()
+            .kv()
             .get_state("tool_overrides", &format!("{agent_2_id}:echo"))
             .await
             .unwrap()
@@ -7722,14 +7722,14 @@ mod swap_and_cache_tests {
 
         // Data should exist in the new store.
         let entity = store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "svc-a")
             .await
             .unwrap();
         assert!(entity.is_some(), "service svc-a must survive swap");
 
         let entity_b = store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "svc-b")
             .await
             .unwrap();
@@ -7758,7 +7758,7 @@ mod swap_and_cache_tests {
 
         assert!(result.online);
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "online-svc")
             .await
             .unwrap()
@@ -7767,7 +7767,7 @@ mod swap_and_cache_tests {
     }
 
     #[tokio::test]
-    async fn cache_identity_separates_backends_and_namespaces() {
+    async fn store_identity_separates_stores_and_namespaces() {
         let path = temp_config_path();
         let options = |namespace: &str| StoreOptions {
             config_path: Some(path.clone()),
@@ -7806,7 +7806,7 @@ mod swap_and_cache_tests {
         let result = store.swap_store(&target).await.unwrap();
         assert!(result.online);
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "redis-svc")
             .await
             .unwrap()
@@ -7814,7 +7814,7 @@ mod swap_and_cache_tests {
 
         let result = store.swap_store(&MemoryStoreConfig).await.unwrap();
         assert!(store
-            .cache()
+            .kv()
             .get_entity("service_definitions", "redis-svc")
             .await
             .unwrap()
@@ -7830,7 +7830,7 @@ mod swap_and_cache_tests {
     #[cfg(all(feature = "shm", unix))]
     mod shm_swap {
         use super::*;
-        use crate::cache::KvLayerManager;
+        use crate::kv::KvLayerManager;
         use openkeyv::AsyncChangeFeed;
         use std::os::unix::fs::PermissionsExt;
 
@@ -7876,7 +7876,7 @@ mod swap_and_cache_tests {
                     for index in 0..100 {
                         let key = format!("live-{}", worker * 100 + index);
                         store
-                            .cache()
+                            .kv()
                             .put_entity("clients", &key, serde_json::json!({"index": key}))
                             .await
                             .unwrap();
@@ -7899,7 +7899,7 @@ mod swap_and_cache_tests {
                 let key = format!("live-{index}");
                 assert!(
                     store
-                        .cache()
+                        .kv()
                         .get_entity("clients", &key)
                         .await
                         .unwrap()
@@ -7942,7 +7942,7 @@ mod swap_and_cache_tests {
             // true cross-process race is covered by openkeyv shm_process CAS
             // tests; this pins the mcpstore claim_entity routing on shm).
             store
-                .cache()
+                .kv()
                 .put_entity(
                     "tool_call_requests",
                     "req-1",
@@ -7955,7 +7955,7 @@ mod swap_and_cache_tests {
                 let store = store.clone();
                 claimers.push(tokio::spawn(async move {
                     store
-                        .cache()
+                        .kv()
                         .claim_entity("tool_call_requests", "req-1")
                         .await
                         .unwrap()
@@ -7972,7 +7972,7 @@ mod swap_and_cache_tests {
             // Rescans must not revive a claimed request.
             assert!(
                 store
-                    .cache()
+                    .kv()
                     .claim_entity("tool_call_requests", "req-1")
                     .await
                     .unwrap()
@@ -7996,7 +7996,7 @@ mod swap_and_cache_tests {
             let (target, shm_path) = shm_swap_target("pause");
             for index in 0..300 {
                 store
-                    .cache()
+                    .kv()
                     .put_entity("clients", &format!("seed-{index}"), serde_json::json!({"i": index}))
                     .await
                     .unwrap();
@@ -8006,7 +8006,7 @@ mod swap_and_cache_tests {
             let writer = async move {
                 for index in 0..50 {
                     writer_store
-                        .cache()
+                        .kv()
                         .put_entity("clients", &format!("live-{index}"), serde_json::json!({"i": index}))
                         .await
                         .unwrap();
@@ -8028,7 +8028,7 @@ mod swap_and_cache_tests {
             for index in 0..50 {
                 assert!(
                     store
-                        .cache()
+                        .kv()
                         .get_entity("clients", &format!("live-{index}"))
                         .await
                         .unwrap()
@@ -8103,7 +8103,7 @@ mod swap_and_cache_tests {
                 .await
                 .unwrap();
             store
-                .cache()
+                .kv()
                 .put_entity("clients", "post-swap", serde_json::json!({"v": 1}))
                 .await
                 .unwrap();

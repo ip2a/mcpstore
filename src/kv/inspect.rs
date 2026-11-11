@@ -36,7 +36,7 @@ const EVENT_TYPES: &[&str] = &["session_events", "openapi_imports"];
 impl MCPStore {
     pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
         let namespace = self.namespace();
-        let snapshot = self.kernel.persistence.cache.snapshot().await?;
+        let snapshot = self.kernel.persistence.kv.snapshot().await?;
         let mut collections = Vec::new();
         let mut entities = Vec::new();
         let mut relations = Vec::new();
@@ -56,7 +56,7 @@ impl MCPStore {
             collections.push(format!("{namespace}:entity:{entity_type}"));
             entity_counts.insert((*entity_type).to_string(), serde_json::json!(entries.len()));
             for (key, value) in entries {
-                entities.push(wrap_cache_item(
+                entities.push(wrap_kv_item(
                     &key,
                     entity_type,
                     &format!("{namespace}:entity:{entity_type}"),
@@ -76,7 +76,7 @@ impl MCPStore {
                 serde_json::json!(entries.len()),
             );
             for (key, value) in entries {
-                relations.push(wrap_cache_item(
+                relations.push(wrap_kv_item(
                     &key,
                     relation_type,
                     &format!("{namespace}:relations:{relation_type}"),
@@ -93,7 +93,7 @@ impl MCPStore {
             collections.push(format!("{namespace}:state:{state_type}"));
             state_counts.insert((*state_type).to_string(), serde_json::json!(entries.len()));
             for (key, value) in entries {
-                states.push(wrap_cache_item(
+                states.push(wrap_kv_item(
                     &key,
                     state_type,
                     &format!("{namespace}:state:{state_type}"),
@@ -110,7 +110,7 @@ impl MCPStore {
             collections.push(format!("{namespace}:event:{event_type}"));
             event_counts.insert((*event_type).to_string(), serde_json::json!(entries.len()));
             for (key, value) in entries {
-                events.push(wrap_cache_item(
+                events.push(wrap_kv_item(
                     &key,
                     event_type,
                     &format!("{namespace}:event:{event_type}"),
@@ -125,7 +125,7 @@ impl MCPStore {
             collections.push(format!("{namespace}:event:{event_type}"));
             event_counts.insert(event_type.clone(), serde_json::json!(entries.len()));
             for (key, value) in entries {
-                events.push(wrap_cache_item(
+                events.push(wrap_kv_item(
                     &key,
                     &event_type,
                     &format!("{namespace}:event:{event_type}"),
@@ -140,7 +140,7 @@ impl MCPStore {
             "store": self.current_store_name().await,
             "namespace": namespace,
             "scope": "store",
-            "request_metrics": self.kernel.persistence.cache.request_metrics_snapshot(),
+            "request_metrics": self.kernel.persistence.kv.request_metrics_snapshot(),
             "counts": {
                 "entities": entity_counts,
                 "relations": relation_counts,
@@ -156,7 +156,7 @@ impl MCPStore {
     }
 
     pub async fn reset_cache_request_metrics(&self) -> Result<()> {
-        self.kernel.persistence.cache.reset_request_metrics();
+        self.kernel.persistence.kv.reset_request_metrics();
         Ok(())
     }
 }

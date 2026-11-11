@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use crate::cache::models::{
+use crate::kv::models::{
     ContextToolVisibilityState, SessionScope, SessionToolItem, ToolVisibilityMode,
 };
-use crate::cache::KvError;
+use crate::kv::KvError;
 use crate::store::prelude::*;
 
 pub(crate) const CONTEXT_TOOL_VISIBILITY_STATE_TYPE: &str = "context_tool_visibility";
@@ -64,7 +64,7 @@ impl MCPStore {
         let state_key = Self::context_tool_visibility_state_key(&context_key, instance_id);
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
             .await
             .map_err(Into::into)
@@ -129,7 +129,7 @@ impl MCPStore {
         match self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
             .await?
         {
@@ -175,7 +175,7 @@ impl MCPStore {
             match self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .compare_and_put_state(
                     CONTEXT_TOOL_VISIBILITY_STATE_TYPE,
                     &state_key,

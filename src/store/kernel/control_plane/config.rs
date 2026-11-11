@@ -26,13 +26,13 @@ impl ControlPlane {
             .clear();
         store.kernel.control.registry.clear().await;
         store.kernel.control.auth.clear_statuses().await;
-        let snapshot = store.kernel.persistence.cache.snapshot().await?;
+        let snapshot = store.kernel.persistence.kv.snapshot().await?;
         for (entity_type, entries) in snapshot.entities {
             for key in entries.keys() {
                 store
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_entity(&entity_type, key)
                     .await?;
             }
@@ -42,20 +42,20 @@ impl ControlPlane {
                 store
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_relation(&relation_type, key)
                     .await?;
             }
         }
         for (state_type, entries) in snapshot.states {
-            if state_type == crate::cache::layer::KV_SCHEMA_STATE {
+            if state_type == crate::kv::layer::KV_SCHEMA_STATE {
                 continue;
             }
             for key in entries.keys() {
                 store
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_state(&state_type, key)
                     .await?;
             }
@@ -65,7 +65,7 @@ impl ControlPlane {
                 store
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .delete_event(&event_type, key)
                     .await?;
             }

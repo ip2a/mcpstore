@@ -1,5 +1,5 @@
-use crate::cache::models::{SessionScope, ToolPreferenceState};
-use crate::cache::KvError;
+use crate::kv::models::{SessionScope, ToolPreferenceState};
+use crate::kv::KvError;
 use crate::store::prelude::*;
 
 const TOOL_PREFERENCES_STATE_TYPE: &str = "tool_preferences";
@@ -54,7 +54,7 @@ impl MCPStore {
         if state.preferences.is_empty() {
             self.kernel
                 .persistence
-                .cache
+                .kv
                 .delete_state(TOOL_PREFERENCES_STATE_TYPE, &target.state_key)
                 .await?;
             return Ok(None);
@@ -126,7 +126,7 @@ impl MCPStore {
     async fn load_tool_preferences(&self, state_key: &str) -> Result<Option<ToolPreferenceState>> {
         self.kernel
             .persistence
-            .cache
+            .kv
             .get_state(TOOL_PREFERENCES_STATE_TYPE, state_key)
             .await?
             .map(|value| {
@@ -170,7 +170,7 @@ impl MCPStore {
             match self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .compare_and_put_state(
                     TOOL_PREFERENCES_STATE_TYPE,
                     &target.state_key,

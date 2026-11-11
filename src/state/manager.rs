@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::cache::{KvError, KvLayerManager};
+use crate::kv::{KvError, KvLayerManager};
 use crate::events::types::EventKind;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
@@ -19,7 +19,7 @@ pub enum ServiceStateManagerError {
     #[error(transparent)]
     InvalidTransition(#[from] ServiceStateError),
     #[error(transparent)]
-    Cache(#[from] KvError),
+    Kv(#[from] KvError),
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
 }
@@ -28,16 +28,16 @@ pub enum ServiceStateManagerError {
 pub const CONTROL_NODE_ID: &str = "control";
 
 pub struct ServiceStateManager {
-    cache: Arc<KvLayerManager>,
+    kv: Arc<KvLayerManager>,
     event_bus: EventBus,
     panel_id: String,
     locks: Mutex<HashMap<InstanceId, Arc<Mutex<()>>>>,
 }
 
 impl ServiceStateManager {
-    pub fn new(cache: Arc<KvLayerManager>, event_bus: EventBus, panel_id: String) -> Self {
+    pub fn new(kv: Arc<KvLayerManager>, event_bus: EventBus, panel_id: String) -> Self {
         Self {
-            cache,
+            kv,
             event_bus,
             panel_id,
             locks: Mutex::new(HashMap::new()),
@@ -64,7 +64,7 @@ impl ServiceStateManager {
         let _guard = lock.lock().await;
         let mut state = state;
         state.node = self.panel_id.clone();
-        self.cache
+        self.kv
             .compare_and_put_state(
                 SERVICE_STATE_TYPE,
                 &self.own_key(state.instance_id),
@@ -80,7 +80,7 @@ impl ServiceStateManager {
         &self,
         instance_id: InstanceId,
     ) -> Result<Option<ServiceState>, ServiceStateManagerError> {
-        self.cache
+        self.kv
             .get_state(SERVICE_STATE_TYPE, &self.own_key(instance_id))
             .await?
             .map(serde_json::from_value)
@@ -94,7 +94,7 @@ impl ServiceStateManager {
         instance_id: InstanceId,
     ) -> Result<Option<ServiceState>, ServiceStateManagerError> {
         if let Some(state) = self
-            .cache
+            .kv
             .get_state(SERVICE_STATE_TYPE, &Self::control_key(instance_id))
             .await?
             .map(serde_json::from_value::<ServiceState>)
@@ -118,7 +118,7 @@ impl ServiceStateManager {
             // When this node's column is absent, create it using the control column as the base:
             // local observations get their own home and no longer cross-write the authoritative column.
             None => match self
-                .cache
+                .kv
                 .get_state(SERVICE_STATE_TYPE, &Self::control_key(instance_id))
                 .await?
                 .map(serde_json::from_value::<ServiceState>)
@@ -136,7 +136,7 @@ impl ServiceStateManager {
         current.apply(event.clone(), now)?;
         // Column creation uses create-if-absent; updates keep CAS.
         let expected = (!seeded_from_control).then_some(previous.version);
-        self.cache
+        self.kv
             .compare_and_put_state(
                 SERVICE_STATE_TYPE,
                 &self.own_key(instance_id),
@@ -166,7 +166,7 @@ impl ServiceStateManager {
     pub async fn delete(&self, instance_id: InstanceId) -> Result<(), ServiceStateManagerError> {
         let lock = self.instance_lock(instance_id).await;
         let _guard = lock.lock().await;
-        self.cache
+        self.kv
             .delete_state(SERVICE_STATE_TYPE, &self.own_key(instance_id))
             .await?;
         self.locks.lock().await.remove(&instance_id);
@@ -186,7 +186,7 @@ impl ServiceStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::storage::memory_kv_store;
+    use crate::kv::storage::memory_kv_store;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::state::{AuthState, DesiredState, RuntimePhase};
 
@@ -196,10 +196,10 @@ mod tests {
 
     fn manager_as(panel_id: &str) -> (Arc<ServiceStateManager>, EventBus) {
         let event_bus = EventBus::with_history(10);
-        let cache = Arc::new(KvLayerManager::new(memory_kv_store(), "state-test"));
+        let kv = Arc::new(KvLayerManager::new(memory_kv_store(), "state-test"));
         (
             Arc::new(ServiceStateManager::new(
-                cache,
+            kv,
                 event_bus.clone(),
                 panel_id.to_string(),
             )),
@@ -223,14 +223,14 @@ mod tests {
     async fn node_columns_do_not_clobber_each_other() {
         // A(control) and B(worker) share one storage: B's writes only land in its own column,
         // the control authoritative column is never cross-written (pitfall 3 fix); display reads prefer control.
-        let cache = Arc::new(KvLayerManager::new(memory_kv_store(), "state-cols"));
+        let kv = Arc::new(KvLayerManager::new(memory_kv_store(), "state-cols"));
         let bus = EventBus::with_history(10);
         let control = Arc::new(ServiceStateManager::new(
-            cache.clone(),
+            kv.clone(),
             bus.clone(),
             CONTROL_NODE_ID.to_string(),
         ));
-        let worker = Arc::new(ServiceStateManager::new(cache, bus, "worker".to_string()));
+        let worker = Arc::new(ServiceStateManager::new(kv, bus, "worker".to_string()));
 
         let created = control.create(initial()).await.unwrap();
         let instance_id = created.instance_id;
@@ -327,7 +327,7 @@ mod tests {
         let result = manager.create(state).await;
         assert!(matches!(
             result,
-            Err(ServiceStateManagerError::Cache(KvError::Conflict(_)))
+            Err(ServiceStateManagerError::Kv(KvError::Conflict(_)))
         ));
     }
 }

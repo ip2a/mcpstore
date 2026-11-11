@@ -140,7 +140,7 @@ impl MCPStore {
             let Some(value) = self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .get_state(kind.state_type(), &key)
                 .await?
             else {
@@ -182,7 +182,7 @@ impl MCPStore {
             match self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .compare_and_put_state(kind.state_type(), &key, Some(version), Value::Object(obj))
                 .await
             {
@@ -202,8 +202,8 @@ impl MCPStore {
                     }
                     return Ok(());
                 }
-                Err(crate::cache::KvError::Conflict(_)) if attempt < 7 => continue,
-                Err(crate::cache::KvError::Conflict(_)) => {
+                Err(crate::kv::KvError::Conflict(_)) if attempt < 7 => continue,
+                Err(crate::kv::KvError::Conflict(_)) => {
                     return Err(Error::new(
                         FailureCode::Internal,
                         format!("{kind:?} override concurrent modification, retry exhausted"),

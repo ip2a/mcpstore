@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::RwLock as SyncRwLock;
 
-pub(crate) use crate::cache::models::OpenApiImportContextState;
-pub(crate) use crate::cache::KvLayerManager;
+pub(crate) use crate::kv::models::OpenApiImportContextState;
+pub(crate) use crate::kv::KvLayerManager;
 pub(crate) use crate::config::{ConfigManager, ServerConfig, StartupPolicy};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
@@ -33,7 +33,7 @@ use runtime::StoreRuntimeConfig;
 
 pub use crate::agent::models::{ScopedServiceEntry, ScopedToolEntry};
 pub use crate::agent::tool_visibility::ToolVisibilityFilter;
-pub use crate::cache::models::KvHealthReport;
+pub use crate::kv::models::KvHealthReport;
 pub use crate::events::EventCapabilityReport;
 pub use crate::openapi::{
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
@@ -54,7 +54,7 @@ pub(crate) mod prelude {
     pub(crate) use crate::config_formats::{project_config, ConfigFormat};
     pub(crate) use crate::identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
     pub(crate) use crate::registry::{AgentInfo, ScopeSummary};
-    pub(crate) use crate::store::payload::wrap_cache_item;
+    pub(crate) use crate::store::payload::wrap_kv_item;
     pub(crate) use crate::store::{
         KvHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
         DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
@@ -87,11 +87,11 @@ impl MCPStore {
         let namespace = options
             .namespace
             .clone()
-            .unwrap_or_else(|| app_config.cache.namespace.clone());
+            .unwrap_or_else(|| app_config.kv.namespace.clone());
         let mut store_config = options.store.clone().unwrap_or_else(|| {
             JsonStoreConfig::new(
-                app_config.cache.store.as_str(),
-                app_config.cache.config.clone(),
+                app_config.kv.store.as_str(),
+                app_config.kv.config.clone(),
             )
         });
         #[cfg(test)]
@@ -138,9 +138,9 @@ impl MCPStore {
         let (kv_store, event_log) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = if store_config.store_name() == "memory-test-shared" {
-                    crate::cache::storage::shared_memory_kv_store_with_handle()
+                    crate::kv::storage::shared_memory_kv_store_with_handle()
                 } else {
-                    crate::cache::storage::memory_kv_store_with_handle()
+                    crate::kv::storage::memory_kv_store_with_handle()
                 };
                 let handle = openkeyv::StoreHandle::with_capabilities(
                     std::sync::Arc::new(mem.clone()),
@@ -162,7 +162,7 @@ impl MCPStore {
             #[cfg(all(feature = "shm", unix))]
             "shm" => {
                 let (store, handle) =
-                    crate::cache::storage::shm_kv_store_with_handle(&store_config.config)
+                    crate::kv::storage::shm_kv_store_with_handle(&store_config.config)
                         .map_err(|e| Error::new(FailureCode::Internal, format!("shm store: {e}")))?;
                 (store, Some(EventLog::from_store(handle)))
             }
@@ -174,13 +174,13 @@ impl MCPStore {
         };
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(10_000);
-        let cache = std::sync::Arc::new(KvLayerManager::new(kv_store, namespace.clone()));
+        let kv = std::sync::Arc::new(KvLayerManager::new(kv_store, namespace.clone()));
         let state_panel_id = match &options.panel {
             PanelRole::ControlPanel => crate::state::CONTROL_NODE_ID.to_string(),
             PanelRole::DataPanel { panel_id } => panel_id.clone(),
         };
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
-            cache.clone(),
+            kv.clone(),
             event_bus.clone(),
             state_panel_id,
         ));
@@ -195,7 +195,7 @@ impl MCPStore {
             auth_coordinator.clone(),
             registry.clone(),
             event_bus.clone(),
-            cache.clone(),
+            kv.clone(),
         );
 
         let store = std::sync::Arc::new(Self {
@@ -215,7 +215,7 @@ impl MCPStore {
                 },
                 persistence: PersistenceRouter {
                     store_config: tokio::sync::RwLock::new(store_config),
-                    cache,
+                    kv,
                     event_log: tokio::sync::RwLock::new(event_log),
                     event_epoch: tokio::sync::watch::channel(0u64).0,
                 },
@@ -323,8 +323,8 @@ impl MCPStore {
         &self.kernel.control.config_manager
     }
 
-    pub fn cache(&self) -> &KvLayerManager {
-        &self.kernel.persistence.cache
+    pub fn kv(&self) -> &KvLayerManager {
+        &self.kernel.persistence.kv
     }
 
     pub fn event_bus(&self) -> &EventBus {
@@ -391,7 +391,7 @@ impl MCPStore {
     }
 
     /// Shared ChangeFeed-capable handle over the active store. Memory shares
-    /// the cache layer's store; Redis opens a handle to the same URL. Used by
+    /// the kv layer's store; Redis opens a handle to the same URL. Used by
     /// the service event feed and online migration.
     pub(crate) async fn ensure_event_log(&self) -> Result<EventLog> {
         if let Some(log) = self.kernel.persistence.event_log.read().await.clone() {

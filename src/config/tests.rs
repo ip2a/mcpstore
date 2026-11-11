@@ -37,7 +37,7 @@ fn test_load_save_roundtrip() {
     assert_eq!(loaded.mcp_servers.len(), 1);
     assert!(loaded.mcp_servers.contains_key("test"));
     let raw = std::fs::read_to_string(&path).unwrap();
-    assert!(!raw.contains("cache"));
+    assert!(!raw.contains("kv"));
     assert_eq!(
         loaded.mcp_servers["test"].scopes(),
         ScopeDeclarations::store_only()
@@ -290,8 +290,8 @@ fn test_app_config_roundtrip() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
 
     let mut config = AppConfig::default();
-    config.cache.store = "redis".to_string();
-    config.cache.config = serde_json::json!({"url": "redis://127.0.0.1/"});
+    config.kv.store = "redis".to_string();
+    config.kv.config = serde_json::json!({"url": "redis://127.0.0.1/"});
     config.api.url_prefix = "/demo".to_string();
     config.diagnostics.runtime_log.level = "debug".to_string();
     config.gateway.port = 19400;
@@ -300,8 +300,8 @@ fn test_app_config_roundtrip() {
 
     mgr.save_app_config(&config).unwrap();
     let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.cache.store, "redis");
-    assert_eq!(loaded.cache.namespace, "mcpstore");
+    assert_eq!(loaded.kv.store, "redis");
+    assert_eq!(loaded.kv.namespace, "mcpstore");
     assert_eq!(loaded.api.url_prefix, "/demo");
     assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
     assert_eq!(loaded.gateway.port, 19400);
@@ -310,6 +310,26 @@ fn test_app_config_roundtrip() {
         8 * 1024 * 1024
     );
     assert_eq!(loaded.diagnostics.runtime_log.retention_days, Some(14));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn legacy_cache_section_is_rejected_loudly() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[cache]\nstore = \"redis\"\n\n[api]\nurl_prefix = \"/demo\"\n",
+    )
+    .unwrap();
+
+    let error = mgr.load_app_config().unwrap_err().to_string();
+    assert!(
+        error.contains("[cache] was renamed to [kv]"),
+        "expected rename error, got: {error}"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -428,11 +448,11 @@ fn test_init_splits_mcp_json_and_app_toml() {
 
     let mcp_raw = std::fs::read_to_string(mgr.mcp_path()).unwrap();
     assert!(mcp_raw.contains("mcpServers"));
-    assert!(!mcp_raw.contains("cache"));
+    assert!(!mcp_raw.contains("kv"));
 
     let app_config = mgr.load_app_config().unwrap();
-    assert_eq!(app_config.cache.store, "redis");
-    assert_eq!(app_config.cache.config["url"], "redis://127.0.0.1/");
+    assert_eq!(app_config.kv.store, "redis");
+    assert_eq!(app_config.kv.config["url"], "redis://127.0.0.1/");
 
     std::fs::remove_dir_all(&dir).ok();
 }

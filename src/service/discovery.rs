@@ -72,7 +72,7 @@ impl MCPStore {
         if self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_relation("instance_tools", &instance_id.to_string())
             .await?
             .is_some()

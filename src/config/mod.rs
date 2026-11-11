@@ -3,7 +3,7 @@ use std::path::PathBuf;
 mod api_web_validation;
 mod app_schema;
 mod app_validation;
-mod cache_schema;
+mod kv_schema;
 mod defaults;
 mod examples;
 mod field_validation;
@@ -35,7 +35,7 @@ pub use app_schema::{
     ApiSettings, AppConfig, DiagnosticsConfig, GatewayConfig, HostEntry, HostsConfig,
     PluginsConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, WebSettings,
 };
-pub use cache_schema::CacheConfig;
+pub use kv_schema::KvConfig;
 pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;

@@ -427,8 +427,8 @@ impl From<crate::config::ConfigError> for Error {
     }
 }
 
-impl From<crate::cache::KvError> for Error {
-    fn from(error: crate::cache::KvError) -> Self {
+impl From<crate::kv::KvError> for Error {
+    fn from(error: crate::kv::KvError) -> Self {
         Self::new(FailureCode::TaskStateFailed, error.to_string()).with_source(error)
     }
 }

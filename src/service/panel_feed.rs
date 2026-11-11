@@ -6,7 +6,7 @@ use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::cache::KvLayerManager;
+use crate::kv::KvLayerManager;
 use crate::store::prelude::*;
 use crate::store::PanelRole;
 
@@ -53,7 +53,7 @@ impl MCPStore {
             );
         }
         let key = uuid::Uuid::new_v4().to_string();
-        self.cache().put_entity(SERVICE_EVENTS, &key, value).await?;
+        self.kv().put_entity(SERVICE_EVENTS, &key, value).await?;
         // Read-your-writes: when the writer is also the executor (control panel), wait until our own event is consumed
         // before returning. Events still go through kv + the consume loop, no shortcuts. The data panel's executor is
         // elsewhere; it returns right after writing. Wait timeout is an error: either apply failed (the key is still being retried),
@@ -62,7 +62,7 @@ impl MCPStore {
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
                 let pending = self
-                    .cache()
+                    .kv()
                     .get_entity(SERVICE_EVENTS, &key)
                     .await
                     .ok()
@@ -201,7 +201,7 @@ impl MCPStore {
     }
 
     async fn drain_service_events(&self) {
-        let events = match self.cache().get_all_entities_async(SERVICE_EVENTS).await {
+        let events = match self.kv().get_all_entities_async(SERVICE_EVENTS).await {
             Ok(events) => events,
             Err(error) => {
                 tracing::warn!("[STORE] service event drain failed: {error}");
@@ -227,7 +227,7 @@ impl MCPStore {
     }
 
     async fn apply_service_event(&self, key: &str) {
-        let value = match self.cache().get_entity(SERVICE_EVENTS, key).await {
+        let value = match self.kv().get_entity(SERVICE_EVENTS, key).await {
             Ok(Some(value)) => value,
             Ok(None) => return,
             Err(error) => {
@@ -239,7 +239,7 @@ impl MCPStore {
             tracing::warn!("[STORE] service event {key} left in place: {error}");
             return;
         }
-        if let Err(error) = self.cache().delete_entity(SERVICE_EVENTS, key).await {
+        if let Err(error) = self.kv().delete_entity(SERVICE_EVENTS, key).await {
             tracing::warn!("[STORE] service event {key} applied but not deleted: {error}");
         }
     }

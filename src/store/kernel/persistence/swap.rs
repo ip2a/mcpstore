@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use openkeyv::{AsyncKeyValue, MigrationOptions};
 
-use crate::cache::store::KvStore;
-use crate::cache::KvLayerManager;
+use crate::kv::store::KvStore;
+use crate::kv::KvLayerManager;
 use crate::store::kernel::persistence::EventLog;
 use crate::store::kernel::persistence::PersistenceRouter;
 use crate::store::prelude::*;
@@ -17,7 +17,7 @@ const BARRIER_COLLECTION: &str = "__mcpstore_migration";
 
 impl PersistenceRouter {
     pub(crate) async fn migrate_and_cutover(&self, config: &dyn StoreSpec) -> Result<SwapResult> {
-        let namespace = self.cache.namespace();
+        let namespace = self.kv.namespace();
         let mut target_openkeyv_config = config.to_openkeyv_config();
         if matches!(config.store_name(), "redis" | "valkey") {
             target_openkeyv_config.config["keyspace"] =
@@ -75,7 +75,7 @@ impl PersistenceRouter {
         // can land on either store — the drain, the verification and the
         // switch are atomic to the hot path. pause_ms measures this window.
         let pause_started = Instant::now();
-        let _barrier = self.cache.route.write().await;
+        let _barrier = self.kv.route.write().await;
         if let Some((source, stream)) = changes.as_mut() {
             // Drain the feed up to the barrier, replaying every change into
             // the target. The barrier change itself is data too: apply it,
@@ -146,7 +146,7 @@ impl PersistenceRouter {
         } else {
             // Target without a feed: snapshot and copy under the barrier, so
             // the switch is exact by construction.
-            let snapshot = self.cache.snapshot().await?;
+            let snapshot = self.kv.snapshot().await?;
             KvLayerManager::clear_namespace(target_kv_store.as_ref(), &namespace).await?;
             let layers = [
                 ("entity", &snapshot.entities),
@@ -179,7 +179,7 @@ impl PersistenceRouter {
                 .map_err(|e| Error::new(FailureCode::Internal, format!("migration marker: {e}")))?;
         }
 
-        self.cache.activate_store_unlocked(target_kv_store).await;
+        self.kv.activate_store_unlocked(target_kv_store).await;
         let pause_ms = u64::try_from(pause_started.elapsed().as_millis()).unwrap_or(u64::MAX);
         drop(_barrier);
 

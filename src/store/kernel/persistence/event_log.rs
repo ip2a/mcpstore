@@ -1,6 +1,6 @@
 //! Shared openkeyv store handle for online store migration.
 //!
-//! Wraps the cache layer's store (or a freshly opened target/source store) so
+//! Wraps the kv layer's store (or a freshly opened target/source store) so
 //! migration can drive `copy_snapshot_with_feed` and the cutover barrier over
 //! the same handle. `Arc<StoreHandle>` is `Clone`; the newtype keeps the
 //! capability traits object-safe without per-method match dispatch.
@@ -26,7 +26,7 @@ pub(crate) struct EventLogSnapshot {
 }
 
 impl EventLog {
-    /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
+    /// Wrap an existing store handle (e.g. share the kv layer's `MemoryStore`).
     pub(crate) fn from_store(store: StoreHandle) -> Self {
         Self(Arc::new(store))
     }

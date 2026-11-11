@@ -1,7 +1,7 @@
 use openkeyv::{StructuredValue, Value};
 use serde_json::Value as JsonValue;
 
-use crate::cache::{KvError, Result};
+use crate::kv::{KvError, Result};
 
 pub(crate) fn json_to_value(json: JsonValue) -> Result<Value> {
     let structured = StructuredValue::from_json(&json).map_err(map_openkeyv_err)?;
