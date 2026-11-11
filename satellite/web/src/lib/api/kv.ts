@@ -1,4 +1,4 @@
-// Cache state belongs to the selected daemon resource.
+// KV state belongs to the selected daemon resource.
 import { api, buildQuery } from "./client"
 import type {
   AddServiceInput,
@@ -8,8 +8,8 @@ import type {
   AuthStatus,
   AuthStatusView,
   AuthorizationStart,
-  CacheBackend,
-  CacheReport,
+  KvStoreName,
+  KvReport,
   ConfigFilePayload,
   ConfigReport,
   ConfigRevision,
@@ -48,19 +48,19 @@ import type {
   UpdateSettingsPayload,
 } from "../api"
 
-// Cache state belongs to the selected daemon resource.
-export async function cacheHealth(): Promise<CacheReport> {
-  return api("/cache/health")
+// KV state belongs to the selected daemon resource.
+export async function kvHealth(): Promise<KvReport> {
+  return api("/kv/health")
 }
 
-export async function cacheInspect(): Promise<CacheReport> {
-  return api("/cache/inspect")
+export async function kvInspect(): Promise<KvReport> {
+  return api("/kv/inspect")
 }
 
-export async function switchCache(backend: CacheBackend) {
-  // Backend CacheSwitchRequest = { store, config }; the frontend has no config editing UI, so config is an empty object that takes backend defaults.
-  return api("/cache/switch", {
+export async function switchKv(store: KvStoreName) {
+  // Rust KvSwitchRequest = { store, config }; the frontend has no config editing UI, so config is an empty object that takes store defaults.
+  return api("/kv/switch", {
     method: "POST",
-    body: JSON.stringify({ store: backend, config: {} }),
+    body: JSON.stringify({ store, config: {} }),
   })
 }

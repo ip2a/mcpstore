@@ -71,12 +71,12 @@ pub(crate) fn spawn_projection_bridge(
                         }
                         let generation = *epoch.borrow_and_update();
                         tracing::debug!(
-                            "[GATEWAY] projection bridge: backend generation {generation} cutover, resubscribing"
+                            "[GATEWAY] projection bridge: store generation {generation} cutover, resubscribing"
                         );
                     }
                 }
             }
-            // Stream ended/errored or the backend was cut over: back off,
+            // Stream ended/errored or the store was cut over: back off,
             // resubscribe, then heal the gap. The null instanceId is a
             // broadcast — every mount's CatalogInvalidator drains (invalidate
             // + warm rebuild) and every subscribed client gets

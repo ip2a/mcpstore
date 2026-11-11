@@ -121,7 +121,7 @@ pub enum KernelOperation {
     ListAllTools,
     EventHistory,
     EventCapabilityReport,
-    CacheHealth,
+    KvHealth,
     HealthCheck,
     GetDefinitionConfig,
     LoadFromSource,

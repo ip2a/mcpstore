@@ -65,7 +65,7 @@ export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "resource",
   "openapi",
   "service",
-  "cache",
+  "kv",
   "search",
   "session_state",
 ]
@@ -77,7 +77,7 @@ const DEFAULT_EXPOSE: ExposeConfig = {
   resource: false,
   openapi: false,
   service: false,
-  cache: false,
+  kv: false,
   search: false,
 }
 

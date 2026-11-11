@@ -33,13 +33,13 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
 
 export function App() {
-  const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
+  const { services, agents, kvStore, loading, error: dashboardError, refresh } = useDashboard()
   // Remount resource views when the selected daemon changes: queries rebuild
   // host-scoped keys and view-local state (telemetry cursor, dialogs) resets.
   const selectedHost = useSyncExternalStore(onSelectedHostChanged, getSelectedHost)
   const {
     refreshAgentQueries,
-    refreshCacheQueries,
+    refreshKvQueries,
     refreshConfigQueries,
     refreshInstanceQueries,
     refreshServiceRegistryQueries,
@@ -78,8 +78,8 @@ export function App() {
     refreshServiceRegistryQueries,
     runAction,
   })
-  const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
-  const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
+  const kvDialogOpen = useUiStore((state) => state.kvDialogOpen)
+  const setKvDialogOpen = useUiStore((state) => state.setKvDialogOpen)
   const {
     closeDeleteDialog,
     closeResetDialog,
@@ -225,17 +225,17 @@ export function App() {
       </div>
 
       <AppDialogs
-        backend={backend}
-        cacheDialogOpen={cacheDialogOpen}
+        kvStore={kvStore}
+        kvDialogOpen={kvDialogOpen}
         deleteTarget={deleteTarget}
         resetTarget={resetTarget}
         toolDetail={toolDetail}
         toolResult={toolResult}
-        onCacheChanged={async () => {
+        onKvChanged={async () => {
           await refresh()
-          await refreshCacheQueries()
+          await refreshKvQueries()
         }}
-        onCacheDialogOpenChange={setCacheDialogOpen}
+        onKvDialogOpenChange={setKvDialogOpen}
         onConfirmDelete={(service) =>
           removeServiceEntry(service).then(() => setView({ name: "services" }))
         }

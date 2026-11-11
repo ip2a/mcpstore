@@ -1,4 +1,4 @@
-export type CacheBackend = "memory" | "redis"
+export type KvStoreName = "memory" | "redis"
 
 export type DesiredState = "running" | "stopped"
 export type RuntimePhase = "stopped" | "starting" | "running" | "stopping"
@@ -282,7 +282,7 @@ export type AgentItem = {
   instance_ids: string[]
 }
 
-export type CacheReport = Record<string, unknown>
+export type KvReport = Record<string, unknown>
 export type ConfigReport = Record<string, unknown>
 
 export type UiLanguage = "auto" | "en" | "zh" | string
@@ -462,7 +462,7 @@ export {
   resetConfig,
   resetAgentConfig,
 } from "./api/settings"
-export { cacheHealth, cacheInspect, switchCache } from "./api/cache"
+export { kvHealth, kvInspect, switchKv } from "./api/kv"
 export {
   addService,
   addServiceFromConfig,

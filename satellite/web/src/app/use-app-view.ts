@@ -100,11 +100,11 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/gateway") return { name: "gateway" }
   // Legacy /history bookmarks land on Traces → History tab.
   if (pathname === "/history") return { name: "traces", tab: "history" }
-  // Legacy /cache bookmarks land on Traces → Cache tab.
-  if (pathname === "/cache") return { name: "traces", tab: "cache" }
+  // Legacy /cache bookmarks land on Traces → KV tab.
+  if (pathname === "/cache") return { name: "traces", tab: "kv" }
   if (pathname === "/traces") {
     const tab = new URLSearchParams(search).get("tab")
-    if (tab === "history" || tab === "table" || tab === "graph" || tab === "cache") {
+    if (tab === "history" || tab === "table" || tab === "graph" || tab === "kv") {
       return { name: "traces", tab }
     }
     return { name: "traces" }

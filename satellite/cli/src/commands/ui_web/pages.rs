@@ -21,8 +21,8 @@ pub(super) async fn page_home(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let agent_filter = params.get("agent").cloned().unwrap_or_default();
-    let cache_storage = store.current_store_name().await;
-    let cache_storage_label = cache_storage.as_str();
+    let kv_storage = store.current_store_name().await;
+    let cache_storage_label = kv_storage.as_str();
     let source_label = "kv";
 
     let all_instances = store.list_instances().await;

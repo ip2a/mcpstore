@@ -1,16 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
-import { CachePanel } from "@/features/cache/cache-view"
+import { KvPanel } from "@/features/kv/kv-view"
 import { HistoryPanel } from "@/features/history/history-view"
 import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions } from "@/lib/api"
 
-type TracesTab = "table" | "graph" | "history" | "cache"
+type TracesTab = "table" | "graph" | "history" | "kv"
 
-/** Insights → Traces: outbound MCP frames + request history + cache. */
+/** Insights → Traces: outbound MCP frames + request history + KV. */
 export function TracesView({ initialTab }: { initialTab?: TracesTab } = {}) {
   const { t } = useI18n()
   const sessions = useQuery({
@@ -29,7 +29,7 @@ export function TracesView({ initialTab }: { initialTab?: TracesTab } = {}) {
       <FrameStreamCard
         face="upstream"
         fill
-        cacheSlot={<CachePanel />}
+        kvSlot={<KvPanel />}
         historySlot={<HistoryPanel />}
         initialView={initialTab}
       />

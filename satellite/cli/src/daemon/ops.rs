@@ -346,7 +346,7 @@ pub(crate) async fn execute(
             Ok(json!({"events": store.event_history(count).await}))
         }
         KernelOperation::EventCapabilityReport => Ok(store.event_capability_report().await),
-        KernelOperation::CacheHealth => store.cache_health_check().await,
+        KernelOperation::KvHealth => store.cache_health_check().await,
         KernelOperation::HealthCheck => {
             let instance_id = instance_id(&payload)?;
             Ok(json!({"state": store.health_check(instance_id).await?}))

@@ -246,7 +246,7 @@ fn show(path: Option<String>) -> std::result::Result<(), Box<dyn std::error::Err
     println!("  Store: {}", app_config.kv.store);
     println!("  Namespace: {}", app_config.kv.namespace);
     if let Some(url) = app_config.kv.config.get("url").and_then(|v| v.as_str()) {
-        println!("  Backend URL: {}", url);
+        println!("  Store URL: {}", url);
     }
 
     println!(

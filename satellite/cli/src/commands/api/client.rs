@@ -33,7 +33,7 @@ pub(super) struct GatewayLaunchQuery {
     expose_resource: Option<bool>,
     expose_openapi: Option<bool>,
     expose_service: Option<bool>,
-    expose_cache: Option<bool>,
+    expose_kv: Option<bool>,
     expose_search: Option<bool>,
 }
 
@@ -111,7 +111,7 @@ pub(super) async fn gateway_start(
         .args(["--port", &options.port.to_string()])
         .args(["--path", &options.path]);
 
-    // The gateway derives its own panel role from the store backend
+    // The gateway derives its own panel role from the store kind
     // (gateway_cmd::gateway_panel_role): a shared store gets a data panel with
     // its own identity — inheriting `--control-panel` would put a second
     // control plane on the shared `@control` column (CAS-fight panics) and
@@ -153,7 +153,7 @@ pub(super) async fn gateway_start(
         ),
         ("--expose-openapi-tools", options.expose_openapi_tools),
         ("--expose-service-tools", options.expose_service_tools),
-        ("--expose-cache-tools", options.expose_cache_tools),
+        ("--expose-kv-tools", options.expose_kv_tools),
         ("--expose-search-tools", options.expose_search_tools),
     ] {
         if on {
@@ -339,7 +339,7 @@ fn gateway_options(
         expose_resource_override_tools: query.expose_resource.unwrap_or(false),
         expose_openapi_tools: query.expose_openapi.unwrap_or(false),
         expose_service_tools: query.expose_service.unwrap_or(false),
-        expose_cache_tools: query.expose_cache.unwrap_or(false),
+        expose_kv_tools: query.expose_kv.unwrap_or(false),
         expose_search_tools: query.expose_search.unwrap_or(false),
     })
 }
@@ -359,7 +359,7 @@ fn gateway_summary(options: &GatewayOptions) -> Value {
             "resource": options.expose_resource_override_tools,
             "openapi": options.expose_openapi_tools,
             "service": options.expose_service_tools,
-            "cache": options.expose_cache_tools,
+            "kv": options.expose_kv_tools,
             "search": options.expose_search_tools,
         },
     })
@@ -576,7 +576,7 @@ pub(super) struct GatewayWireQuery {
     expose_resource: Option<bool>,
     expose_openapi: Option<bool>,
     expose_service: Option<bool>,
-    expose_cache: Option<bool>,
+    expose_kv: Option<bool>,
     expose_search: Option<bool>,
     // Replace a diverging existing mcpstore entry (the confirm step of the wire-conflict flow).
     force: Option<bool>,
@@ -683,7 +683,7 @@ pub(super) async fn gateway_wire<T: PanelCtx>(
         || query.expose_resource.is_some()
         || query.expose_openapi.is_some()
         || query.expose_service.is_some()
-        || query.expose_cache.is_some()
+        || query.expose_kv.is_some()
         || query.expose_search.is_some()
     {
         Some(mcpstore::client_wire::ExposeConfig {
@@ -693,7 +693,7 @@ pub(super) async fn gateway_wire<T: PanelCtx>(
             resource: query.expose_resource.unwrap_or(false),
             openapi: query.expose_openapi.unwrap_or(false),
             service: query.expose_service.unwrap_or(false),
-            cache: query.expose_cache.unwrap_or(false),
+            kv: query.expose_kv.unwrap_or(false),
             search: query.expose_search.unwrap_or(false),
         })
     } else {

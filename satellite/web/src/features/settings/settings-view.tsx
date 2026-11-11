@@ -73,7 +73,7 @@ import {
   useAppVersionLabel,
 } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
-import { useCacheHealthQuery } from "@/features/cache/queries"
+import { useKvHealthQuery } from "@/features/kv/queries"
 import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
 import { syncApiBaseFromHosts } from "@/lib/api/backend"
 import { validateHostsConfig } from "@/lib/api/hosts"
@@ -328,11 +328,11 @@ export function SettingsView() {
               </TabsContent>
 
               <TabsContent
-                value="cache"
+                value="kv"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <CacheSettingsSection />
+                  <KvSettingsSection />
                 </ScrollPane>
               </TabsContent>
 
@@ -428,17 +428,17 @@ export function SettingsView() {
   )
 }
 
-function CacheSettingsSection() {
+function KvSettingsSection() {
   const { t } = useI18n()
-  const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
-  const healthQuery = useCacheHealthQuery()
-  const backend =
+  const setKvDialogOpen = useUiStore((state) => state.setKvDialogOpen)
+  const healthQuery = useKvHealthQuery()
+  const storeName =
     healthQuery.data &&
     typeof healthQuery.data === "object" &&
     healthQuery.data !== null &&
-    "backend" in healthQuery.data &&
-    typeof (healthQuery.data as { backend?: unknown }).backend === "string"
-      ? (healthQuery.data as { backend: string }).backend
+    "store" in healthQuery.data &&
+    typeof (healthQuery.data as { store?: unknown }).store === "string"
+      ? (healthQuery.data as { store: string }).store
       : t("unknown")
 
   return (
@@ -446,14 +446,14 @@ function CacheSettingsSection() {
       <FieldGroup>
         <Field orientation="responsive">
           <FieldContent>
-            <FieldTitle>{t("switchCacheStorage")}</FieldTitle>
+            <FieldTitle>{t("switchKvStorage")}</FieldTitle>
             <FieldDescription>
-              {t("currentCacheStorage", { backend })}
+              {t("currentKvStorage", { store: storeName })}
             </FieldDescription>
           </FieldContent>
-          <Button size="sm" variant="outline" onClick={() => setCacheDialogOpen(true)}>
+          <Button size="sm" variant="outline" onClick={() => setKvDialogOpen(true)}>
             <DatabaseIcon data-icon="inline-start" />
-            {t("switchBackend")}
+            {t("switchKvStore")}
           </Button>
         </Field>
       </FieldGroup>

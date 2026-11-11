@@ -44,11 +44,11 @@ export const queryKeys = {
     return ["config", ...hostSeg(), "store"] as const
   },
   agentConfig: (agentId: string) => ["config", ...hostSeg(), "agent", agentId] as const,
-  get cacheHealth() {
-    return ["cache", ...hostSeg(), "health"] as const
+  get kvHealth() {
+    return ["kv", ...hostSeg(), "health"] as const
   },
-  get cacheInspect() {
-    return ["cache", ...hostSeg(), "inspect"] as const
+  get kvInspect() {
+    return ["kv", ...hostSeg(), "inspect"] as const
   },
   meta: ["meta"] as const,
   settings: ["settings"] as const,

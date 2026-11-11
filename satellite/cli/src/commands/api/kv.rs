@@ -10,7 +10,7 @@ use super::{
 };
 
 #[derive(Deserialize)]
-pub(super) struct CacheSwitchRequest {
+pub(super) struct KvSwitchRequest {
     store: String,
     config: serde_json::Value,
 }
@@ -21,7 +21,7 @@ pub(super) async fn inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
         .cache_inspect()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Cache view fetched successfully", report))
+    Ok(success("KV view fetched successfully", report))
 }
 
 pub(super) async fn health(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -30,12 +30,12 @@ pub(super) async fn health(State(state): State<Arc<ApiState>>) -> ApiResult {
         .cache_health_check()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Cache health check succeeded", report))
+    Ok(success("KV health check succeeded", report))
 }
 
 pub(super) async fn switch(
     State(state): State<Arc<ApiState>>,
-    Json(payload): Json<CacheSwitchRequest>,
+    Json(payload): Json<KvSwitchRequest>,
 ) -> ApiResult {
     let config = JsonStoreConfig::new(&payload.store, payload.config);
     let snapshot = state
@@ -44,7 +44,7 @@ pub(super) async fn switch(
         .await
         .map_err(ApiError::from_store)?;
     let snapshot = serde_json::to_value(snapshot).map_err(|error| {
-        ApiError::invalid_request(format!("Failed to serialize cache-switch result: {error}"))
+        ApiError::invalid_request(format!("Failed to serialize kv-switch result: {error}"))
     })?;
-    Ok(success("Cache backend switched successfully", snapshot))
+    Ok(success("KV store switched successfully", snapshot))
 }

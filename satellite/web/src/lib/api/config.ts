@@ -8,8 +8,8 @@ import type {
   AuthStatus,
   AuthStatusView,
   AuthorizationStart,
-  CacheBackend,
-  CacheReport,
+  KvStoreName,
+  KvReport,
   ConfigFilePayload,
   ConfigReport,
   ConfigRevision,
@@ -91,7 +91,7 @@ function mcpHubQuery(options: McpHubOptions) {
     expose_resource: expose?.resource,
     expose_openapi: expose?.openapi,
     expose_service: expose?.service,
-    expose_cache: expose?.cache,
+    expose_kv: expose?.kv,
     expose_search: expose?.search,
   })
 }

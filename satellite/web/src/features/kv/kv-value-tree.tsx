@@ -24,7 +24,7 @@ function nodeLabel(name: string | number, value: unknown) {
   return String(name)
 }
 
-function CacheValueTreeNode({
+function KvValueTreeNode({
   name,
   value,
   depth = 0,
@@ -82,7 +82,7 @@ function CacheValueTreeNode({
       <CollapsibleContent>
         <div className="flex flex-col">
           {entries.map(([entryName, entryValue]) => (
-            <CacheValueTreeNode
+            <KvValueTreeNode
               key={`${String(name ?? "root")}:${String(entryName)}`}
               name={entryName}
               value={entryValue}
@@ -96,7 +96,7 @@ function CacheValueTreeNode({
   )
 }
 
-export function CacheValueTree({ value }: { value: Record<string, unknown> }) {
+export function KvValueTree({ value }: { value: Record<string, unknown> }) {
   const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
 
   if (entries.length === 0) {
@@ -106,7 +106,7 @@ export function CacheValueTree({ value }: { value: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-0.5">
       {entries.map(([name, entryValue]) => (
-        <CacheValueTreeNode key={name} name={name} value={entryValue} defaultOpen />
+        <KvValueTreeNode key={name} name={name} value={entryValue} defaultOpen />
       ))}
     </div>
   )

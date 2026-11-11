@@ -25,7 +25,7 @@ use tower_http::cors::CorsLayer;
 
 mod app;
 mod auth;
-mod cache;
+mod kv;
 pub(crate) mod client;
 mod config_ops;
 mod envelope;
@@ -368,9 +368,9 @@ fn resource_routes(state: Arc<ApiState>) -> Router {
         .route("/gateway/frames/detail/:id", get(telemetry::frame_detail))
         .route("/gateway/start", post(client::gateway_start))
         .route("/gateway/stop", post(client::gateway_stop))
-        .route("/cache/health", get(cache::health))
-        .route("/cache/inspect", get(cache::inspect))
-        .route("/cache/switch", post(cache::switch))
+        .route("/kv/health", get(kv::health))
+        .route("/kv/inspect", get(kv::inspect))
+        .route("/kv/switch", post(kv::switch))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             audit_mutations,

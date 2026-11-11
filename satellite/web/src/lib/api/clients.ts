@@ -54,7 +54,7 @@ export type ExposeConfig = {
   resource: boolean
   openapi: boolean
   service: boolean
-  cache: boolean
+  kv: boolean
   search: boolean
 }
 
@@ -112,7 +112,7 @@ export function wireClient(
     expose_resource: expose?.resource,
     expose_openapi: expose?.openapi,
     expose_service: expose?.service,
-    expose_cache: expose?.cache,
+    expose_kv: expose?.kv,
     expose_search: expose?.search,
     force: force || undefined,
   })

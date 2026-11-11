@@ -13,23 +13,23 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
-import { switchCache, type CacheBackend } from "@/lib/api"
+import { switchKv, type KvStoreName } from "@/lib/api"
 
-const cacheOptions: CacheBackend[] = ["memory", "redis"]
+const kvOptions: KvStoreName[] = ["memory", "redis"]
 
-export function SwitchCacheDialog({
+export function SwitchKvDialog({
   open,
   current,
   onOpenChange,
   onChanged,
 }: {
   open: boolean
-  current?: CacheBackend
+  current?: KvStoreName
   onOpenChange: (open: boolean) => void
   onChanged: () => Promise<void>
 }) {
   const { t } = useI18n()
-  const [target, setTarget] = useState<CacheBackend>(current || "memory")
+  const [target, setTarget] = useState<KvStoreName>(current || "memory")
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -40,8 +40,8 @@ export function SwitchCacheDialog({
     event.preventDefault()
     setSubmitting(true)
     try {
-      await switchCache(target)
-      toast.success(t("cacheStorageSwitched"))
+      await switchKv(target)
+      toast.success(t("kvStorageSwitched"))
       await onChanged()
       onOpenChange(false)
     } catch (err) {
@@ -55,18 +55,18 @@ export function SwitchCacheDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("switchCacheStorage")}</DialogTitle>
+          <DialogTitle>{t("switchKvStorage")}</DialogTitle>
         </DialogHeader>
         <DialogForm onSubmit={onSwitch}>
           <Field>
-            <FieldLabel>{t("targetCacheStorage")}</FieldLabel>
-            <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
+            <FieldLabel>{t("targetKvStorage")}</FieldLabel>
+            <Select value={target} onValueChange={(value) => setTarget(value as KvStoreName)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {cacheOptions.map((option) => (
+                  {kvOptions.map((option) => (
                     <SelectItem key={option} value={option}>
                       {option}
                     </SelectItem>
