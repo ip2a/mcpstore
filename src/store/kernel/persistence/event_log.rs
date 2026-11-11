@@ -12,20 +12,20 @@ use openkeyv::{
     AsyncKeyValue, Revision, RevisionedValue, StoreHandle, Value,
 };
 
-/// Shared event-capable backend. Cheap to clone (one `Arc` bump).
+/// Shared event-capable log. Cheap to clone (one `Arc` bump).
 #[derive(Clone)]
-pub(crate) struct EventBackend(Arc<StoreHandle>);
+pub(crate) struct EventLog(Arc<StoreHandle>);
 
-/// A backend resolved together with the epoch generation it belongs to.
+/// An event log resolved together with the epoch generation it belongs to.
 /// Consumers use `changes.changed()` to notice a cutover and re-resolve
-/// through `event_backend_snapshot` instead of silently reading a dead store.
-pub(crate) struct EventBackendSnapshot {
-    pub(crate) backend: EventBackend,
+/// through `event_log_snapshot` instead of silently reading a dead store.
+pub(crate) struct EventLogSnapshot {
+    pub(crate) log: EventLog,
     pub(crate) generation: u64,
     pub(crate) changes: tokio::sync::watch::Receiver<u64>,
 }
 
-impl EventBackend {
+impl EventLog {
     /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
     pub(crate) fn from_store(store: StoreHandle) -> Self {
         Self(Arc::new(store))
@@ -39,7 +39,7 @@ impl EventBackend {
 
 // The remaining trait impls delegate to the inner trait object.
 #[async_trait::async_trait]
-impl AsyncKeyValue for EventBackend {
+impl AsyncKeyValue for EventLog {
     async fn get(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<Option<Value>> {
         self.0.get(key, collection).await
     }
@@ -95,7 +95,7 @@ impl AsyncKeyValue for EventBackend {
 }
 
 #[async_trait::async_trait]
-impl AsyncCompareAndSwap for EventBackend {
+impl AsyncCompareAndSwap for EventLog {
     async fn get_with_revision(
         &self,
         key: &str,
@@ -126,7 +126,7 @@ impl AsyncCompareAndSwap for EventBackend {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateKeys for EventBackend {
+impl AsyncEnumerateKeys for EventLog {
     async fn keys(
         &self,
         collection: Option<&str>,
@@ -137,14 +137,14 @@ impl AsyncEnumerateKeys for EventBackend {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateCollections for EventBackend {
+impl AsyncEnumerateCollections for EventLog {
     async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
         self.0.collections(limit).await
     }
 }
 
 #[async_trait::async_trait]
-impl AsyncChangeFeed for EventBackend {
+impl AsyncChangeFeed for EventLog {
     async fn subscribe(
         &self,
         request: openkeyv::ChangeFeedRequest,

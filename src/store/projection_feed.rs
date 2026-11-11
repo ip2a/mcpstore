@@ -27,15 +27,15 @@ const PROJECTION_TYPES: &[(&str, &str)] = &[
 
 impl MCPStore {
     /// Subscribe to every projection-relevant collection on the current
-    /// backend's ChangeFeed, returning the subscription together with the
-    /// backend generation it was built on — a consumer watching the event
+    /// store's ChangeFeed, returning the subscription together with the
+    /// store generation it was built on — a consumer watching the event
     /// epoch can tell whether a cutover already happened between this call
     /// and its own startup. Gateway startup calls this before building mounts
     /// so a change landing between mount build and bridge start is not lost.
     pub async fn subscribe_tool_projection_changes(
         &self,
     ) -> Result<(openkeyv::ChangeSubscription, u64)> {
-        let snapshot = self.event_backend_snapshot().await?;
+        let snapshot = self.event_log_snapshot().await?;
         let namespace = self.namespace();
         let collections = PROJECTION_TYPES
             .iter()
@@ -48,7 +48,7 @@ impl MCPStore {
             })
             .collect();
         let subscription = snapshot
-            .backend
+            .log
             .subscribe(ChangeFeedRequest {
                 start: ChangeStart::Latest,
                 filter: ChangeFilter {
@@ -61,7 +61,7 @@ impl MCPStore {
         Ok((subscription, snapshot.generation))
     }
 
-    /// Watch the event-backend epoch: the receiver fires on every store
+    /// Watch the event-log epoch: the receiver fires on every store
     /// cutover, positioned at the current generation. Long-lived feed
     /// consumers resubscribe when it moves.
     pub fn subscribe_event_epoch(&self) -> tokio::sync::watch::Receiver<u64> {

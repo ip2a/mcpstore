@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, Query},
     Json,
 };
-use mcpstore::{ScopeRef, store::StoreConfig};
+use mcpstore::{ScopeRef, store::StoreSpec};
 use serde::Deserialize;
 use serde_json::{json, Value};
 

@@ -114,7 +114,9 @@ pub use overrides::{
 pub use store::swap::SwapResult;
 pub use store::{
     JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
-    PanelRole, RedisStoreConfig, StoreConfig, StoreOptions, ToolVisibilityFilter,
+    PanelRole, RedisStoreConfig, StoreSpec, StoreOptions, ToolVisibilityFilter,
 };
+#[cfg(feature = "valkey")]
+pub use store::ValkeyStoreConfig;
 #[cfg(feature = "shm")]
 pub use store::ShmStoreConfig;

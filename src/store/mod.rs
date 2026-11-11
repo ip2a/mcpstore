@@ -26,7 +26,7 @@ pub mod store_config;
 pub mod swap;
 mod tool_changes;
 pub(crate) use kernel::{
-    ControlPlane, EventBackend, EventBackendSnapshot, ExecutionEngine, PersistenceRouter,
+    ControlPlane, EventLog, EventLogSnapshot, ExecutionEngine, PersistenceRouter,
     RuntimeState, StoreKernel,
 };
 use runtime::StoreRuntimeConfig;
@@ -41,7 +41,11 @@ pub use crate::openapi::{
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{PanelRole, StoreOptions};
-pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
+pub use store_config::{
+        JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreSpec,
+    };
+    #[cfg(feature = "valkey")]
+    pub use store_config::ValkeyStoreConfig;
 #[cfg(feature = "shm")]
 pub use store_config::ShmStoreConfig;
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
@@ -107,19 +111,19 @@ impl MCPStore {
             .and_then(|v| v.as_str())
             .unwrap_or("redis://127.0.0.1/")
             .to_string();
-        // Data panels must use a shared backend: events/requests in a process-private memory store are never
+        // Data panels must use a shared store: events/requests in a process-private memory store are never
         // consumed by any control panel and just sit silently orphaned (test name memory-test-shared is exempt).
         if matches!(options.panel, PanelRole::DataPanel { .. })
             && store_config.store_name() == "memory"
         {
             return Err(Error::new(
                 FailureCode::ConfigInvalid,
-                "DataPanel requires a shared backend (e.g. redis); a process-private memory store cannot be consumed by any control panel".to_string(),
+                "DataPanel requires a shared store (e.g. redis); a process-private memory store cannot be consumed by any control panel".to_string(),
             ));
         }
-        // Seed/flush rules: explicit config_path, or a memory backend (an in-process store has no other
+        // Seed/flush rules: explicit config_path, or a memory store (an in-process store has no other
         // persistence layer, the file is it — default single-machine changes must be flushed to disk).
-        // Shared backend + no explicit path = never read or write any local file, so a personal default file can't
+        // Shared store + no explicit path = never read or write any local file, so a personal default file can't
         // override the shared store.
         // Note: decide by the raw store name; "memory" after memory-test-shared remapping doesn't count.
         let file_backed = options.config_path.is_some() || store_config.store_name() == "memory";
@@ -131,7 +135,7 @@ impl MCPStore {
         };
         #[cfg(not(any(test, feature = "test-shared-memory")))]
         let store_name = store_name;
-        let (kv_store, event_backend) = match store_name.as_str() {
+        let (kv_store, event_log) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = if store_config.store_name() == "memory-test-shared" {
                     crate::cache::storage::shared_memory_kv_store_with_handle()
@@ -145,26 +149,26 @@ impl MCPStore {
                     Some(std::sync::Arc::new(mem.clone())),
                     Some(std::sync::Arc::new(mem)),
                 );
-                (store, Some(EventBackend::from_store(handle)))
+                (store, Some(EventLog::from_store(handle)))
             }
             "redis" => {
                 let store = Self::build_kv_store(&store_config, &redis_url, &namespace)?;
-                (store, None) // Redis EventBackend opened lazily on migration
+                (store, None) // Redis EventLog opened lazily on migration
             }
             "valkey" => {
                 let store = Self::build_kv_store(&store_config, &redis_url, &namespace)?;
-                (store, None) // Valkey EventBackend opened lazily on migration
+                (store, None) // Valkey EventLog opened lazily on migration
             }
             #[cfg(all(feature = "shm", unix))]
             "shm" => {
                 let (store, handle) =
                     crate::cache::storage::shm_kv_store_with_handle(&store_config.config)
                         .map_err(|e| Error::new(FailureCode::Internal, format!("shm store: {e}")))?;
-                (store, Some(EventBackend::from_store(handle)))
+                (store, Some(EventLog::from_store(handle)))
             }
-            backend => {
+            unsupported => {
                 return Err(Error::new(FailureCode::Internal, format!(
-                    "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
+                    "OpenKeyv store '{unsupported}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
                 )))
             }
         };
@@ -212,7 +216,7 @@ impl MCPStore {
                 persistence: PersistenceRouter {
                     store_config: tokio::sync::RwLock::new(store_config),
                     cache,
-                    event_backend: tokio::sync::RwLock::new(event_backend),
+                    event_log: tokio::sync::RwLock::new(event_log),
                     event_epoch: tokio::sync::watch::channel(0u64).0,
                 },
                 runtime: RuntimeState {
@@ -366,19 +370,19 @@ impl MCPStore {
         }
     }
 
-    /// Resolve the event backend together with the epoch generation it belongs
+    /// Resolve the event log together with the epoch generation it belongs
     /// to. The subscribe → read → resolve → re-read loop guarantees a cutover
-    /// between two steps is noticed: the caller either gets a backend that is
+    /// between two steps is noticed: the caller either gets a log that is
     /// still current, or the retry starts over on the new generation.
-    pub(crate) async fn event_backend_snapshot(&self) -> Result<EventBackendSnapshot> {
+    pub(crate) async fn event_log_snapshot(&self) -> Result<EventLogSnapshot> {
         let persistence = &self.kernel.persistence;
         loop {
             let mut changes = persistence.event_epoch.subscribe();
             let generation = *changes.borrow_and_update();
-            let backend = self.ensure_event_backend().await?;
+            let log = self.ensure_event_log().await?;
             if *changes.borrow_and_update() == generation {
-                return Ok(EventBackendSnapshot {
-                    backend,
+                return Ok(EventLogSnapshot {
+                    log,
                     generation,
                     changes,
                 });
@@ -389,11 +393,11 @@ impl MCPStore {
     /// Shared ChangeFeed-capable handle over the active store. Memory shares
     /// the cache layer's store; Redis opens a handle to the same URL. Used by
     /// the service event feed and online migration.
-    pub(crate) async fn ensure_event_backend(&self) -> Result<EventBackend> {
-        if let Some(backend) = self.kernel.persistence.event_backend.read().await.clone() {
-            return Ok(backend);
+    pub(crate) async fn ensure_event_log(&self) -> Result<EventLog> {
+        if let Some(log) = self.kernel.persistence.event_log.read().await.clone() {
+            return Ok(log);
         }
-        let backend = {
+        let log = {
             let storage = self.kernel.persistence.store_config.read().await;
             match storage.store_name() {
                 "redis" => {
@@ -410,7 +414,7 @@ impl MCPStore {
                     ))
                     .await
                     .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
-                    EventBackend::from_store(handle)
+                    EventLog::from_store(handle)
                 }
                 "valkey" => {
                     let url = storage
@@ -427,18 +431,18 @@ impl MCPStore {
                     ))
                     .await
                     .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
-                    EventBackend::from_store(handle)
+                    EventLog::from_store(handle)
                 }
-                backend => {
+                unsupported => {
                     return Err(Error::new(
                         FailureCode::Internal,
-                        format!("OpenKeyv backend '{backend}' does not provide ChangeFeed support"),
+                        format!("OpenKeyv store '{unsupported}' does not provide ChangeFeed support"),
                     ));
                 }
             }
         };
-        *self.kernel.persistence.event_backend.write().await = Some(backend.clone());
-        Ok(backend)
+        *self.kernel.persistence.event_log.write().await = Some(log.clone());
+        Ok(log)
     }
 }
 

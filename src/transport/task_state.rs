@@ -171,9 +171,9 @@ mod tests {
 
     #[tokio::test]
     async fn persists_task_records_and_rehydrates_them() {
-        let backend = memory_kv_store();
+        let store = memory_kv_store();
         let first = TaskStateStore::new(Arc::new(KvLayerManager::new(
-            backend.clone(),
+            store.clone(),
             "task-state",
         )));
         let instance_id = instance("alpha");
@@ -186,7 +186,7 @@ mod tests {
             .await
             .unwrap();
 
-        let second = TaskStateStore::new(Arc::new(KvLayerManager::new(backend, "task-state")));
+        let second = TaskStateStore::new(Arc::new(KvLayerManager::new(store, "task-state")));
         let records = second.list(instance_id).await.unwrap();
         assert_eq!(records, vec![observed]);
         assert_eq!(records[0].tool_name.as_deref(), Some("long_tool"));

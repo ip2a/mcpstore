@@ -1,25 +1,25 @@
-use openkeyv::StoreConfig as OpenKeyvStoreConfig;
+use openkeyv::StoreConfig;
 use serde_json::{json, Value};
 
 /// Configuration object users pass to `MCPStore::swap_store`.
 ///
 /// Rust users implement this trait for custom store configs.
 /// Built-in implementations cover Memory and Redis.
-pub trait StoreConfig: Send + Sync {
+pub trait StoreSpec: Send + Sync {
     fn store_name(&self) -> &str;
-    fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig;
+    fn to_openkeyv_config(&self) -> StoreConfig;
 }
 
 /// Memory store configuration. No connection parameters needed.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStoreConfig;
 
-impl StoreConfig for MemoryStoreConfig {
+impl StoreSpec for MemoryStoreConfig {
     fn store_name(&self) -> &str {
         "memory"
     }
-    fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
-        OpenKeyvStoreConfig::memory()
+    fn to_openkeyv_config(&self) -> StoreConfig {
+        StoreConfig::memory()
     }
 }
 
@@ -44,24 +44,62 @@ impl RedisStoreConfig {
     }
 }
 
-impl StoreConfig for RedisStoreConfig {
+impl StoreSpec for RedisStoreConfig {
     fn store_name(&self) -> &str {
         "redis"
     }
-    fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
+    fn to_openkeyv_config(&self) -> StoreConfig {
         let mut config = json!({ "url": self.url });
         if let Some(namespace) = &self.namespace {
             config["keyspace"] = Value::String(namespace.clone());
         }
-        OpenKeyvStoreConfig::redis(config)
+        StoreConfig::redis(config)
     }
 }
 
-/// Shared-memory store configuration (OpenKeyv `shm` backend).
+/// Valkey store configuration. Independent of RedisStoreConfig by design:
+/// separate type, separate cargo feature, same keyspace semantics.
+#[cfg(feature = "valkey")]
+#[derive(Clone, Debug)]
+pub struct ValkeyStoreConfig {
+    pub url: String,
+    pub namespace: Option<String>,
+}
+
+#[cfg(feature = "valkey")]
+impl ValkeyStoreConfig {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            namespace: None,
+        }
+    }
+
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+}
+
+#[cfg(feature = "valkey")]
+impl StoreSpec for ValkeyStoreConfig {
+    fn store_name(&self) -> &str {
+        "valkey"
+    }
+    fn to_openkeyv_config(&self) -> StoreConfig {
+        let mut config = json!({ "url": self.url });
+        if let Some(namespace) = &self.namespace {
+            config["keyspace"] = Value::String(namespace.clone());
+        }
+        StoreConfig::new("valkey", config)
+    }
+}
+
+/// Shared-memory store configuration (OpenKeyv `shm` store).
 ///
 /// One mmap'd backing file shared by multiple local processes: one process
 /// creates it (explicit, exclusive, resets contents), every other process
-/// opens it. Optional layout hints default to the OpenKeyv backend defaults
+/// opens it. Optional layout hints default to the OpenKeyv shm defaults
 /// when unset.
 #[cfg(feature = "shm")]
 #[derive(Clone, Debug)]
@@ -115,11 +153,11 @@ impl ShmStoreConfig {
 }
 
 #[cfg(feature = "shm")]
-impl StoreConfig for ShmStoreConfig {
+impl StoreSpec for ShmStoreConfig {
     fn store_name(&self) -> &str {
         "shm"
     }
-    fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
+    fn to_openkeyv_config(&self) -> StoreConfig {
         let mut config = json!({
             "path": self.path.display().to_string(),
             "mode": if self.create { "create" } else { "open" },
@@ -133,7 +171,7 @@ impl StoreConfig for ShmStoreConfig {
         if let Some(change_retention) = self.change_retention {
             config["change_retention"] = json!(change_retention);
         }
-        OpenKeyvStoreConfig::shm(config)
+        StoreConfig::shm(config)
     }
 }
 
@@ -158,6 +196,11 @@ impl JsonStoreConfig {
         Self::new("redis", serde_json::json!({"url": url.into()}))
     }
 
+    #[cfg(feature = "valkey")]
+    pub fn valkey(url: impl Into<String>) -> Self {
+        Self::new("valkey", serde_json::json!({"url": url.into()}))
+    }
+
     pub fn new(store: impl Into<String>, config: Value) -> Self {
         Self {
             store: store.into(),
@@ -166,12 +209,12 @@ impl JsonStoreConfig {
     }
 }
 
-impl StoreConfig for JsonStoreConfig {
+impl StoreSpec for JsonStoreConfig {
     fn store_name(&self) -> &str {
         &self.store
     }
-    fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
-        OpenKeyvStoreConfig::new(&self.store, self.config.clone())
+    fn to_openkeyv_config(&self) -> StoreConfig {
+        StoreConfig::new(&self.store, self.config.clone())
     }
 }
 
@@ -191,6 +234,20 @@ mod tests {
         let config = RedisStoreConfig::new("redis://127.0.0.1/");
         let openkeyv = config.to_openkeyv_config();
         assert!(openkeyv.config.get("keyspace").is_none());
+    }
+
+    #[cfg(feature = "valkey")]
+    #[test]
+    fn valkey_config_serializes_independently_of_redis() {
+        let config =
+            ValkeyStoreConfig::new("valkey://127.0.0.1/").with_namespace("tenant-a");
+        let openkeyv = config.to_openkeyv_config();
+        assert_eq!(openkeyv.store, "valkey");
+        assert_eq!(openkeyv.config["url"], "valkey://127.0.0.1/");
+        assert_eq!(openkeyv.config["keyspace"], "tenant-a");
+
+        let bare = ValkeyStoreConfig::new("valkey://127.0.0.1/").to_openkeyv_config();
+        assert!(bare.config.get("keyspace").is_none());
     }
 
     #[cfg(feature = "shm")]

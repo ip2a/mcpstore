@@ -1,6 +1,6 @@
 use super::store_config::JsonStoreConfig;
 
-/// Panel role: a setup parameter that decides this process's behavior. kv is always the source of truth; backend
+/// Panel role: a setup parameter that decides this process's behavior. kv is always the source of truth; the store
 /// is just a deployment parameter; the role decides who consumes events and who executes.
 ///
 /// - Control panel: mounts the self-healing supervisor at setup, subscribes to the service_events / tool_call_requests

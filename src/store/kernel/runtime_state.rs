@@ -24,7 +24,7 @@ pub(crate) struct RuntimeState {
     /// `ConfigManager::new()` resolves to the user's real file, so it can't be a default sync target.
     pub(crate) sync_config_file: bool,
     pub(crate) service_event_feed_started: AtomicBool,
-    /// Set when the backend has no ChangeFeed: write paths fail fast on it instead of pretending success.
+    /// Set when the store has no ChangeFeed: write paths fail fast on it instead of pretending success.
     pub(crate) service_event_feed_failed: AtomicBool,
     pub(crate) tool_call_feed_started: AtomicBool,
     pub(crate) self_weak: OnceLock<Weak<MCPStore>>,

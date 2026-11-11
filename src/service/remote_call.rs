@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::cache::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
 use crate::cache::KvLayerManager;
 use crate::store::prelude::*;
-use crate::store::{EventBackendSnapshot, MCPStore, PanelRole};
+use crate::store::{EventLogSnapshot, MCPStore, PanelRole};
 
 const REQUESTS: &str = "tool_call_requests";
 const RESPONSES: &str = "tool_call_responses";
@@ -45,7 +45,7 @@ impl MCPStore {
         let response_key = format!("{panel_id}:{request_id}");
 
         // Subscribe before writing: Latest subscriptions can't see writes made before subscribing; the reverse order loses responses.
-        let mut snapshot = self.event_backend_snapshot().await?;
+        let mut snapshot = self.event_log_snapshot().await?;
         let mut subscription = self.subscribe_response_feed(&snapshot).await?;
 
         let request = serde_json::to_value(ToolCallRequestEntity {
@@ -91,7 +91,7 @@ impl MCPStore {
                     }
                 }
                 changed = snapshot.changes.changed() => {
-                    // The backend was swapped under us. Re-resolve and rebuild
+                    // The store was swapped under us. Re-resolve and rebuild.
                     // the subscription on the new generation below.
                     changed.map_err(|_| {
                         Error::new(FailureCode::Internal, "event epoch watch closed")
@@ -109,7 +109,7 @@ impl MCPStore {
             // Rebuild on the current generation, then read the response once —
             // one written while the old subscription was dying must not be
             // missed.
-            snapshot = self.event_backend_snapshot().await?;
+            snapshot = self.event_log_snapshot().await?;
             subscription = self.subscribe_response_feed(&snapshot).await?;
             if let Some(outcome) = self.take_tool_call_response(&response_key).await? {
                 return outcome;
@@ -117,15 +117,15 @@ impl MCPStore {
         }
     }
 
-    /// Subscribe to response puts on the current generation's backend.
+    /// Subscribe to response puts on the current generation's store.
     async fn subscribe_response_feed(
         &self,
-        snapshot: &EventBackendSnapshot,
+        snapshot: &EventLogSnapshot,
     ) -> Result<openkeyv::ChangeSubscription> {
         let collection =
             KvLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
         snapshot
-            .backend
+            .log
             .subscribe(ChangeFeedRequest {
                 start: ChangeStart::Latest,
                 filter: ChangeFilter {
@@ -214,17 +214,17 @@ impl MCPStore {
     }
 
     async fn consume_tool_call_requests(self: &Arc<Self>) -> Result<()> {
-        // Loop over backend generations: a cutover (epoch changed) resolves
-        // the new backend, subscribes on it and drains it — never falls back
+        // Loop over store generations: a cutover (epoch changed) resolves
+        // the new store, subscribes on it and drains it — never falls back
         // to the 1s retry sleep.
         loop {
-            let mut snapshot = self.event_backend_snapshot().await?;
+            let mut snapshot = self.event_log_snapshot().await?;
             let collection = KvLayerManager::entity_collection_with_namespace(
                 &self.namespace(),
                 REQUESTS,
             );
             let mut subscription = snapshot
-                .backend
+                .log
                 .subscribe(ChangeFeedRequest {
                     start: ChangeStart::Latest,
                     filter: ChangeFilter {
@@ -258,7 +258,7 @@ impl MCPStore {
                             Error::new(FailureCode::Internal, "event epoch watch closed")
                         })?;
                         tracing::debug!(
-                            "[STORE] tool call request feed: backend generation {}, resubscribing",
+                            "[STORE] tool call request feed: store generation {}, resubscribing",
                             snapshot.generation
                         );
                         break;
