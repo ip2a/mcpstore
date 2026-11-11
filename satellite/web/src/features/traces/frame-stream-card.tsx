@@ -59,18 +59,30 @@ export function FrameStreamCard(props: {
   /** Optional KV tab content (Traces page only; Gateway omits this). */
   kvSlot?: ReactNode
   initialView?: FrameViewMode
+  /**
+   * Parent owns tab chrome (e.g. Gateway workspace). Renders only this view
+   * without PanelCard / internal tabs; refresh stays in a slim toolbar.
+   */
+  embedView?: "table" | "graph"
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const fill = props.fill ?? false
-  const [view, setView] = useState<FrameViewMode>(props.initialView ?? "table")
+  const embedded = props.embedView != null
+  const [view, setView] = useState<FrameViewMode>(
+    props.embedView ?? props.initialView ?? "table",
+  )
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
   const [active, setActive] = useState<FrameSessionSummary | null>(null)
 
   useEffect(() => {
+    if (props.embedView) {
+      setView(props.embedView)
+      return
+    }
     setView(props.initialView ?? "table")
-  }, [props.initialView])
+  }, [props.embedView, props.initialView])
 
   const offset = page * pageSize
   const sessions = useQuery({
@@ -224,71 +236,101 @@ export function FrameStreamCard(props: {
       </>
     )
 
+  const refreshButton = (
+    <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
+      <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
+      {t("refresh")}
+    </Button>
+  )
+
+  const body =
+    view === "graph" ? (
+      <FrameGraphView
+        face={props.face}
+        fill={fill}
+        isLoading={sessions.isLoading}
+        sessions={items}
+      />
+    ) : view === "history" && props.historySlot ? (
+      props.historySlot
+    ) : view === "kv" && props.kvSlot ? (
+      props.kvSlot
+    ) : (
+      tableBody
+    )
+
   return (
     <>
-      <PanelCard
-        className={cn(fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2", !fill && "flex flex-col")}
-        variant={fill ? "stack" : "plain"}
-      >
-        <Tabs
-          value={view}
-          onValueChange={(value) => setView(value as FrameViewMode)}
-          className={cn("flex flex-col overflow-hidden", fill ? "min-h-0 flex-1" : undefined)}
+      {embedded ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-end">{refreshButton}</div>
+          {body}
+        </div>
+      ) : (
+        <PanelCard
+          className={cn(
+            fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2",
+            !fill && "flex flex-col",
+          )}
+          variant={fill ? "stack" : "plain"}
         >
-          <div
-            className={cn(
-              fill ? WORKSPACE_TOOLBAR_CLASSNAME : "flex items-center justify-between border-b pb-2",
-            )}
+          <Tabs
+            value={view}
+            onValueChange={(value) => setView(value as FrameViewMode)}
+            className={cn("flex flex-col overflow-hidden", fill ? "min-h-0 flex-1" : undefined)}
           >
-            <WorkspaceTabsList value={view}>
-              <TabsTrigger value="table" className="flex-none">
-                {t("gatewayFramesTabTable")}
-              </TabsTrigger>
-              <TabsTrigger value="graph" className="flex-none">
-                {t("gatewayFramesTabGraph")}
-              </TabsTrigger>
-              {props.historySlot ? (
-                <TabsTrigger value="history" className="flex-none">
-                  {t("navHistory")}
+            <div
+              className={cn(
+                fill
+                  ? WORKSPACE_TOOLBAR_CLASSNAME
+                  : "flex items-center justify-between border-b pb-2",
+              )}
+            >
+              <WorkspaceTabsList value={view}>
+                <TabsTrigger value="table" className="flex-none">
+                  {t("gatewayFramesTabTable")}
                 </TabsTrigger>
-              ) : null}
-              {props.kvSlot ? (
-                <TabsTrigger value="kv" className="flex-none">
-                  {t("kv")}
+                <TabsTrigger value="graph" className="flex-none">
+                  {t("gatewayFramesTabGraph")}
                 </TabsTrigger>
-              ) : null}
-            </WorkspaceTabsList>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
-                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
-                {t("refresh")}
-              </Button>
+                {props.historySlot ? (
+                  <TabsTrigger value="history" className="flex-none">
+                    {t("navHistory")}
+                  </TabsTrigger>
+                ) : null}
+                {props.kvSlot ? (
+                  <TabsTrigger value="kv" className="flex-none">
+                    {t("kv")}
+                  </TabsTrigger>
+                ) : null}
+              </WorkspaceTabsList>
+              <div className="ml-auto flex shrink-0 items-center gap-2">{refreshButton}</div>
             </div>
-          </div>
 
-          <TabsContent value="table" className={tabContentClassName}>
-            {tableBody}
-          </TabsContent>
-          <TabsContent value="graph" className={tabContentClassName}>
-            <FrameGraphView
-              face={props.face}
-              fill={fill}
-              isLoading={sessions.isLoading}
-              sessions={items}
-            />
-          </TabsContent>
-          {props.historySlot ? (
-            <TabsContent value="history" className={tabContentClassName}>
-              {props.historySlot}
+            <TabsContent value="table" className={tabContentClassName}>
+              {tableBody}
             </TabsContent>
-          ) : null}
-          {props.kvSlot ? (
-            <TabsContent value="kv" className={tabContentClassName}>
-              {props.kvSlot}
+            <TabsContent value="graph" className={tabContentClassName}>
+              <FrameGraphView
+                face={props.face}
+                fill={fill}
+                isLoading={sessions.isLoading}
+                sessions={items}
+              />
             </TabsContent>
-          ) : null}
-        </Tabs>
-      </PanelCard>
+            {props.historySlot ? (
+              <TabsContent value="history" className={tabContentClassName}>
+                {props.historySlot}
+              </TabsContent>
+            ) : null}
+            {props.kvSlot ? (
+              <TabsContent value="kv" className={tabContentClassName}>
+                {props.kvSlot}
+              </TabsContent>
+            ) : null}
+          </Tabs>
+        </PanelCard>
+      )}
 
       <SessionTimelineDialog
         onOpenChange={(open) => {
