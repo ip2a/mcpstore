@@ -6,7 +6,7 @@ use crate::cache::redis_kv_store;
 use crate::cache::valkey_kv_store;
 use crate::cache::{memory_kv_store, KvStore};
 use crate::store::prelude::*;
-use crate::store::{JsonStoreConfig, StoreConfig};
+use crate::store::{JsonStoreConfig, StoreSpec};
 
 impl MCPStore {
     pub(crate) fn build_kv_store(

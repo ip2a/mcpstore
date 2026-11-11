@@ -105,7 +105,7 @@ impl MCPStore {
     /// back to hydrating from the shared store.
     async fn seed_from_config_file(&self) -> Result<bool> {
         if !self.kernel.runtime.sync_config_file {
-            // Shared backend without an explicit config_path: no local file is read as seed.
+            // Shared store without an explicit config_path: no local file is read as seed.
             return Ok(false);
         }
         let config = self.kernel.control.config_manager.load_or_empty()?;

@@ -31,7 +31,7 @@ impl MCPStore {
     }
 
     pub(crate) async fn put_service_event(&self, mut value: Value) -> Result<()> {
-        // Backend has no ChangeFeed: the consume loop can't start, writes would never execute — fail fast,
+        // Store has no ChangeFeed: the consume loop can't start, writes would never execute — fail fast,
         // don't pretend success.
         if self
             .kernel
@@ -41,7 +41,7 @@ impl MCPStore {
         {
             return Err(Error::new(
                 FailureCode::Internal,
-                "backend does not provide ChangeFeed; service events cannot be consumed"
+                "store does not provide ChangeFeed; service events cannot be consumed"
                     .to_string(),
             ));
         }
@@ -148,11 +148,11 @@ impl MCPStore {
     }
 
     async fn consume_service_events(&self) -> Result<()> {
-        // Loop over backend generations: a cutover (epoch changed) resolves
-        // the new backend, subscribes on it and drains it — never falls back
+        // Loop over store generations: a cutover (epoch changed) resolves
+        // the new store, subscribes on it and drains it — never falls back
         // to the 1s retry sleep.
         loop {
-            let mut snapshot = self.event_backend_snapshot().await?;
+            let mut snapshot = self.event_log_snapshot().await?;
             let collection = KvLayerManager::entity_collection_with_namespace(
                 &self.namespace(),
                 SERVICE_EVENTS,
@@ -160,7 +160,7 @@ impl MCPStore {
             // Latest can't deliver events written before subscribing, so subscribe first, then scan existing keys.
             // For an entry seen by both, skip when the later get comes back empty.
             let mut subscription = snapshot
-                .backend
+                .log
                 .subscribe(ChangeFeedRequest {
                     start: ChangeStart::Latest,
                     filter: ChangeFilter {
@@ -187,7 +187,7 @@ impl MCPStore {
                             Error::new(FailureCode::Internal, "event epoch watch closed")
                         })?;
                         tracing::debug!(
-                            "[STORE] service event feed: backend generation {}, resubscribing",
+                            "[STORE] service event feed: store generation {}, resubscribing",
                             snapshot.generation
                         );
                         break;

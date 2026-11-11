@@ -5,10 +5,10 @@ use openkeyv::{AsyncKeyValue, MigrationOptions};
 
 use crate::cache::store::KvStore;
 use crate::cache::KvLayerManager;
-use crate::store::kernel::persistence::EventBackend;
+use crate::store::kernel::persistence::EventLog;
 use crate::store::kernel::persistence::PersistenceRouter;
 use crate::store::prelude::*;
-use crate::store::store_config::{JsonStoreConfig, StoreConfig};
+use crate::store::store_config::{JsonStoreConfig, StoreSpec};
 use crate::store::swap::SwapResult;
 
 /// Collection for the cutover barrier change. Lives outside the namespace
@@ -16,7 +16,7 @@ use crate::store::swap::SwapResult;
 const BARRIER_COLLECTION: &str = "__mcpstore_migration";
 
 impl PersistenceRouter {
-    pub(crate) async fn migrate_and_cutover(&self, config: &dyn StoreConfig) -> Result<SwapResult> {
+    pub(crate) async fn migrate_and_cutover(&self, config: &dyn StoreSpec) -> Result<SwapResult> {
         let namespace = self.cache.namespace();
         let mut target_openkeyv_config = config.to_openkeyv_config();
         if matches!(config.store_name(), "redis" | "valkey") {
@@ -47,7 +47,7 @@ impl PersistenceRouter {
         let target_name = config.store_name().to_string();
         let target_kv_store = Arc::new(KvStore::from_handle(target_handle));
         let target_handle = target_kv_store.handle();
-        let target_event_backend = EventBackend::from_store(target_handle.clone());
+        let target_event_log = EventLog::from_store(target_handle.clone());
         let mut copied = 0;
         let mut replayed = 0;
         let online = target_handle.capabilities.change_feed;
@@ -57,7 +57,7 @@ impl PersistenceRouter {
         // the offline path re-runs under the barrier below.
         let mut changes = None;
         if online {
-            let source = self.open_source_event_backend().await?;
+            let source = self.open_source_event_log().await?;
             KvLayerManager::clear_namespace(target_kv_store.as_ref(), &namespace).await?;
             let (report, stream) = openkeyv::copy_snapshot_with_feed(
                 source.cap(),
@@ -192,7 +192,7 @@ impl PersistenceRouter {
         }
         *self.store_config.write().await =
             JsonStoreConfig::new(config.store_name(), target_openkeyv_config.config);
-        self.on_cutover(target_event_backend, online).await;
+        self.on_cutover(target_event_log, online).await;
 
         Ok(SwapResult {
             source_store: source_name,
@@ -204,8 +204,8 @@ impl PersistenceRouter {
         })
     }
 
-    async fn open_source_event_backend(&self) -> Result<EventBackend> {
-        if let Some(source) = self.event_backend.read().await.clone() {
+    async fn open_source_event_log(&self) -> Result<EventLog> {
+        if let Some(source) = self.event_log.read().await.clone() {
             return Ok(source);
         }
         let current = self.store_config.read().await;
@@ -218,12 +218,12 @@ impl PersistenceRouter {
         let handle = openkeyv::factory::open_store(open_config)
             .await
             .map_err(|e| Error::new(FailureCode::Internal, format!("source Store: {e}")))?;
-        Ok(EventBackend::from_store(handle))
+        Ok(EventLog::from_store(handle))
     }
 
-    async fn on_cutover(&self, backend: EventBackend, online: bool) {
-        *self.event_backend.write().await = online.then_some(backend);
-        // Wake every feed consumer: they resubscribe on the new backend and
+    async fn on_cutover(&self, log: EventLog, online: bool) {
+        *self.event_log.write().await = online.then_some(log);
+        // Wake every feed consumer: they resubscribe on the new event log and
         // drain it fully before waiting again.
         self.event_epoch.send_modify(|generation| *generation += 1);
     }

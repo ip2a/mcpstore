@@ -8080,19 +8080,19 @@ mod swap_and_cache_tests {
 
             // A subscription resolved before the cutover must notice it through
             // the epoch watch instead of silently reading the dead store.
-            let mut stale = store.event_backend_snapshot().await.unwrap();
+            let mut stale = store.event_log_snapshot().await.unwrap();
             assert_eq!(stale.generation, 0);
             store.swap_store(&target).await.unwrap();
             stale.changes.changed().await.unwrap();
 
-            let fresh = store.event_backend_snapshot().await.unwrap();
+            let fresh = store.event_log_snapshot().await.unwrap();
             assert_eq!(fresh.generation, 1);
             let collection = KvLayerManager::entity_collection_with_namespace(
                 &store.namespace(),
                 "clients",
             );
             let mut subscription = fresh
-                .backend
+                .log
                 .subscribe(openkeyv::ChangeFeedRequest {
                     start: openkeyv::ChangeStart::Latest,
                     filter: openkeyv::ChangeFilter {
