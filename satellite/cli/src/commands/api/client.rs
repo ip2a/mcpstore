@@ -280,11 +280,17 @@ fn default_gateway_shm_config(state: &ApiState) -> Result<mcpstore::store::JsonS
     })?;
     let digest = blake3::hash(namespace.as_bytes()).to_hex();
     let file = format!("{}.shm", &digest.to_string()[..16]);
+    let path = directory.join(file);
+    // Attach to a backing a previous migration already created — create would
+    // reset it, destroying every store-only write (panel states, session
+    // relations) the current daemon's memory does not hold. Create only when
+    // this namespace has no backing yet.
+    let mode = if path.exists() { "open" } else { "create" };
     Ok(mcpstore::store::JsonStoreConfig::new(
         "shm",
         json!({
-            "path": directory.join(file).display().to_string(),
-            "mode": "create",
+            "path": path.display().to_string(),
+            "mode": mode,
             "capacity_bytes": 268_435_456_u64,
             "index_entries": 65_536,
             "change_retention": 10_000,

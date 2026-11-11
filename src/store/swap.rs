@@ -1,14 +1,15 @@
 use crate::store::prelude::*;
 use crate::store::store_config::StoreConfig;
 
-/// Result of a successful `swap_store` operation.
+/// Result of a successful `swap_store` operation. Verification is not a flag:
+/// any mismatch fails the migration outright, so a returned result is always
+/// verified.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct SwapResult {
     pub source_store: String,
     pub target_store: String,
     pub copied: u64,
     pub replayed: u64,
-    pub verified: bool,
     pub online: bool,
     pub pause_ms: u64,
 }

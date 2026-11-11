@@ -4101,7 +4101,6 @@ async fn swap_store_migrates_runtime_cache() {
     let instance_id = instance_id("svc", agent_scope("agent-a"));
 
     let result = store.swap_store(&JsonStoreConfig::memory()).await.unwrap();
-    assert!(result.verified);
     assert!(result.copied > 0);
 
     assert!(store
@@ -4134,7 +4133,6 @@ async fn swap_store_updates_namespace() {
 
     let result = store.swap_store(&JsonStoreConfig::memory()).await.unwrap();
 
-    assert!(result.verified);
     assert_eq!(store.namespace(), "before-switch");
 
     let inspect = store.cache_inspect().await.unwrap();
@@ -4376,7 +4374,6 @@ async fn swap_store_to_openkeyv_memory_migrates_runtime_cache() {
 
     let result = store.swap_store(&JsonStoreConfig::memory()).await.unwrap();
 
-    assert!(result.verified);
     assert_eq!(store.current_store_name().await, "memory");
     assert!(store
         .cache()
@@ -7721,7 +7718,6 @@ mod swap_and_cache_tests {
         let result = store.swap_store(&config).await.unwrap();
 
         assert_eq!(result.target_store, "memory");
-        assert!(result.verified);
         assert!(result.copied > 0);
 
         // Data should exist in the new store.
@@ -7760,7 +7756,6 @@ mod swap_and_cache_tests {
         let target = crate::store::store_config::MemoryStoreConfig;
         let result = store.swap_store(&target).await.unwrap();
 
-        assert!(result.verified);
         assert!(result.online);
         assert!(store
             .cache()
@@ -7809,7 +7804,6 @@ mod swap_and_cache_tests {
 
         let target = RedisStoreConfig::new(url);
         let result = store.swap_store(&target).await.unwrap();
-        assert!(result.verified);
         assert!(result.online);
         assert!(store
             .cache()
@@ -7819,7 +7813,6 @@ mod swap_and_cache_tests {
             .is_some());
 
         let result = store.swap_store(&MemoryStoreConfig).await.unwrap();
-        assert!(result.verified);
         assert!(store
             .cache()
             .get_entity("service_definitions", "redis-svc")
@@ -7900,7 +7893,6 @@ mod swap_and_cache_tests {
                 }
             );
             let result = result.unwrap();
-            assert!(result.verified);
             assert!(result.online);
 
             for index in 0..1000 {
@@ -7942,7 +7934,6 @@ mod swap_and_cache_tests {
             .unwrap();
             let (target, shm_path) = shm_swap_target("claim");
             let result = store.swap_store(&target).await.unwrap();
-            assert!(result.verified);
 
             // One remote tool-call request sitting in the shared store; every
             // panel that wakes up claims it. The claim is get_with_revision +
@@ -8027,7 +8018,6 @@ mod swap_and_cache_tests {
             // The barrier replay actually drained live changes, verification
             // came from the read-back, and writers were only parked for the
             // drain — never for the bulk copy.
-            assert!(result.verified);
             assert!(result.online);
             assert!(result.replayed > 0, "expected the tail replay to run");
             assert!(

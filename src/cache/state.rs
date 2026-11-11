@@ -88,6 +88,25 @@ impl CacheLayerManager {
         result
     }
 
+    /// Batched state read: values come back in key order, absent keys as
+    /// `None`. One store round trip instead of one per key.
+    pub async fn get_states_many(
+        &self,
+        state_type: &str,
+        keys: &[String],
+    ) -> Result<Vec<Option<serde_json::Value>>> {
+        self.ensure_current_schema().await?;
+        let collection = self.state_collection(state_type);
+        let started_at = Instant::now();
+        let result = self.active_store().get_many(keys, &collection).await;
+        let hit = result
+            .as_ref()
+            .ok()
+            .map(|values| values.iter().any(Option::is_some));
+        self.record_request(started_at, hit, result.is_ok());
+        result
+    }
+
     pub async fn get_all_states_async(
         &self,
         state_type: &str,

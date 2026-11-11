@@ -384,18 +384,42 @@ impl MCPStore {
         Ok(rules)
     }
 
-    /// Enabled override rules of one instance in a single shared-store read,
-    /// keyed by raw tool name. The listing paths apply these in memory; the
-    /// per-tool read path stays for single-tool call resolution.
+    /// Enabled override rules of one instance: the tool-name domain comes
+    /// from the synced projection (one relation read) and the rules are
+    /// fetched as one batched read — no full-collection scan. Overrides for
+    /// tools no longer synced cannot appear in any listing, so they are
+    /// skipped by construction.
     pub(crate) async fn enabled_tool_overrides_for_instance(
         &self,
         instance_id: InstanceId,
     ) -> Result<HashMap<String, ToolOverrideRule>> {
-        Ok(self
-            .enabled_tool_overrides_by_instance()
-            .await?
-            .remove(&instance_id)
-            .unwrap_or_default())
+        let tools = self.tools_from_kv(instance_id).await?;
+        let keys: Vec<String> = tools
+            .iter()
+            .map(|tool| Self::component_override_key(instance_id, &tool.name))
+            .collect();
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_states_many(TOOL_OVERRIDES_STATE_TYPE, &keys)
+            .await?;
+        let mut rules = HashMap::new();
+        for (tool, value) in tools.iter().zip(values) {
+            let Some(value) = value else {
+                continue;
+            };
+            let rule: ToolOverrideRule = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool override deserialization failed: {error}"),
+                )
+            })?;
+            if rule.common.enabled.unwrap_or(true) {
+                rules.insert(tool.name.clone(), rule);
+            }
+        }
+        Ok(rules)
     }
 
     /// Enabled override rules for every instance in ONE shared-store read,
