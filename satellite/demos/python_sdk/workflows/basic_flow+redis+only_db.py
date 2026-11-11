@@ -43,7 +43,7 @@ print(f"  └─ mcp.json Path: {snapshot.get('mcp_json', 'N/A')}")
 # Step 2: Inspect Cache Backend (ONLY_DB View)
 # ------------------------------------------------------------
 print("\n[Step 2] Inspect Cache Backend (ONLY_DB View)")
-cache_view = store.for_store().find_cache().inspect()
+cache_view = store.for_store().find_kv().inspect()
 print(f"  ├─ Backend Type: {cache_view.get('backend')}")
 print(f"  ├─ Namespace: {cache_view.get('namespace')}")
 print(f"  └─ Collections: {cache_view.get('collections')}")

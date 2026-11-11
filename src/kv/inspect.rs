@@ -34,7 +34,7 @@ const STATE_TYPES: &[&str] = &[
 const EVENT_TYPES: &[&str] = &["session_events", "openapi_imports"];
 
 impl MCPStore {
-    pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
+    pub async fn kv_inspect(&self) -> Result<serde_json::Value> {
         let namespace = self.namespace();
         let snapshot = self.kernel.persistence.kv.snapshot().await?;
         let mut collections = Vec::new();
@@ -155,7 +155,7 @@ impl MCPStore {
         }))
     }
 
-    pub async fn reset_cache_request_metrics(&self) -> Result<()> {
+    pub async fn reset_kv_request_metrics(&self) -> Result<()> {
         self.kernel.persistence.kv.reset_request_metrics();
         Ok(())
     }

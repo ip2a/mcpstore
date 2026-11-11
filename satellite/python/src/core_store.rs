@@ -2391,23 +2391,23 @@ impl PyMCPStore {
         serde_value_to_py(py, config)
     }
 
-    fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn kv_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let health = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.cache_health_report())
+            .block_on(self.inner.kv_health_report())
             .map_err(map_store_err)?;
-        serializable_to_py(py, &health, "cache_health_report")
+        serializable_to_py(py, &health, "kv_health_report")
     }
 
-    fn cache_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn kv_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let inspect = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.cache_inspect())
+            .block_on(self.inner.kv_inspect())
             .map_err(map_store_err)?;
         serde_value_to_py(py, inspect)
     }
 
-    fn reset_cache_request_metrics(&self) -> PyResult<()> {
+    fn reset_kv_request_metrics(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.reset_cache_request_metrics())
+            .block_on(self.inner.reset_kv_request_metrics())
             .map_err(map_store_err)
     }
 

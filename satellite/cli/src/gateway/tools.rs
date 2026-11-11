@@ -1621,11 +1621,11 @@ pub(super) async fn call_kv_tool(
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
         KV_HEALTH_TOOL => {
-            let health = store.cache_health_check().await.map_err(map_store_error)?;
+            let health = store.kv_health_check().await.map_err(map_store_error)?;
             serde_json::json!({"health": health})
         }
         KV_INSPECT_TOOL => {
-            let inspect = store.cache_inspect().await.map_err(map_store_error)?;
+            let inspect = store.kv_inspect().await.map_err(map_store_error)?;
             serde_json::json!({"inspect": inspect})
         }
         KV_SWITCH_TOOL => {

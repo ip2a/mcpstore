@@ -5,7 +5,6 @@ from __future__ import annotations
 
 def __getattr__(name: str):
     if name in {
-        "CacheType",
         "MemoryConfig",
         "StoreConfig",
         "FileConfig",
@@ -23,9 +22,9 @@ def __getattr__(name: str):
         "FileTreeConfig",
         "get_namespace",
     }:
-        from . import cache_config as _cache_config
+        from . import kv_config as _kv_config
 
-        value = getattr(_cache_config, name)
+        value = getattr(_kv_config, name)
         globals()[name] = value
         return value
 
@@ -41,7 +40,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "LoggingConfig",
-    "CacheType",
+
     "MemoryConfig",
     "StoreConfig",
     "FileConfig",

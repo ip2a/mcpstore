@@ -18,7 +18,7 @@ pub(super) struct KvSwitchRequest {
 pub(super) async fn inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
     let report = state
         .store
-        .cache_inspect()
+        .kv_inspect()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("KV view fetched successfully", report))
@@ -27,7 +27,7 @@ pub(super) async fn inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
 pub(super) async fn health(State(state): State<Arc<ApiState>>) -> ApiResult {
     let report = state
         .store
-        .cache_health_check()
+        .kv_health_check()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("KV health check succeeded", report))

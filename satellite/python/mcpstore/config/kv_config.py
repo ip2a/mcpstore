@@ -1,5 +1,5 @@
 """
-Cache configuration classes for MCPStore.
+KV store configuration classes for MCPStore..
 
 Non-sensitive configuration is loaded from MCPStoreConfig, sensitive from environment.
 """
@@ -9,14 +9,14 @@ from typing import Any, Optional
 
 
 @dataclass
-class BaseCacheConfig:
-    """Base cache configuration class with common attributes."""
+class BaseKvConfig:
+    """Base KV configuration class with common attributes."""
     timeout: float = 2.0
     retry_attempts: int = 3
 
 
 @dataclass
-class StoreConfig(BaseCacheConfig):
+class StoreConfig(BaseKvConfig):
     """Base configuration for one concrete Store."""
 
     store: str = "memory"
@@ -36,8 +36,8 @@ class StoreConfig(BaseCacheConfig):
 
 
 @dataclass
-class MemoryConfig(BaseCacheConfig):
-    """Memory cache configuration."""
+class MemoryConfig(BaseKvConfig):
+    """Memory store configuration."""
     max_size: Optional[int] = None
     cleanup_interval: int = 300
     store: str = "memory"
@@ -54,11 +54,11 @@ class MemoryConfig(BaseCacheConfig):
 
 
 @dataclass
-class FileConfig(BaseCacheConfig):
+class FileConfig(BaseKvConfig):
     """Local file source for service definitions (e.g. mcp.json).
 
     The file is the *definition source* and is forwarded to the Rust core via
-    ``config_path``.  The runtime Store that backs the cache is in-process
+    ``config_path``.  The runtime Store backing mcpstore is in-process
     memory; OpenKeyv has no ``file`` store capable of the CAS/ChangeFeed
     capabilities MCPStore requires.
     """
@@ -75,8 +75,8 @@ class FileConfig(BaseCacheConfig):
 
 
 @dataclass
-class RedisConfig(BaseCacheConfig):
-    """Redis cache configuration with validation."""
+class RedisConfig(BaseKvConfig):
+    """Redis store configuration with validation."""
 
     url: Optional[str] = None
     host: Optional[str] = None
@@ -145,7 +145,7 @@ class RedisConfig(BaseCacheConfig):
 
 
 @dataclass
-class ValkeyConfig(BaseCacheConfig):
+class ValkeyConfig(BaseKvConfig):
     """Valkey Store source. Fields aligned with OpenKeyv factory.rs."""
     url: Optional[str] = None
     namespace: Optional[str] = None
@@ -168,7 +168,7 @@ class ValkeyConfig(BaseCacheConfig):
 
 
 @dataclass
-class MemcachedConfig(BaseCacheConfig):
+class MemcachedConfig(BaseKvConfig):
     """Memcached Store source. ``url`` is required by OpenKeyv factory.rs."""
     url: Optional[str] = None
     namespace: Optional[str] = None
@@ -188,7 +188,7 @@ class MemcachedConfig(BaseCacheConfig):
 
 
 @dataclass
-class SqliteConfig(BaseCacheConfig):
+class SqliteConfig(BaseKvConfig):
     """SQLite Store source."""
     path: Optional[str] = None
     table: Optional[str] = None
@@ -214,7 +214,7 @@ class SqliteConfig(BaseCacheConfig):
 
 
 @dataclass
-class PostgresConfig(BaseCacheConfig):
+class PostgresConfig(BaseKvConfig):
     """Postgres Store source. ``url`` is required by OpenKeyv factory.rs."""
     url: Optional[str] = None
     table: Optional[str] = None
@@ -238,7 +238,7 @@ class PostgresConfig(BaseCacheConfig):
 
 
 @dataclass
-class DuckDBConfig(BaseCacheConfig):
+class DuckDBConfig(BaseKvConfig):
     """DuckDB Store source."""
     path: Optional[str] = None
     table: Optional[str] = None
@@ -264,7 +264,7 @@ class DuckDBConfig(BaseCacheConfig):
 
 
 @dataclass
-class RocksDBConfig(BaseCacheConfig):
+class RocksDBConfig(BaseKvConfig):
     """RocksDB Store source. ``path`` is required by OpenKeyv factory.rs."""
     path: Optional[str] = None
     namespace: Optional[str] = None
@@ -284,7 +284,7 @@ class RocksDBConfig(BaseCacheConfig):
 
 
 @dataclass
-class DiskConfig(BaseCacheConfig):
+class DiskConfig(BaseKvConfig):
     """Disk Store source. ``path`` is required by OpenKeyv factory.rs."""
     path: Optional[str] = None
     namespace: Optional[str] = None
@@ -304,7 +304,7 @@ class DiskConfig(BaseCacheConfig):
 
 
 @dataclass
-class S3Config(BaseCacheConfig):
+class S3Config(BaseKvConfig):
     """S3 Store source. ``bucket`` is required by OpenKeyv factory.rs."""
     bucket: Optional[str] = None
     namespace: Optional[str] = None
@@ -324,7 +324,7 @@ class S3Config(BaseCacheConfig):
 
 
 @dataclass
-class DynamoDBConfig(BaseCacheConfig):
+class DynamoDBConfig(BaseKvConfig):
     """DynamoDB Store source. ``table`` is required by OpenKeyv factory.rs."""
     table: Optional[str] = None
     namespace: Optional[str] = None
@@ -344,7 +344,7 @@ class DynamoDBConfig(BaseCacheConfig):
 
 
 @dataclass
-class MongoDBConfig(BaseCacheConfig):
+class MongoDBConfig(BaseKvConfig):
     """MongoDB Store source. ``url`` is required by OpenKeyv factory.rs."""
     url: Optional[str] = None
     namespace: Optional[str] = None
@@ -364,7 +364,7 @@ class MongoDBConfig(BaseCacheConfig):
 
 
 @dataclass
-class FileTreeConfig(BaseCacheConfig):
+class FileTreeConfig(BaseKvConfig):
     """FileTree Store source. ``path`` is required by OpenKeyv factory.rs.
 
     Note: FileTree is a basic Store without CAS/ChangeFeed capabilities; it
@@ -388,5 +388,5 @@ class FileTreeConfig(BaseCacheConfig):
 
 
 def get_namespace(config: object, default: str = "mcpstore") -> str:
-    """Return the configured cache namespace, or the MCPStore default."""
+    """Return the configured KV namespace, or the MCPStore default."""
     return getattr(config, "namespace", None) or default

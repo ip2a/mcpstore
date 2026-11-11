@@ -21,7 +21,7 @@ from mcpstore.api.api_pack import api_set_store
 
 from .routes.store import router as store_router
 from .routes.agent import router as agent_router
-from .routes.cache import router as cache_router
+from .routes.kv import router as kv_router
 
 app = FastAPI(title="MCPStore Mini API", version="0.1.0")
 
@@ -44,7 +44,7 @@ async def health():
 # Mount the custom routes (the official aggregated router is not used)
 app.include_router(store_router, prefix="/mini")
 app.include_router(agent_router, prefix="/mini")
-app.include_router(cache_router, prefix="/mini")
+app.include_router(kv_router, prefix="/mini")
 
 
 if __name__ == "__main__":

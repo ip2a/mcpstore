@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from mcpstore.context.store_context import AgentContext, StoreContext
-from mcpstore.cache import store as cache_ops
+from mcpstore.kv import store as kv_ops
 from mcpstore.store import configuration, instances, setup as setup_module
 from mcpstore.sessions import store as session_ops
 
@@ -82,13 +82,13 @@ class RustStoreBackend:
     export_sessions_snapshot = session_ops.export_sessions_snapshot
     import_sessions_snapshot = session_ops.import_sessions_snapshot
 
-    event_history = cache_ops.event_history
-    event_capability_report = cache_ops.event_capability_report
-    cache_health_check = cache_ops.cache_health_check
-    cache_inspect = cache_ops.cache_inspect
-    reset_cache_request_metrics = cache_ops.reset_cache_request_metrics
-    find_cache = cache_ops.find_cache
-    swap_store = cache_ops.swap_store
+    event_history = kv_ops.event_history
+    event_capability_report = kv_ops.event_capability_report
+    kv_health_check = kv_ops.kv_health_check
+    kv_inspect = kv_ops.kv_inspect
+    reset_kv_request_metrics = kv_ops.reset_kv_request_metrics
+    find_kv = kv_ops.find_kv
+    swap_store = kv_ops.swap_store
 
     def for_store(self) -> StoreContext:
         return StoreContext(self._inner.for_store())

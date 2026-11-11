@@ -9,7 +9,7 @@ pub struct EventCapabilityReport {
     pub event_bus: bool,
     pub history: bool,
     pub history_capacity: usize,
-    pub cache_event_layer: bool,
+    pub kv_event_layer: bool,
 }
 
 /// Service lifecycle event kinds.
