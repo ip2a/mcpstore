@@ -8067,7 +8067,7 @@ mod swap_and_cache_tests {
         }
 
         #[tokio::test]
-        async fn event_backend_snapshot_follows_cutover_generation() {
+        async fn event_log_snapshot_follows_cutover_generation() {
             let path = temp_config_path();
             let store = MCPStore::setup_with_options(StoreOptions {
                 config_path: Some(path.clone()),
