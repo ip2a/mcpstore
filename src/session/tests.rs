@@ -75,7 +75,7 @@ async fn register_tool_service(
         })
         .collect::<Vec<_>>();
     store
-        .cache_instance_connected(instance_id, &tool_infos)
+        .upsert_instance_tools_projection(instance_id, &tool_infos)
         .await
         .unwrap();
     instance_id
@@ -604,7 +604,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
         )
         .await;
 
-    assert!(matches!(err, Err(CacheError::Conflict(_))));
+    assert!(matches!(err, Err(KvError::Conflict(_))));
     assert_eq!(session.entity().await.unwrap().lease_seconds, Some(30));
 
     std::fs::remove_file(first_path).ok();
@@ -838,7 +838,7 @@ async fn stale_session_entity_write_is_rejected_by_version() {
         )
         .await;
 
-    assert!(matches!(err, Err(CacheError::Conflict(_))));
+    assert!(matches!(err, Err(KvError::Conflict(_))));
     assert_eq!(
         store.get_session(&session.session_key).await.unwrap(),
         Some(first_update)
@@ -854,7 +854,7 @@ async fn session_retry_policy_retries_cache_conflicts_only() {
         let attempts = Arc::clone(&attempts);
         async move {
             if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                return Err(Error::from(CacheError::Conflict("stale".to_string())));
+                return Err(Error::from(KvError::Conflict("stale".to_string())));
             }
             Ok("ok")
         }
@@ -873,13 +873,13 @@ async fn session_retry_policy_respects_attempt_limit() {
         let attempts = Arc::clone(&attempts);
         async move {
             attempts.fetch_add(1, Ordering::SeqCst);
-            Err::<(), _>(Error::from(CacheError::Conflict("stale".to_string())))
+            Err::<(), _>(Error::from(KvError::Conflict("stale".to_string())))
         }
     })
     .await
     .unwrap_err();
 
-    assert!(MCPStore::is_cache_conflict(&err));
+    assert!(MCPStore::is_kv_conflict(&err));
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
 

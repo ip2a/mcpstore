@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::cache::{CacheError, CacheLayerManager, Result};
+use crate::cache::{KvError, KvLayerManager, Result};
 
-impl CacheLayerManager {
+impl KvLayerManager {
     pub async fn put_relation(
         &self,
         relation_type: &str,
@@ -12,7 +12,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "relation_type={relation_type}, key={key}"
             )));
         }
@@ -33,7 +33,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "relation_type={relation_type}, key={key}"
             )));
         }

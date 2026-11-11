@@ -268,7 +268,7 @@ impl MCPStore {
                         .runtime_config
                         .service_lifecycle_defaults,
                 );
-                // keep_alive=true implies a resident expectation (same rule as cache_instance_added)
+                // keep_alive=true implies a resident expectation (same rule as upsert_instance_projection)
                 let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
                     || lifecycle.keep_alive
                 {

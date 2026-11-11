@@ -586,9 +586,8 @@ async fn remove_of_unknown_service_fails_fast() {
 
 #[tokio::test]
 async fn valkey_backend_is_accepted_and_wired() {
-    // LazyRedisStore connects on first use, so setup needs no live server; the
-    // assertion pins that the valkey arm passes setup (KV + CAS + feed wired by
-    // the event backend when a real server is reachable).
+    // LazyValkeyStore connects on first use, so setup needs no live server; the
+    // assertion pins that the valkey arm passes setup independently of redis.
     let store = MCPStore::setup_with_options(StoreOptions {
         store: Some(JsonStoreConfig::new(
             "valkey",
@@ -599,4 +598,18 @@ async fn valkey_backend_is_accepted_and_wired() {
     })
     .unwrap();
     assert_eq!(store.current_store_name().await, "valkey");
+
+    // The valkey store handle wires the full capability set — KV, CAS,
+    // enumeration and change feed — without touching the live server.
+    let kv = MCPStore::build_kv_store(
+        &JsonStoreConfig::new("valkey", serde_json::json!({"url": "redis://127.0.0.1:1/"})),
+        "redis://127.0.0.1:1/",
+        "role-valkey-caps",
+    )
+    .unwrap();
+    let capabilities = kv.handle().capabilities;
+    assert!(capabilities.compare_and_swap);
+    assert!(capabilities.enumerate_keys);
+    assert!(capabilities.enumerate_collections);
+    assert!(capabilities.change_feed);
 }

@@ -2,35 +2,14 @@ use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "redis")]
 use crate::cache::redis::LazyRedisStore;
-use crate::cache::Result;
+#[cfg(feature = "valkey")]
+use crate::cache::valkey::LazyValkeyStore;
+use crate::cache::store::KvStore;
 #[cfg(all(feature = "shm", unix))]
-use crate::cache::CacheError;
+use crate::cache::{KvError, Result};
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
 
-#[async_trait::async_trait]
-pub(crate) trait CacheStore: Send + Sync {
-    async fn put(&self, key: &str, value: serde_json::Value, collection: &str) -> Result<()>;
-    async fn compare_and_put(
-        &self,
-        key: &str,
-        expected_version: Option<u64>,
-        value: serde_json::Value,
-        collection: &str,
-    ) -> Result<()>;
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
-    async fn delete(&self, key: &str, collection: &str) -> Result<()>;
-    /// Atomic take (get + compare_and_delete): exactly one caller gets the value, the rest get None.
-    async fn claim(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
-    async fn collections(&self) -> Result<Vec<String>>;
-    async fn keys(&self, collection: &str) -> Result<Vec<String>>;
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<serde_json::Value>>>;
-}
-
-pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
+pub(crate) fn memory_kv_store() -> Arc<KvStore> {
     let store = Arc::new(OpenKeyvMemoryStore::new());
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),
@@ -39,26 +18,26 @@ pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
         Some(store.clone()),
         Some(store),
     );
-    Arc::new(crate::cache::live_store::LiveStore::from_handle(handle))
+    Arc::new(KvStore::from_handle(handle))
 }
 
-/// Like `memory_cache_store`, but also returns the underlying MemoryStore
+/// Like `memory_kv_store`, but also returns the underlying MemoryStore
 /// handle (sharing the same `Arc<MemoryClient>`) for use by online migration.
-pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
-    cache_store_from_memory(OpenKeyvMemoryStore::new())
+pub(crate) fn memory_kv_store_with_handle() -> (Arc<KvStore>, OpenKeyvMemoryStore) {
+    kv_store_from_memory(OpenKeyvMemoryStore::new())
 }
 
 /// `memory-test-shared` used to get a fresh store per setup, so two in-process panels couldn't meet on a ChangeFeed.
 /// ponytail: one store per process. Only for this test name; the real memory() still creates a new one each time.
-pub(crate) fn shared_memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore)
+pub(crate) fn shared_memory_kv_store_with_handle() -> (Arc<KvStore>, OpenKeyvMemoryStore)
 {
     static SHARED: OnceLock<OpenKeyvMemoryStore> = OnceLock::new();
-    cache_store_from_memory(SHARED.get_or_init(OpenKeyvMemoryStore::new).clone())
+    kv_store_from_memory(SHARED.get_or_init(OpenKeyvMemoryStore::new).clone())
 }
 
-fn cache_store_from_memory(
+fn kv_store_from_memory(
     inner: OpenKeyvMemoryStore,
-) -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
+) -> (Arc<KvStore>, OpenKeyvMemoryStore) {
     let store = Arc::new(inner.clone());
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),
@@ -68,13 +47,13 @@ fn cache_store_from_memory(
         Some(store),
     );
     (
-        Arc::new(crate::cache::live_store::LiveStore::from_handle(handle)),
+        Arc::new(KvStore::from_handle(handle)),
         inner,
     )
 }
 
 #[cfg(feature = "redis")]
-pub(crate) fn redis_store(redis_address: &str, keyspace: &str) -> Arc<dyn CacheStore> {
+pub(crate) fn redis_kv_store(redis_address: &str, keyspace: &str) -> Arc<KvStore> {
     let store = Arc::new(LazyRedisStore::new(redis_address, keyspace));
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),
@@ -83,31 +62,44 @@ pub(crate) fn redis_store(redis_address: &str, keyspace: &str) -> Arc<dyn CacheS
         Some(store),
         None,
     );
-    Arc::new(crate::cache::live_store::LiveStore::from_handle(handle))
+    Arc::new(KvStore::from_handle(handle))
 }
 
-/// SHM backing store: the only backend that survives process boundaries without
+#[cfg(feature = "valkey")]
+pub(crate) fn valkey_kv_store(valkey_address: &str, keyspace: &str) -> Arc<KvStore> {
+    let store = Arc::new(LazyValkeyStore::new(valkey_address, keyspace));
+    let handle = openkeyv::StoreHandle::with_capabilities(
+        store.clone(),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store),
+    );
+    Arc::new(KvStore::from_handle(handle))
+}
+
+/// SHM backing store: the only store that survives process boundaries without
 /// an external server. Parses the same JSON contract as the openkeyv factory
 /// shm branch: `path` (required), `mode` ("create"|"open", default "open"),
 /// `capacity_bytes`, `index_entries`, `change_retention`. The parent directory
 /// must not be group/world-writable (openkeyv enforces this). Returns the
-/// cache store plus the change-feed-capable handle for the event backend.
+/// kv store plus the change-feed-capable handle for event streaming.
 #[cfg(all(feature = "shm", unix))]
-pub(crate) fn shm_cache_store_with_handle(
+pub(crate) fn shm_kv_store_with_handle(
     config: &serde_json::Value,
-) -> Result<(Arc<dyn CacheStore>, openkeyv::StoreHandle)> {
+) -> Result<(Arc<KvStore>, openkeyv::StoreHandle)> {
     use openkeyv::store::shm::{ShmConfig, ShmCreateConfig, ShmOpenMode, ShmStore};
 
     let path = config
         .get("path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CacheError::Validation("shm store config requires a 'path'".into()))?;
+        .ok_or_else(|| KvError::Validation("shm store config requires a 'path'".into()))?;
     let mut shm = ShmConfig::open(path);
     match config.get("mode").and_then(|v| v.as_str()) {
         None | Some("open") => {}
         Some("create") => shm.mode = ShmOpenMode::Create,
         Some(other) => {
-            return Err(CacheError::Validation(format!(
+            return Err(KvError::Validation(format!(
                 "shm mode must be 'create' or 'open', got '{other}'"
             )))
         }
@@ -117,12 +109,12 @@ pub(crate) fn shm_cache_store_with_handle(
     }
     if let Some(entries) = config.get("index_entries").and_then(|v| v.as_u64()) {
         shm = shm.with_index_entries(u32::try_from(entries).map_err(|_| {
-            CacheError::Validation(format!("shm index_entries {entries} exceeds u32"))
+            KvError::Validation(format!("shm index_entries {entries} exceeds u32"))
         })?);
     }
     if let Some(retention) = config.get("change_retention").and_then(|v| v.as_u64()) {
         shm = shm.with_change_retention(u32::try_from(retention).map_err(|_| {
-            CacheError::Validation(format!("shm change_retention {retention} exceeds u32"))
+            KvError::Validation(format!("shm change_retention {retention} exceeds u32"))
         })?);
     }
     let store = Arc::new(
@@ -135,7 +127,7 @@ pub(crate) fn shm_cache_store_with_handle(
             ),
             ShmOpenMode::Open => ShmStore::open(shm.path.clone()),
         }
-        .map_err(|e| CacheError::Backend(format!("shm store attach failed: {e}")))?,
+        .map_err(|e| KvError::Store(format!("shm store attach failed: {e}")))?,
     );
     let feed = store
         .change_feed_enabled()
@@ -148,7 +140,7 @@ pub(crate) fn shm_cache_store_with_handle(
         feed,
     );
     Ok((
-        Arc::new(crate::cache::live_store::LiveStore::from_handle(
+        Arc::new(KvStore::from_handle(
             handle.clone(),
         )),
         handle,
@@ -161,7 +153,7 @@ mod shm_tests {
     use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
 
-    /// The shm backend rejects group/world-writable parent directories, and
+    /// The shm store rejects group/world-writable parent directories, and
     /// `std::env::temp_dir()` platform semantics differ (Linux /tmp is 1777),
     /// so every test sets up its own explicit 0700 directory.
     fn shm_test_dir() -> std::path::PathBuf {
@@ -188,7 +180,7 @@ mod shm_tests {
         let _ = std::fs::remove_file(&path);
 
         let (store, handle) =
-            shm_cache_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
+            shm_kv_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
         store
             .put("k1", json!({"v": 1}), "col")
             .await
@@ -197,7 +189,7 @@ mod shm_tests {
         drop(handle);
 
         let (store, handle) =
-            shm_cache_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
+            shm_kv_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
         assert_eq!(
             store.get("k1", "col").await.expect("get"),
             Some(json!({"v": 1}))
@@ -207,9 +199,9 @@ mod shm_tests {
 
     #[test]
     fn shm_config_rejects_missing_path_and_bad_mode() {
-        assert!(shm_cache_store_with_handle(&json!({"mode": "create"})).is_err());
+        assert!(shm_kv_store_with_handle(&json!({"mode": "create"})).is_err());
         assert!(
-            shm_cache_store_with_handle(&json!({"path": "/tmp/mcpstore-x.shm", "mode": "nope"}))
+            shm_kv_store_with_handle(&json!({"path": "/tmp/mcpstore-x.shm", "mode": "nope"}))
                 .is_err()
         );
     }
@@ -225,7 +217,7 @@ mod shm_tests {
         let mut config = shm_config(&path, "create");
         config["capacity_bytes"] = json!(16 * 1024 * 1024); // openkeyv minimum arena
         let (store, _handle) =
-            shm_cache_store_with_handle(&config).expect("create shm store");
+            shm_kv_store_with_handle(&config).expect("create shm store");
 
         let oversized = json!({"blob": "x".repeat(32 * 1024 * 1024)});
         let error = store
@@ -258,13 +250,13 @@ mod shm_tests {
         let _ = std::fs::remove_file(&path);
 
         let (store, holder) =
-            shm_cache_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
+            shm_kv_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
         store
             .put("marker", json!({"v": 1}), "col")
             .await
             .expect("put marker");
 
-        let error = match shm_cache_store_with_handle(&shm_config(&path, "create")) {
+        let error = match shm_kv_store_with_handle(&shm_config(&path, "create")) {
             Err(error) => error,
             Ok(_) => panic!("create over an active attach must fail"),
         };
@@ -278,7 +270,7 @@ mod shm_tests {
         // The failed create must not have damaged the held store: reopen and
         // read the original data.
         let (store, _handle) =
-            shm_cache_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
+            shm_kv_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
         assert_eq!(
             store.get("marker", "col").await.expect("get"),
             Some(json!({"v": 1})),

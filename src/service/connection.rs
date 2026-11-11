@@ -124,7 +124,7 @@ impl MCPStore {
                 .registry
                 .list_instance_tools(instance_id)
                 .await;
-            self.cache_instance_connected(instance_id, &tools).await?;
+            self.upsert_instance_tools_projection(instance_id, &tools).await?;
 
         // scopes.toml tool/policy entries skip never-connected instances at
         // boot ("no synced tools yet"), which made override persistence
@@ -573,7 +573,7 @@ impl MCPStore {
             .registry
             .list_instance_tools(instance_id)
             .await;
-        self.cache_instance_connected(instance_id, &tools).await?;
+        self.upsert_instance_tools_projection(instance_id, &tools).await?;
 
         // scopes.toml tool/policy entries skip never-connected instances at
         // boot ("no synced tools yet"), which made override persistence

@@ -48,7 +48,7 @@ impl ControlPlane {
             }
         }
         for (state_type, entries) in snapshot.states {
-            if state_type == crate::cache::layer::CACHE_SCHEMA_STATE {
+            if state_type == crate::cache::layer::KV_SCHEMA_STATE {
                 continue;
             }
             for key in entries.keys() {
@@ -143,7 +143,7 @@ impl ControlPlane {
                 .await?;
         }
         for instance_id in instance_ids {
-            store.cache_instance_removed(instance_id).await?;
+            store.remove_instance_projection(instance_id).await?;
         }
         Ok(())
     }

@@ -5,7 +5,7 @@ use crate::cache::models::{
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
     ToolPreferenceState,
 };
-use crate::cache::CacheError;
+use crate::cache::KvError;
 use crate::identity::{InstanceId, ScopeRef};
 use crate::overrides::ToolOverrideRule;
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
@@ -13,7 +13,7 @@ use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(crate) async fn cache_instance_added(&self, instance_id: InstanceId) -> Result<()> {
+    pub(crate) async fn upsert_instance_projection(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self
             .kernel
             .control
@@ -31,7 +31,7 @@ impl MCPStore {
                 Error::new(FailureCode::ServiceNotFound, instance.service_name.clone())
             })?;
 
-        self.cache_definition(&definition).await?;
+        self.upsert_definition_projection(&definition).await?;
         self.kernel
             .persistence
             .cache
@@ -113,7 +113,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn cache_instance_connected(
+    pub(crate) async fn upsert_instance_tools_projection(
         &self,
         instance_id: InstanceId,
         tools: &[ToolInfo],
@@ -189,7 +189,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn cache_instance_removed(&self, instance_id: InstanceId) -> Result<()> {
+    pub(crate) async fn remove_instance_projection(&self, instance_id: InstanceId) -> Result<()> {
         if let Some(supervisor) = self.kernel.execution.supervisor.get() {
             supervisor.remove(instance_id).await;
         }
@@ -271,7 +271,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn cache_definition_removed(&self, service_name: &str) -> Result<()> {
+    pub(crate) async fn remove_definition_projection(&self, service_name: &str) -> Result<()> {
         self.kernel
             .persistence
             .cache
@@ -280,7 +280,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn cache_definition(&self, definition: &ServiceDefinition) -> Result<()> {
+    pub(crate) async fn upsert_definition_projection(&self, definition: &ServiceDefinition) -> Result<()> {
         let entity = ServiceDefinitionEntity::from(definition);
         self.kernel
             .persistence
@@ -351,12 +351,12 @@ impl MCPStore {
                         complete = true;
                         break;
                     }
-                    Err(CacheError::Conflict(_)) => continue,
+                    Err(KvError::Conflict(_)) => continue,
                     Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(Error::from(CacheError::Conflict(format!(
+                return Err(Error::from(KvError::Conflict(format!(
                     "session service relation conflict after retries: session_key={key}"
                 ))));
             }
@@ -417,12 +417,12 @@ impl MCPStore {
                         complete = true;
                         break;
                     }
-                    Err(CacheError::Conflict(_)) => continue,
+                    Err(KvError::Conflict(_)) => continue,
                     Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(Error::from(CacheError::Conflict(format!(
+                return Err(Error::from(KvError::Conflict(format!(
                     "session tool relation conflict after retries: session_key={key}"
                 ))));
             }

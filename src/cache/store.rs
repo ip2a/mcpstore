@@ -3,19 +3,19 @@ use std::sync::Arc;
 use serde_json::Value as JsonValue;
 
 use crate::cache::codec;
-use crate::cache::layer::{CacheError, Result};
+use crate::cache::layer::{KvError, Result};
 use openkeyv::{
     AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, CompareAndDeleteResult,
     CompareAndSwapResult, StoreHandle,
 };
 
-/// mcpstore's unified cache Store. Internally holds an OpenKeyv StoreHandle and
-/// exposes the JSON-level operations that the cache layer needs.
-pub struct LiveStore {
+/// mcpstore's unified KV store. Internally holds an OpenKeyv StoreHandle and
+/// exposes the JSON-level operations that the KV layer needs.
+pub struct KvStore {
     handle: StoreHandle,
 }
 
-impl LiveStore {
+impl KvStore {
     pub(crate) fn from_handle(handle: StoreHandle) -> Self {
         Self { handle }
     }
@@ -28,37 +28,36 @@ impl LiveStore {
         self.handle
             .compare_and_swap
             .as_ref()
-            .ok_or_else(|| CacheError::Backend("store does not provide compare-and-swap".into()))
+            .ok_or_else(|| KvError::Store("store does not provide compare-and-swap".into()))
     }
 
     fn enumerate_keys(&self) -> Result<&Arc<dyn AsyncEnumerateKeys>> {
         self.handle
             .enumerate_keys
             .as_ref()
-            .ok_or_else(|| CacheError::Backend("store does not provide key enumeration".into()))
+            .ok_or_else(|| KvError::Store("store does not provide key enumeration".into()))
     }
 
     fn enumerate_collections(&self) -> Result<&Arc<dyn AsyncEnumerateCollections>> {
         self.handle.enumerate_collections.as_ref().ok_or_else(|| {
-            CacheError::Backend("store does not provide collection enumeration".into())
+            KvError::Store("store does not provide collection enumeration".into())
         })
     }
 }
 
-fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
-    CacheError::Backend(format!("openkeyv: {err}"))
+fn map_openkeyv_err(err: openkeyv::Error) -> KvError {
+    KvError::Store(format!("openkeyv: {err}"))
 }
 
 fn value_version(value: &JsonValue) -> Option<u64> {
     value.get("version").and_then(JsonValue::as_u64)
 }
 
-// LiveStore implements the cache layer's JSON operations directly.
-#[async_trait::async_trait]
-impl super::storage::CacheStore for LiveStore {
-    async fn put(&self, key: &str, value: JsonValue, collection: &str) -> Result<()> {
+// KvStore implements the KV layer's JSON operations directly.
+impl KvStore {
+    pub(crate) async fn put(&self, key: &str, value: JsonValue, collection: &str) -> Result<()> {
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "collection={collection}, key={key}"
             )));
         }
@@ -70,7 +69,7 @@ impl super::storage::CacheStore for LiveStore {
             .map_err(map_openkeyv_err)
     }
 
-    async fn compare_and_put(
+    pub(crate) async fn compare_and_put(
         &self,
         key: &str,
         expected_version: Option<u64>,
@@ -78,7 +77,7 @@ impl super::storage::CacheStore for LiveStore {
         collection: &str,
     ) -> Result<()> {
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "collection={collection}, key={key}"
             )));
         }
@@ -95,7 +94,7 @@ impl super::storage::CacheStore for LiveStore {
                         let stored_json = codec::value_to_json(rv.value)?;
                         let stored_ver = value_version(&stored_json);
                         if stored_ver != expected_version {
-                            return Err(CacheError::Conflict(format!(
+                            return Err(KvError::Conflict(format!(
                                 "version mismatch: expected {expected_version:?}, found {stored_ver:?}"
                             )));
                         }
@@ -103,7 +102,7 @@ impl super::storage::CacheStore for LiveStore {
                     }
                     None => {
                         if expected_version.is_some() {
-                            return Err(CacheError::Conflict(
+                            return Err(KvError::Conflict(
                                 "key does not exist for CAS update".into(),
                             ));
                         }
@@ -127,13 +126,13 @@ impl super::storage::CacheStore for LiveStore {
 
         match result {
             CompareAndSwapResult::Applied { .. } => Ok(()),
-            CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(
+            CompareAndSwapResult::Conflict { .. } => Err(KvError::Conflict(
                 "concurrent modification detected".into(),
             )),
         }
     }
 
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
+    pub(crate) async fn get(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
         let value = self
             .handle
             .base
@@ -146,7 +145,7 @@ impl super::storage::CacheStore for LiveStore {
         }
     }
 
-    async fn delete(&self, key: &str, collection: &str) -> Result<()> {
+    pub(crate) async fn delete(&self, key: &str, collection: &str) -> Result<()> {
         self.handle
             .base
             .delete(key, Some(collection))
@@ -155,7 +154,7 @@ impl super::storage::CacheStore for LiveStore {
         Ok(())
     }
 
-    async fn claim(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
+    pub(crate) async fn claim(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
         let cas = self.cas()?;
         let Some(revisioned) = cas
             .get_with_revision(key, Some(collection))
@@ -174,21 +173,21 @@ impl super::storage::CacheStore for LiveStore {
         }
     }
 
-    async fn collections(&self) -> Result<Vec<String>> {
+    pub(crate) async fn collections(&self) -> Result<Vec<String>> {
         self.enumerate_collections()?
             .collections(None)
             .await
             .map_err(map_openkeyv_err)
     }
 
-    async fn keys(&self, collection: &str) -> Result<Vec<String>> {
+    pub(crate) async fn keys(&self, collection: &str) -> Result<Vec<String>> {
         self.enumerate_keys()?
             .keys(Some(collection), None)
             .await
             .map_err(map_openkeyv_err)
     }
 
-    async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<JsonValue>>> {
+    pub(crate) async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<JsonValue>>> {
         let values = self
             .handle
             .base

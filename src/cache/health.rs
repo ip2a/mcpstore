@@ -4,7 +4,7 @@ impl MCPStore {
     pub async fn cache_health_check(&self) -> Result<serde_json::Value> {
         let report = self.cache_health_report().await?;
         Ok(serde_json::json!({
-            "schema_version": crate::cache::layer::CACHE_SCHEMA_VERSION,
+            "schema_version": crate::cache::layer::KV_SCHEMA_VERSION,
             "namespace": report.namespace,
             "store": report.store,
             "entities": report.entities,
@@ -14,10 +14,10 @@ impl MCPStore {
         }))
     }
 
-    pub async fn cache_health_report(&self) -> Result<CacheHealthReport> {
+    pub async fn cache_health_report(&self) -> Result<KvHealthReport> {
         let namespace = self.namespace();
         let snapshot = self.kernel.persistence.cache.snapshot().await?;
-        Ok(CacheHealthReport {
+        Ok(KvHealthReport {
             namespace,
             store: self.current_store_name().await,
             entities: snapshot.entities.keys().cloned().collect(),

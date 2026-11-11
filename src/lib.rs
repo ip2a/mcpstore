@@ -44,7 +44,7 @@ pub use config::{
 };
 
 // Facade re-exports: cache layer
-pub use cache::{CacheLayerManager, CacheSnapshot};
+pub use cache::{KvLayerManager, KvSnapshot};
 
 // Facade re-exports: OpenAPI runtime imports
 pub use openapi::{

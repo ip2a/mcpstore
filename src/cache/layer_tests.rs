@@ -1,5 +1,5 @@
 use super::layer::*;
-use crate::cache::memory_cache_store;
+use crate::cache::memory_kv_store;
 use crate::cache::models::{
     ContextToolVisibilityState, OpenApiImportContextState, SessionContextState, SessionEntity,
     SessionEvent, SessionEventType, SessionScope, SessionServiceItem, SessionServiceRelation,
@@ -20,7 +20,7 @@ fn store_instance_id() -> crate::identity::InstanceId {
 
 #[tokio::test]
 async fn test_openkeyv_memory_store_basic() {
-    let store = memory_cache_store();
+    let store = memory_kv_store();
     store
         .put("k1", serde_json::json!({"a": 1}), "c1")
         .await
@@ -31,8 +31,8 @@ async fn test_openkeyv_memory_store_basic() {
 
 #[tokio::test]
 async fn test_cache_layer_manager_entity() {
-    let store = memory_cache_store();
-    let mgr = CacheLayerManager::new(store, "test");
+    let store = memory_kv_store();
+    let mgr = KvLayerManager::new(store, "test");
 
     mgr.put_entity(
         "service_definitions",
@@ -47,8 +47,8 @@ async fn test_cache_layer_manager_entity() {
 
 #[tokio::test]
 async fn test_cache_layer_manager_session_entity() {
-    let store = memory_cache_store();
-    let mgr = CacheLayerManager::new(store, "test");
+    let store = memory_kv_store();
+    let mgr = KvLayerManager::new(store, "test");
 
     let session = SessionEntity {
         session_key: "store:s1".to_string(),
@@ -83,8 +83,8 @@ async fn test_cache_layer_manager_session_entity() {
 
 #[tokio::test]
 async fn test_cache_layer_rejects_removed_client_configs_entity() {
-    let store = memory_cache_store();
-    let mgr = CacheLayerManager::new(store, "test");
+    let store = memory_kv_store();
+    let mgr = KvLayerManager::new(store, "test");
 
     let err = mgr
         .get_entity("client_configs", "client")
@@ -97,7 +97,7 @@ async fn test_cache_layer_rejects_removed_client_configs_entity() {
 
 #[tokio::test]
 async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() {
-    let store = memory_cache_store();
+    let store = memory_kv_store();
     store
         .put(
             "svc",
@@ -106,7 +106,7 @@ async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() 
         )
         .await
         .unwrap();
-    let mgr = CacheLayerManager::new(store.clone(), "test");
+    let mgr = KvLayerManager::new(store.clone(), "test");
 
     let error = mgr
         .get_entity("service_definitions", "svc")
@@ -123,7 +123,7 @@ async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() 
     );
     assert_eq!(
         store
-            .get("current", "test:state:cache_schema")
+            .get("current", "test:state:kv_schema")
             .await
             .unwrap(),
         None
@@ -132,12 +132,12 @@ async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() 
 
 #[tokio::test]
 async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
-    let store = memory_cache_store();
+    let store = memory_kv_store();
     store
         .put(
             "current",
             serde_json::json!({"version": 1}),
-            "test:state:cache_schema",
+            "test:state:kv_schema",
         )
         .await
         .unwrap();
@@ -149,14 +149,14 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
         )
         .await
         .unwrap();
-    let mgr = CacheLayerManager::new(store.clone(), "test");
+    let mgr = KvLayerManager::new(store.clone(), "test");
 
     let error = mgr
         .get_entity("service_definitions", "svc")
         .await
         .unwrap_err()
         .to_string();
-    assert!(error.contains("cache schema mismatch"));
+    assert!(error.contains("kv schema mismatch"));
     assert_eq!(
         store
             .get("svc", "test:entity:service_definitions")
@@ -166,7 +166,7 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
     );
     assert_eq!(
         store
-            .get("current", "test:state:cache_schema")
+            .get("current", "test:state:kv_schema")
             .await
             .unwrap(),
         Some(serde_json::json!({"version": 1}))
@@ -177,7 +177,7 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
         store: Some(JsonStoreConfig::memory()),
-        namespace: Some("cache-instance-status-upsert".to_string()),
+        namespace: Some("instance-projection-status-upsert".to_string()),
         ..StoreOptions::default()
     })
     .unwrap();
@@ -221,7 +221,7 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
             added_time: 100,
         })
         .await;
-    store.cache_instance_added(instance_id).await.unwrap();
+    store.upsert_instance_projection(instance_id).await.unwrap();
 
     let canonical = store
         .kernel
@@ -309,14 +309,14 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         .registry
         .register_instance(updated)
         .await;
-    store.cache_instance_added(instance_id).await.unwrap();
+    store.upsert_instance_projection(instance_id).await.unwrap();
 
     assert_eq!(
         store.kernel.control.state.get(instance_id).await.unwrap(),
         Some(observed)
     );
 
-    store.cache_instance_removed(instance_id).await.unwrap();
+    store.remove_instance_projection(instance_id).await.unwrap();
     assert!(store
         .kernel
         .control
@@ -329,7 +329,7 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
 
 #[test]
 fn test_cache_snapshot_rejects_missing_schema_version() {
-    let result = serde_json::from_value::<CacheSnapshot>(serde_json::json!({
+    let result = serde_json::from_value::<KvSnapshot>(serde_json::json!({
         "entities": {},
         "relations": {},
         "states": {},
@@ -341,9 +341,9 @@ fn test_cache_snapshot_rejects_missing_schema_version() {
 
 #[tokio::test]
 async fn test_replace_store_with_snapshot_migrates_all_layers() {
-    let first = memory_cache_store();
-    let second = memory_cache_store();
-    let mgr = CacheLayerManager::new(first, "test");
+    let first = memory_kv_store();
+    let second = memory_kv_store();
+    let mgr = KvLayerManager::new(first, "test");
 
     let instance_id = store_instance_id().to_string();
     mgr.put_entity(
@@ -379,7 +379,7 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
         .replace_store_with_snapshot_and_namespace(second, "test")
         .await
         .unwrap();
-    assert_eq!(snapshot.schema_version, CACHE_SCHEMA_VERSION);
+    assert_eq!(snapshot.schema_version, KV_SCHEMA_VERSION);
     assert_eq!(snapshot.entities["service_instances"].len(), 1);
     assert_eq!(snapshot.relations["agent_instances"].len(), 1);
     assert_eq!(snapshot.states["service_state"].len(), 1);
@@ -409,9 +409,9 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
 
 #[tokio::test]
 async fn test_replace_store_with_snapshot_migrates_session_layers() {
-    let first = memory_cache_store();
-    let second = memory_cache_store();
-    let mgr = CacheLayerManager::new(first, "test");
+    let first = memory_kv_store();
+    let second = memory_kv_store();
+    let mgr = KvLayerManager::new(first, "test");
     let session_key = "store:s1";
     let instance_id = store_instance_id();
 
@@ -626,8 +626,8 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
 
 #[tokio::test]
 async fn test_create_agent() {
-    let store = memory_cache_store();
-    let mgr = CacheLayerManager::new(store, "test");
+    let store = memory_kv_store();
+    let mgr = KvLayerManager::new(store, "test");
 
     mgr.create_agent("a1", 1234567890).await.unwrap();
     let agent = mgr.get_agent("a1").await.unwrap().unwrap();

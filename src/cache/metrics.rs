@@ -5,7 +5,7 @@ use std::time::Duration;
 const MAX_LATENCY_SAMPLES: usize = 2048;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CacheRequestMetricsSnapshot {
+pub struct KvRequestMetricsSnapshot {
     pub available: bool,
     pub scope: String,
     pub total_requests: u64,
@@ -20,7 +20,7 @@ pub struct CacheRequestMetricsSnapshot {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct CacheRequestMetrics {
+pub(crate) struct KvRequestMetrics {
     total_requests: AtomicU64,
     hits: AtomicU64,
     misses: AtomicU64,
@@ -29,7 +29,7 @@ pub(crate) struct CacheRequestMetrics {
     latency_samples_micros: Mutex<Vec<u64>>,
 }
 
-impl CacheRequestMetrics {
+impl KvRequestMetrics {
     pub(crate) fn record(&self, latency: Duration, hit: Option<bool>, error: bool) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         if error {
@@ -51,7 +51,7 @@ impl CacheRequestMetrics {
         let mut samples = self
             .latency_samples_micros
             .lock()
-            .expect("cache metrics latency lock poisoned");
+            .expect("kv metrics latency lock poisoned");
         if samples.len() >= MAX_LATENCY_SAMPLES {
             samples.remove(0);
         }
@@ -66,11 +66,11 @@ impl CacheRequestMetrics {
         self.total_latency_micros.store(0, Ordering::Relaxed);
         self.latency_samples_micros
             .lock()
-            .expect("cache metrics latency lock poisoned")
+            .expect("kv metrics latency lock poisoned")
             .clear();
     }
 
-    pub(crate) fn snapshot(&self) -> CacheRequestMetricsSnapshot {
+    pub(crate) fn snapshot(&self) -> KvRequestMetricsSnapshot {
         let total_requests = self.total_requests.load(Ordering::Relaxed);
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
@@ -79,12 +79,12 @@ impl CacheRequestMetrics {
         let mut samples = self
             .latency_samples_micros
             .lock()
-            .expect("cache metrics latency lock poisoned")
+            .expect("kv metrics latency lock poisoned")
             .clone();
         samples.sort_unstable();
 
         let measured = hits + misses;
-        CacheRequestMetricsSnapshot {
+        KvRequestMetricsSnapshot {
             available: true,
             scope: "process".to_string(),
             total_requests,

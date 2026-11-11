@@ -1,6 +1,6 @@
-use crate::cache::{CacheError, CacheLayerManager, Result};
+use crate::cache::{KvError, KvLayerManager, Result};
 
-impl CacheLayerManager {
+impl KvLayerManager {
     pub(in crate::cache) fn entity_collection(&self, entity_type: &str) -> String {
         Self::entity_collection_with_namespace(&self.namespace(), entity_type)
     }
@@ -26,7 +26,7 @@ impl CacheLayerManager {
         if ENTITY_TYPES.contains(&entity_type) {
             return Ok(());
         }
-        Err(CacheError::Validation(Self::invalid_entity_type_message(
+        Err(KvError::Validation(Self::invalid_entity_type_message(
             entity_type,
             &ENTITY_TYPES.join(", "),
         )))

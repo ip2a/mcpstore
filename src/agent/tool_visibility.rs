@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::cache::models::{
     ContextToolVisibilityState, SessionScope, SessionToolItem, ToolVisibilityMode,
 };
-use crate::cache::CacheError;
+use crate::cache::KvError;
 use crate::store::prelude::*;
 
 pub(crate) const CONTEXT_TOOL_VISIBILITY_STATE_TYPE: &str = "context_tool_visibility";
@@ -185,11 +185,11 @@ impl MCPStore {
                 .await
             {
                 Ok(()) => return Ok(state),
-                Err(CacheError::Conflict(_)) => continue,
+                Err(KvError::Conflict(_)) => continue,
                 Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(Error::from(CacheError::Conflict(format!(
+        Err(Error::from(KvError::Conflict(format!(
             "context tool visibility conflict after retries: state_key={state_key}"
         ))))
     }

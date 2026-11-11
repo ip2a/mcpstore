@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::cache::{CacheError, CacheLayerManager, Result};
+use crate::cache::{KvError, KvLayerManager, Result};
 
-impl CacheLayerManager {
+impl KvLayerManager {
     pub async fn put_state(
         &self,
         state_type: &str,
@@ -12,7 +12,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "state_type={state_type}, key={key}"
             )));
         }
@@ -23,7 +23,7 @@ impl CacheLayerManager {
             .await;
         if changed {
             tracing::debug!(
-                "[CACHE] [STATE] [PUT_VALUE] collection={collection}, key={key}, value={value}"
+                "[KV] [STATE] [PUT_VALUE] collection={collection}, key={key}, value={value}"
             );
         }
         let started_at = Instant::now();
@@ -42,7 +42,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "state_type={state_type}, key={key}"
             )));
         }
@@ -72,7 +72,7 @@ impl CacheLayerManager {
         let changed = self.has_state_changed(&state_key, &result).await;
         if changed {
             tracing::debug!(
-                "[CACHE] [STATE] [GET_RESULT] collection={collection}, key={key}, result={result:?}"
+                "[KV] [STATE] [GET_RESULT] collection={collection}, key={key}, result={result:?}"
             );
         }
         Ok(result)

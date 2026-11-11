@@ -8,7 +8,6 @@ pub(crate) mod inspect;
 pub(crate) mod layer;
 #[cfg(test)]
 mod layer_tests;
-pub(crate) mod live_store;
 pub(crate) mod metrics;
 pub mod models;
 #[cfg(feature = "redis")]
@@ -19,11 +18,17 @@ pub mod serializer;
 pub(crate) mod service_projection;
 pub(crate) mod snapshot;
 pub(crate) mod state;
+pub(crate) mod store;
 pub(crate) mod storage;
+#[cfg(feature = "valkey")]
+pub(crate) mod valkey;
 
-pub use layer::{CacheError, CacheLayerManager, CacheSnapshot, Result};
-pub use metrics::CacheRequestMetricsSnapshot;
+pub use layer::{KvError, KvLayerManager, KvSnapshot, Result};
+pub use metrics::KvRequestMetricsSnapshot;
+pub(crate) use store::KvStore;
 
+pub(crate) use storage::memory_kv_store;
 #[cfg(feature = "redis")]
-pub(crate) use storage::redis_store;
-pub(crate) use storage::{memory_cache_store, CacheStore};
+pub(crate) use storage::redis_kv_store;
+#[cfg(feature = "valkey")]
+pub(crate) use storage::valkey_kv_store;

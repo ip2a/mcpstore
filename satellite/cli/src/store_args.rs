@@ -248,9 +248,9 @@ impl StoreAccess {
         }
     }
 
-    pub async fn cache_identity(&mut self) -> Result<String, BoxErr> {
+    pub async fn store_identity(&mut self) -> Result<String, BoxErr> {
         match self {
-            Self::Embedded(store) => Ok(store.cache_identity().await),
+            Self::Embedded(store) => Ok(store.store_identity().await),
             Self::Remote(client) => {
                 let (result, _) = client
                     .request(

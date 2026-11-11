@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::cache::{CacheError, CacheLayerManager};
+use crate::cache::{KvError, KvLayerManager};
 use crate::events::types::EventKind;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
@@ -19,7 +19,7 @@ pub enum ServiceStateManagerError {
     #[error(transparent)]
     InvalidTransition(#[from] ServiceStateError),
     #[error(transparent)]
-    Cache(#[from] CacheError),
+    Cache(#[from] KvError),
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
 }
@@ -28,14 +28,14 @@ pub enum ServiceStateManagerError {
 pub const CONTROL_NODE_ID: &str = "control";
 
 pub struct ServiceStateManager {
-    cache: Arc<CacheLayerManager>,
+    cache: Arc<KvLayerManager>,
     event_bus: EventBus,
     panel_id: String,
     locks: Mutex<HashMap<InstanceId, Arc<Mutex<()>>>>,
 }
 
 impl ServiceStateManager {
-    pub fn new(cache: Arc<CacheLayerManager>, event_bus: EventBus, panel_id: String) -> Self {
+    pub fn new(cache: Arc<KvLayerManager>, event_bus: EventBus, panel_id: String) -> Self {
         Self {
             cache,
             event_bus,
@@ -186,7 +186,7 @@ impl ServiceStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::storage::memory_cache_store;
+    use crate::cache::storage::memory_kv_store;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::state::{AuthState, DesiredState, RuntimePhase};
 
@@ -196,7 +196,7 @@ mod tests {
 
     fn manager_as(panel_id: &str) -> (Arc<ServiceStateManager>, EventBus) {
         let event_bus = EventBus::with_history(10);
-        let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "state-test"));
+        let cache = Arc::new(KvLayerManager::new(memory_kv_store(), "state-test"));
         (
             Arc::new(ServiceStateManager::new(
                 cache,
@@ -223,7 +223,7 @@ mod tests {
     async fn node_columns_do_not_clobber_each_other() {
         // A(control) and B(worker) share one storage: B's writes only land in its own column,
         // the control authoritative column is never cross-written (pitfall 3 fix); display reads prefer control.
-        let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "state-cols"));
+        let cache = Arc::new(KvLayerManager::new(memory_kv_store(), "state-cols"));
         let bus = EventBus::with_history(10);
         let control = Arc::new(ServiceStateManager::new(
             cache.clone(),
@@ -327,7 +327,7 @@ mod tests {
         let result = manager.create(state).await;
         assert!(matches!(
             result,
-            Err(ServiceStateManagerError::Cache(CacheError::Conflict(_)))
+            Err(ServiceStateManagerError::Cache(KvError::Conflict(_)))
         ));
     }
 }

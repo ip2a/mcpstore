@@ -146,7 +146,7 @@ impl ControlPlane {
         store
             .sync_definition_projection(service_name, &server, now)
             .await?;
-        store.cache_instance_added(instance_id).await?;
+        store.upsert_instance_projection(instance_id).await?;
         Ok(instance_id)
     }
 
@@ -217,7 +217,7 @@ impl ControlPlane {
         store
             .sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
-        store.cache_instance_removed(instance_id).await?;
+        store.remove_instance_projection(instance_id).await?;
         Ok(())
     }
 }

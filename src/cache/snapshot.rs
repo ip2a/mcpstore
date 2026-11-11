@@ -2,13 +2,13 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::cache::layer::CACHE_SCHEMA_VERSION;
+use crate::cache::layer::KV_SCHEMA_VERSION;
 #[cfg(test)]
-use crate::cache::CacheError;
-use crate::cache::{CacheLayerManager, CacheStore, Result};
+use crate::cache::KvError;
+use crate::cache::{KvLayerManager, KvStore, Result};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CacheSnapshot {
+pub struct KvSnapshot {
     pub schema_version: u32,
     pub entities: HashMap<String, HashMap<String, serde_json::Value>>,
     pub relations: HashMap<String, HashMap<String, serde_json::Value>>,
@@ -16,13 +16,13 @@ pub struct CacheSnapshot {
     pub events: HashMap<String, HashMap<String, serde_json::Value>>,
 }
 
-impl CacheLayerManager {
+impl KvLayerManager {
     #[cfg(test)]
     pub(crate) async fn replace_store_with_snapshot_and_namespace(
         &self,
-        store: Arc<dyn CacheStore>,
+        store: Arc<KvStore>,
         namespace: impl Into<String>,
-    ) -> Result<CacheSnapshot> {
+    ) -> Result<KvSnapshot> {
         self.ensure_current_schema().await?;
         let current_namespace = self.namespace();
         let next_namespace = namespace.into();
@@ -36,12 +36,12 @@ impl CacheLayerManager {
         *self
             .namespace
             .write()
-            .expect("cache namespace lock poisoned") = next_namespace;
+            .expect("kv namespace lock poisoned") = next_namespace;
         self.activate_store(store).await;
         Ok(snapshot)
     }
 
-    pub async fn snapshot(&self) -> Result<CacheSnapshot> {
+    pub async fn snapshot(&self) -> Result<KvSnapshot> {
         self.ensure_current_schema().await?;
         let namespace = self.namespace();
         let store = self.active_store();
@@ -51,12 +51,12 @@ impl CacheLayerManager {
 
     async fn snapshot_from_store_with_namespace(
         &self,
-        store: &dyn CacheStore,
+        store: &KvStore,
         namespace: &str,
-    ) -> Result<CacheSnapshot> {
+    ) -> Result<KvSnapshot> {
         let collections = store.collections().await?;
-        Ok(CacheSnapshot {
-            schema_version: CACHE_SCHEMA_VERSION,
+        Ok(KvSnapshot {
+            schema_version: KV_SCHEMA_VERSION,
             entities: self
                 .snapshot_layer_from_store(store, &collections, namespace, "entity")
                 .await?,
@@ -75,14 +75,14 @@ impl CacheLayerManager {
     #[cfg(test)]
     async fn restore_to_store_with_namespace(
         &self,
-        store: &dyn CacheStore,
-        snapshot: &CacheSnapshot,
+        store: &KvStore,
+        snapshot: &KvSnapshot,
         namespace: &str,
     ) -> Result<()> {
-        if snapshot.schema_version != CACHE_SCHEMA_VERSION {
-            return Err(CacheError::Validation(format!(
-                "Unsupported cache snapshot schema version: expected {}, got {}",
-                CACHE_SCHEMA_VERSION, snapshot.schema_version
+        if snapshot.schema_version != KV_SCHEMA_VERSION {
+            return Err(KvError::Validation(format!(
+                "Unsupported kv snapshot schema version: expected {}, got {}",
+                KV_SCHEMA_VERSION, snapshot.schema_version
             )));
         }
         self.restore_layer_to_store(store, namespace, "entity", &snapshot.entities)
@@ -98,7 +98,7 @@ impl CacheLayerManager {
 
     async fn snapshot_layer_from_store(
         &self,
-        store: &dyn CacheStore,
+        store: &KvStore,
         collections: &[String],
         namespace: &str,
         layer: &str,
@@ -126,7 +126,7 @@ impl CacheLayerManager {
     #[cfg(test)]
     async fn restore_layer_to_store(
         &self,
-        store: &dyn CacheStore,
+        store: &KvStore,
         namespace: &str,
         layer: &str,
         data: &HashMap<String, HashMap<String, serde_json::Value>>,
