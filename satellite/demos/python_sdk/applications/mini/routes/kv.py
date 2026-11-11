@@ -6,7 +6,7 @@ from mcpstore.core.models import ResponseBuilder, timed_response
 from mcpstore.api.api_dependencies import get_store
 from mcpstore.api.api_decorators import validate_agent_id
 
-router = APIRouter(prefix="/cache", tags=["Mini-Cache"])
+router = APIRouter(prefix="/kv", tags=["Mini-KV"])
 
 
 def _parse_types(type_param: Optional[str]):
@@ -16,14 +16,14 @@ def _parse_types(type_param: Optional[str]):
     return parts or None
 
 
-def _summary(data, cache):
+def _summary(data, kv):
     counts = {}
     for item in data or []:
         t = item.get("_type", "unknown")
         counts[t] = counts.get(t, 0) + 1
     return {
-        "scope": cache.get_scope() if hasattr(cache, "get_scope") else None,
-        "backend": cache.get_backend_type() if hasattr(cache, "get_backend_type") else None,
+        "scope": kv.get_scope() if hasattr(kv, "get_scope") else None,
+        "backend": kv.get_backend_type() if hasattr(kv, "get_backend_type") else None,
         "counts": counts,
     }
 
@@ -32,12 +32,12 @@ def _summary(data, cache):
 @timed_response
 async def store_read_entities(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
-    cache = store.find_cache()
+    kv = store.find_kv()
     types = _parse_types(type)
-    data = await cache.read_entity_async(types, key)
+    data = await kv.read_entity_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条实体",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -45,12 +45,12 @@ async def store_read_entities(type: Optional[str] = Query(None), key: Optional[s
 @timed_response
 async def store_read_relations(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
-    cache = store.find_cache()
+    kv = store.find_kv()
     types = _parse_types(type)
-    data = await cache.read_relation_async(types, key)
+    data = await kv.read_relation_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条关系",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -58,12 +58,12 @@ async def store_read_relations(type: Optional[str] = Query(None), key: Optional[
 @timed_response
 async def store_read_states(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
-    cache = store.find_cache()
+    kv = store.find_kv()
     types = _parse_types(type)
-    data = await cache.read_state_async(types, key)
+    data = await kv.read_state_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条状态",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -71,8 +71,8 @@ async def store_read_states(type: Optional[str] = Query(None), key: Optional[str
 @timed_response
 async def store_inspect():
     store = get_store()
-    cache = store.find_cache()
-    data = await cache.inspect_async()
+    kv = store.find_kv()
+    data = await kv.inspect_async()
     return ResponseBuilder.success(message="缓存检查", data=data)
 
 
@@ -80,8 +80,8 @@ async def store_inspect():
 @timed_response
 async def store_dump():
     store = get_store()
-    cache = store.find_cache()
-    data = await cache.dump_all_async()
+    kv = store.find_kv()
+    data = await kv.dump_all_async()
     return ResponseBuilder.success(message="缓存导出", data=data)
 
 
@@ -90,12 +90,12 @@ async def store_dump():
 async def agent_read_entities(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
     store = get_store()
-    cache = store.for_agent(agent_id).find_cache()
+    kv = store.for_agent(agent_id).find_kv()
     types = _parse_types(type)
-    data = await cache.read_entity_async(types, key)
+    data = await kv.read_entity_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条实体（agent={agent_id}）",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -104,12 +104,12 @@ async def agent_read_entities(agent_id: str, type: Optional[str] = Query(None), 
 async def agent_read_relations(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
     store = get_store()
-    cache = store.for_agent(agent_id).find_cache()
+    kv = store.for_agent(agent_id).find_kv()
     types = _parse_types(type)
-    data = await cache.read_relation_async(types, key)
+    data = await kv.read_relation_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条关系（agent={agent_id}）",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -118,12 +118,12 @@ async def agent_read_relations(agent_id: str, type: Optional[str] = Query(None),
 async def agent_read_states(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
     store = get_store()
-    cache = store.for_agent(agent_id).find_cache()
+    kv = store.for_agent(agent_id).find_kv()
     types = _parse_types(type)
-    data = await cache.read_state_async(types, key)
+    data = await kv.read_state_async(types, key)
     return ResponseBuilder.success(
         message=f"返回 {len(data)} 条状态（agent={agent_id}）",
-        data={"items": data, "summary": _summary(data, cache)}
+        data={"items": data, "summary": _summary(data, kv)}
     )
 
 
@@ -132,8 +132,8 @@ async def agent_read_states(agent_id: str, type: Optional[str] = Query(None), ke
 async def agent_inspect(agent_id: str):
     validate_agent_id(agent_id)
     store = get_store()
-    cache = store.for_agent(agent_id).find_cache()
-    data = await cache.inspect_async()
+    kv = store.for_agent(agent_id).find_kv()
+    data = await kv.inspect_async()
     return ResponseBuilder.success(message=f"缓存检查（agent={agent_id}）", data=data)
 
 
@@ -142,6 +142,6 @@ async def agent_inspect(agent_id: str):
 async def agent_dump(agent_id: str):
     validate_agent_id(agent_id)
     store = get_store()
-    cache = store.for_agent(agent_id).find_cache()
-    data = await cache.dump_all_async()
+    kv = store.for_agent(agent_id).find_kv()
+    data = await kv.dump_all_async()
     return ResponseBuilder.success(message=f"缓存导出（agent={agent_id}）", data=data)

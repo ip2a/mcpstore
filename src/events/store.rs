@@ -26,7 +26,7 @@ impl MCPStore {
             "event_bus": report.event_bus,
             "history": report.history,
             "history_capacity": report.history_capacity,
-            "cache_event_layer": report.cache_event_layer,
+            "kv_event_layer": report.kv_event_layer,
         })
     }
 
@@ -40,7 +40,7 @@ impl MCPStore {
                 .event_bus
                 .history_capacity()
                 .unwrap_or(0),
-            cache_event_layer: true,
+            kv_event_layer: true,
         }
     }
 }

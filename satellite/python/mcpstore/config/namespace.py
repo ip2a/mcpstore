@@ -1,4 +1,4 @@
-"""Cache namespace helpers."""
+"""KV namespace helpers."""
 
 from __future__ import annotations
 

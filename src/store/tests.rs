@@ -1418,7 +1418,7 @@ async fn openapi_import_persists_shared_analysis_result() {
     assert_eq!(last_import.service_name, "inventory");
     assert_eq!(store.list_openapi_imports().await.unwrap().len(), 1);
 
-    let inspect = store.cache_inspect().await.unwrap();
+    let inspect = store.kv_inspect().await.unwrap();
     assert_eq!(
         inspect["counts"]["states"]["openapi_import_context"],
         serde_json::json!(1)
@@ -4135,7 +4135,7 @@ async fn swap_store_updates_namespace() {
 
     assert_eq!(store.namespace(), "before-switch");
 
-    let inspect = store.cache_inspect().await.unwrap();
+    let inspect = store.kv_inspect().await.unwrap();
     assert_eq!(inspect["namespace"], serde_json::json!("before-switch"));
     let collections = inspect["collections"].as_array().unwrap();
     assert!(collections.iter().any(|value| {
@@ -4297,7 +4297,7 @@ async fn cache_inspect_includes_session_collections() {
         .await
         .unwrap();
 
-    let inspect = store.cache_inspect().await.unwrap();
+    let inspect = store.kv_inspect().await.unwrap();
     assert_eq!(inspect["counts"]["entities"]["sessions"], 1);
     assert_eq!(inspect["counts"]["relations"]["session_services"], 1);
     assert_eq!(inspect["counts"]["relations"]["session_tools"], 1);
@@ -4324,8 +4324,8 @@ async fn cache_inspect_includes_session_collections() {
             > 0
     );
 
-    store.reset_cache_request_metrics().await.unwrap();
-    let after_reset = store.cache_inspect().await.unwrap();
+    store.reset_kv_request_metrics().await.unwrap();
+    let after_reset = store.kv_inspect().await.unwrap();
     assert_eq!(after_reset["request_metrics"]["total_requests"], 0);
     assert_eq!(after_reset["request_metrics"]["hits"], 0);
     assert_eq!(after_reset["request_metrics"]["misses"], 0);
@@ -4439,7 +4439,7 @@ async fn event_history_and_cache_health_are_reported() {
     assert_eq!(history[0].event_type, "TEST_EVENT");
 
     store.add_service("svc", stdio_config()).await.unwrap();
-    let health = store.cache_health_check().await.unwrap();
+    let health = store.kv_health_check().await.unwrap();
     assert_eq!(health["store"], serde_json::json!("memory"));
     assert!(health["entities"]
         .as_array()

@@ -163,7 +163,7 @@ print("  └─ ✓ Tool called successfully")
 # ------------------------------------------------------------
 print("\n[Step 8] Keep Redis Data For ONLY_DB Reuse")
 config_for_reuse = store.for_store().show_config()
-cache_view = store.for_store().find_cache().inspect()
+cache_view = store.for_store().find_kv().inspect()
 print("  ├─ Config retained for data_plane =>")
 print(config_for_reuse)
 print(f"  ├─ Cache collections: {cache_view.get('collections')}")

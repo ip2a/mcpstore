@@ -1,8 +1,8 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn cache_health_check(&self) -> Result<serde_json::Value> {
-        let report = self.cache_health_report().await?;
+    pub async fn kv_health_check(&self) -> Result<serde_json::Value> {
+        let report = self.kv_health_report().await?;
         Ok(serde_json::json!({
             "schema_version": crate::kv::layer::KV_SCHEMA_VERSION,
             "namespace": report.namespace,
@@ -14,7 +14,7 @@ impl MCPStore {
         }))
     }
 
-    pub async fn cache_health_report(&self) -> Result<KvHealthReport> {
+    pub async fn kv_health_report(&self) -> Result<KvHealthReport> {
         let namespace = self.namespace();
         let snapshot = self.kernel.persistence.kv.snapshot().await?;
         Ok(KvHealthReport {
