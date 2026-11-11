@@ -1,5 +1,5 @@
 use crate::cache::models::{AgentInstanceRelation, InstanceRelationItem};
-use crate::cache::CacheError;
+use crate::cache::KvError;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -60,11 +60,11 @@ impl MCPStore {
                 .await
             {
                 Ok(()) => return Ok(()),
-                Err(CacheError::Conflict(_)) => continue,
+                Err(KvError::Conflict(_)) => continue,
                 Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(Error::from(CacheError::Conflict(format!(
+        Err(Error::from(KvError::Conflict(format!(
             "agent instance relation conflict after retries: agent_id={agent_id}"
         ))))
     }
@@ -128,12 +128,12 @@ impl MCPStore {
                         complete = true;
                         break;
                     }
-                    Err(CacheError::Conflict(_)) => continue,
+                    Err(KvError::Conflict(_)) => continue,
                     Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(Error::from(CacheError::Conflict(format!(
+                return Err(Error::from(KvError::Conflict(format!(
                     "agent instance relation conflict after retries: agent_id={agent_id}"
                 ))));
             }

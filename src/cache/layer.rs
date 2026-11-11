@@ -1,13 +1,13 @@
-//! MCPStore Cache Layer
+//! MCPStore KV Layer
 //!
-//! Three-layer cache architecture migrated from Python:
+//! Four logical layers over one shared-openkeyv store:
 //! - Entity Layer:    {namespace}:entity:{type}    -> Service/Tool/Agent data
 //! - Relation Layer:  {namespace}:relations:{type}  -> Agent-Service / Service-Tool mappings
 //! - State Layer:     {namespace}:state:{type}     -> Connection/Health status
 //! - Event Layer:     {namespace}:event:{type}     -> Event storage
 //!
-//! P0 priority for Rust migration. Uses openkeyv-backed storage with
-//! serde_json::Value as the universal business value type.
+//! Uses openkeyv-backed storage with serde_json::Value as the universal
+//! business value type.
 
 use arc_swap::ArcSwap;
 use arc_swap::ArcSwapAny;
@@ -17,37 +17,34 @@ use std::sync::{Arc as StdArc, RwLock as SyncRwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock as AsyncRwLock;
 
-use crate::cache::metrics::{CacheRequestMetrics, CacheRequestMetricsSnapshot};
-use crate::cache::CacheStore;
+use crate::cache::metrics::{KvRequestMetrics, KvRequestMetricsSnapshot};
+use crate::cache::store::KvStore;
 
-pub use crate::cache::snapshot::CacheSnapshot;
+pub use crate::cache::snapshot::KvSnapshot;
 
 // ==================== Error Type ====================
 
 #[derive(thiserror::Error, Debug)]
-pub enum CacheError {
+pub enum KvError {
     #[error("value must be a JSON object (dict), got: {0}")]
     NotAnObject(String),
     #[error("KV store error: {0}")]
-    Backend(String),
+    Store(String),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    #[error("cache write conflict: {0}")]
+    #[error("kv write conflict: {0}")]
     Conflict(String),
     #[error("{0}")]
     Validation(String),
 }
 
-pub type Result<T> = std::result::Result<T, CacheError>;
+pub type Result<T> = std::result::Result<T, KvError>;
 
-pub(crate) const CACHE_SCHEMA_VERSION: u32 = 2;
-pub(crate) const CACHE_SCHEMA_STATE: &str = "cache_schema";
-const CACHE_SCHEMA_KEY: &str = "current";
+pub(crate) const KV_SCHEMA_VERSION: u32 = 2;
+pub(crate) const KV_SCHEMA_STATE: &str = "kv_schema";
+const KV_SCHEMA_KEY: &str = "current";
 
-// ==================== CacheLayerManager ====================
-
-/// Central cache manager with four logical layers over a single openkeyv store.
-pub struct ActiveCacheStore(pub(crate) Arc<dyn CacheStore>);
+// ==================== KvLayerManager ====================
 
 #[derive(Clone)]
 pub(crate) enum SchemaState {
@@ -55,26 +52,26 @@ pub(crate) enum SchemaState {
     Ready,
 }
 
-pub struct CacheLayerManager {
+pub struct KvLayerManager {
     pub(crate) route: AsyncRwLock<()>,
-    pub(crate) store: ArcSwapAny<StdArc<ActiveCacheStore>>,
+    pub(crate) store: ArcSwapAny<StdArc<KvStore>>,
     pub(crate) namespace: SyncRwLock<String>,
     pub(crate) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
     pub(crate) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
-    pub(crate) metrics: CacheRequestMetrics,
+    pub(crate) metrics: KvRequestMetrics,
     pub(crate) log_interval: Duration,
     pub(crate) schema_ready: ArcSwap<SchemaState>,
 }
 
-impl CacheLayerManager {
-    pub(crate) fn new(store: Arc<dyn CacheStore>, namespace: impl Into<String>) -> Self {
+impl KvLayerManager {
+    pub(crate) fn new(store: Arc<KvStore>, namespace: impl Into<String>) -> Self {
         Self {
             route: AsyncRwLock::new(()),
-            store: ArcSwapAny::from(StdArc::new(ActiveCacheStore(store))),
+            store: ArcSwapAny::from(store),
             namespace: SyncRwLock::new(namespace.into()),
             last_empty_log: AsyncRwLock::new(HashMap::new()),
             last_state_snapshot: AsyncRwLock::new(HashMap::new()),
-            metrics: CacheRequestMetrics::default(),
+            metrics: KvRequestMetrics::default(),
             log_interval: Duration::from_secs(60),
             schema_ready: ArcSwap::from(Arc::new(SchemaState::Unverified)),
         }
@@ -83,13 +80,12 @@ impl CacheLayerManager {
     pub fn namespace(&self) -> String {
         self.namespace
             .read()
-            .expect("cache namespace lock poisoned")
+            .expect("kv namespace lock poisoned")
             .clone()
     }
 
-    pub(crate) fn active_store(&self) -> Arc<dyn CacheStore> {
-        let active = self.store.load_full();
-        active.0.clone()
+    pub(crate) fn active_store(&self) -> Arc<KvStore> {
+        self.store.load_full()
     }
 
     /// Store access for mutating operations. The mutation sites hold the shared
@@ -98,7 +94,7 @@ impl CacheLayerManager {
     /// drains, verifies and swaps; reads stay lock-free.
     pub(crate) async fn write_store(
         &self,
-    ) -> (tokio::sync::RwLockReadGuard<'_, ()>, Arc<dyn CacheStore>) {
+    ) -> (tokio::sync::RwLockReadGuard<'_, ()>, Arc<KvStore>) {
         let guard = self.route.read().await;
         let store = self.active_store();
         (guard, store)
@@ -108,7 +104,7 @@ impl CacheLayerManager {
     /// test-only snapshot replace uses the locking form — online migration
     /// holds the barrier itself and calls `activate_store_unlocked`.
     #[cfg(test)]
-    pub(crate) async fn activate_store(&self, store: Arc<dyn CacheStore>) {
+    pub(crate) async fn activate_store(&self, store: Arc<KvStore>) {
         let _barrier = self.route.write().await;
         self.activate_store_unlocked(store).await;
     }
@@ -116,13 +112,13 @@ impl CacheLayerManager {
     /// Swap the active store without taking the `route` barrier. Callers that
     /// already hold the exclusive barrier (online migration) must use this —
     /// taking the lock again would deadlock.
-    pub(crate) async fn activate_store_unlocked(&self, store: Arc<dyn CacheStore>) {
-        self.store.store(StdArc::new(ActiveCacheStore(store)));
+    pub(crate) async fn activate_store_unlocked(&self, store: Arc<KvStore>) {
+        self.store.store(store);
         self.schema_ready.store(Arc::new(SchemaState::Unverified));
         self.last_state_snapshot.write().await.clear();
     }
 
-    pub fn request_metrics_snapshot(&self) -> CacheRequestMetricsSnapshot {
+    pub fn request_metrics_snapshot(&self) -> KvRequestMetricsSnapshot {
         self.metrics.snapshot()
     }
 
@@ -149,7 +145,7 @@ impl CacheLayerManager {
             _ => {
                 log.insert(collection.to_string(), now);
                 tracing::debug!(
-                    "[CACHE] [EMPTY] Collection is empty: collection={}",
+                    "[KV] [EMPTY] Collection is empty: collection={}",
                     collection
                 );
             }
@@ -234,9 +230,9 @@ impl CacheLayerManager {
 
     async fn ensure_schema(&self) -> Result<()> {
         let namespace = self.namespace();
-        let collection = Self::state_collection_with_namespace(&namespace, CACHE_SCHEMA_STATE);
+        let collection = Self::state_collection_with_namespace(&namespace, KV_SCHEMA_STATE);
         let store = self.active_store();
-        let current = store.get(CACHE_SCHEMA_KEY, &collection).await?;
+        let current = store.get(KV_SCHEMA_KEY, &collection).await?;
         let version = current
             .as_ref()
             .and_then(|value| value.get("version"))
@@ -250,31 +246,31 @@ impl CacheLayerManager {
                         && name != collection
                         && !store.keys(&name).await?.is_empty()
                     {
-                        return Err(CacheError::Validation(
-                            "cache schema marker is missing for non-empty namespace".to_string(),
+                        return Err(KvError::Validation(
+                            "kv schema marker is missing for non-empty namespace".to_string(),
                         ));
                     }
                 }
                 store
                     .put(
-                        CACHE_SCHEMA_KEY,
-                        serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
+                        KV_SCHEMA_KEY,
+                        serde_json::json!({ "version": KV_SCHEMA_VERSION }),
                         &collection,
                     )
                     .await?;
             }
-            Some(version) if version == u64::from(CACHE_SCHEMA_VERSION) => {}
+            Some(version) if version == u64::from(KV_SCHEMA_VERSION) => {}
             _ => {
-                return Err(CacheError::Validation(format!(
-                    "cache schema mismatch: expected {}, found {version:?}",
-                    CACHE_SCHEMA_VERSION
+                return Err(KvError::Validation(format!(
+                    "kv schema mismatch: expected {}, found {version:?}",
+                    KV_SCHEMA_VERSION
                 )));
             }
         }
         Ok(())
     }
 
-    pub(crate) async fn clear_namespace(store: &dyn CacheStore, namespace: &str) -> Result<()> {
+    pub(crate) async fn clear_namespace(store: &KvStore, namespace: &str) -> Result<()> {
         let prefix = format!("{namespace}:");
         for collection in store.collections().await? {
             if !collection.starts_with(&prefix) {

@@ -12,7 +12,7 @@ use crate::cache::models::{
     SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
     SessionStatusState, SessionToolItem, SessionToolVisibility, ToolVisibilityMode,
 };
-use crate::cache::CacheError;
+use crate::cache::KvError;
 use crate::store::prelude::*;
 
 const DEFAULT_SESSION_RETRY_ATTEMPTS: usize = 3;
@@ -1992,11 +1992,11 @@ impl MCPStore {
                 .await
             {
                 Ok(()) => return Ok(state),
-                Err(CacheError::Conflict(_)) => continue,
+                Err(KvError::Conflict(_)) => continue,
                 Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(Error::from(CacheError::Conflict(format!(
+        Err(Error::from(KvError::Conflict(format!(
             "session context state conflict after retries: context_key={context_key}"
         ))))
     }
@@ -2010,11 +2010,11 @@ impl MCPStore {
             session.version += 1;
             match self.store_session_entity(&session, expected_version).await {
                 Ok(()) => return Ok(()),
-                Err(error) if Self::is_cache_conflict(&error) => continue,
+                Err(error) if Self::is_kv_conflict(&error) => continue,
                 Err(error) => return Err(error),
             }
         }
-        Err(Error::from(CacheError::Conflict(format!(
+        Err(Error::from(KvError::Conflict(format!(
             "session touch conflict after retries: session_key={session_key}"
         ))))
     }
@@ -2032,7 +2032,7 @@ impl MCPStore {
         for attempt in 0..max_attempts {
             match operation().await {
                 Ok(value) => return Ok(value),
-                Err(error) if Self::is_cache_conflict(&error) => {
+                Err(error) if Self::is_kv_conflict(&error) => {
                     last_conflict = Some(error);
                     if attempt + 1 < max_attempts && policy.delay_millis > 0 {
                         tokio::time::sleep(Duration::from_millis(policy.delay_millis)).await;
@@ -2042,7 +2042,7 @@ impl MCPStore {
             }
         }
         Err(last_conflict.unwrap_or_else(|| {
-            Error::from(CacheError::Conflict(
+            Error::from(KvError::Conflict(
                 "session write conflict after retries".to_string(),
             ))
         }))
@@ -2599,7 +2599,7 @@ impl MCPStore {
     }
 
     fn session_import_conflict(kind: &str, key: &str) -> Error {
-        Error::from(CacheError::Conflict(format!(
+        Error::from(KvError::Conflict(format!(
             "session import conflict: kind={kind}, key={key}"
         )))
     }
@@ -2667,10 +2667,10 @@ impl MCPStore {
         Ok(())
     }
 
-    fn is_cache_conflict(error: &Error) -> bool {
-        // ponytail: conflict signal rides the message prefix; CacheError has no dedicated code
+    fn is_kv_conflict(error: &Error) -> bool {
+        // ponytail: conflict signal rides the message prefix; KvError has no dedicated code
         error.code() == FailureCode::TaskStateFailed
-            && error.message().starts_with("cache write conflict")
+            && error.message().starts_with("kv write conflict")
     }
 }
 

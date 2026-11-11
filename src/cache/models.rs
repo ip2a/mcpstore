@@ -5,7 +5,7 @@ use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheHealthReport {
+pub struct KvHealthReport {
     pub namespace: String,
     pub store: String,
     pub entities: Vec<String>,

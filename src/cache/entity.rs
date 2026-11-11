@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::cache::{models, serializer, CacheError, CacheLayerManager, Result};
+use crate::cache::{models, serializer, KvError, KvLayerManager, Result};
 
-impl CacheLayerManager {
+impl KvLayerManager {
     pub async fn put_entity(
         &self,
         entity_type: &str,
@@ -12,7 +12,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "entity_type={entity_type}, key={key}"
             )));
         }
@@ -34,7 +34,7 @@ impl CacheLayerManager {
     ) -> Result<()> {
         self.ensure_current_schema().await?;
         if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
+            return Err(KvError::NotAnObject(format!(
                 "entity_type={entity_type}, key={key}"
             )));
         }
@@ -127,16 +127,16 @@ impl CacheLayerManager {
 
     pub async fn create_agent(&self, agent_id: &str, created_time: i64) -> Result<()> {
         if agent_id.is_empty() {
-            return Err(CacheError::Validation("Agent ID cannot be empty".into()));
+            return Err(KvError::Validation("Agent ID cannot be empty".into()));
         }
         // Reserve "all" as a system scope name
         if agent_id.eq_ignore_ascii_case("all") {
-            return Err(CacheError::Validation(
+            return Err(KvError::Validation(
                 "Agent ID 'all' is reserved for system use".into(),
             ));
         }
         if self.get_entity("agents", agent_id).await?.is_some() {
-            return Err(CacheError::Validation(format!(
+            return Err(KvError::Validation(format!(
                 "Agent already exists: agent_id={agent_id}"
             )));
         }
@@ -147,13 +147,13 @@ impl CacheLayerManager {
         };
         let value = serializer::to_value(&entity)?;
         self.put_entity("agents", agent_id, value).await?;
-        tracing::info!("[CACHE] [AGENT] Created Agent entity: agent_id={agent_id}");
+        tracing::info!("[KV] [AGENT] Created Agent entity: agent_id={agent_id}");
         Ok(())
     }
 
     pub async fn get_agent(&self, agent_id: &str) -> Result<Option<serde_json::Value>> {
         if agent_id.is_empty() {
-            return Err(CacheError::Validation("Agent ID cannot be empty".into()));
+            return Err(KvError::Validation("Agent ID cannot be empty".into()));
         }
         self.get_entity("agents", agent_id).await
     }

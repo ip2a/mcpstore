@@ -5,7 +5,7 @@
 
 use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
 
-use crate::cache::CacheLayerManager;
+use crate::cache::KvLayerManager;
 use crate::store::prelude::*;
 
 /// Projection-relevant collections, by layer. This one list drives the shared
@@ -41,10 +41,10 @@ impl MCPStore {
             .iter()
             .map(|(layer, name)| match *layer {
                 "entity" => {
-                    CacheLayerManager::entity_collection_with_namespace(&namespace, name)
+                    KvLayerManager::entity_collection_with_namespace(&namespace, name)
                 }
-                "state" => CacheLayerManager::state_collection_with_namespace(&namespace, name),
-                _ => CacheLayerManager::relation_collection_with_namespace(&namespace, name),
+                "state" => KvLayerManager::state_collection_with_namespace(&namespace, name),
+                _ => KvLayerManager::relation_collection_with_namespace(&namespace, name),
             })
             .collect();
         let subscription = snapshot

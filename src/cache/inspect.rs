@@ -19,7 +19,7 @@ const RELATION_TYPES: &[&str] = &[
     "session_tools",
 ];
 const STATE_TYPES: &[&str] = &[
-    "cache_schema",
+    "kv_schema",
     "service_state",
     "instance_metadata",
     "session_status",

@@ -15,7 +15,7 @@ use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation
 use serde_json::Value;
 
 use crate::cache::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
-use crate::cache::CacheLayerManager;
+use crate::cache::KvLayerManager;
 use crate::store::prelude::*;
 use crate::store::{EventBackendSnapshot, MCPStore, PanelRole};
 
@@ -123,7 +123,7 @@ impl MCPStore {
         snapshot: &EventBackendSnapshot,
     ) -> Result<openkeyv::ChangeSubscription> {
         let collection =
-            CacheLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
+            KvLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
         snapshot
             .backend
             .subscribe(ChangeFeedRequest {
@@ -219,7 +219,7 @@ impl MCPStore {
         // to the 1s retry sleep.
         loop {
             let mut snapshot = self.event_backend_snapshot().await?;
-            let collection = CacheLayerManager::entity_collection_with_namespace(
+            let collection = KvLayerManager::entity_collection_with_namespace(
                 &self.namespace(),
                 REQUESTS,
             );

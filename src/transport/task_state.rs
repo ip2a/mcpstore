@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::cache::CacheLayerManager;
+use crate::cache::KvLayerManager;
 use crate::identity::InstanceId;
 use crate::transport::tasks::{McpTask, McpTaskStatus};
 
@@ -23,11 +23,11 @@ pub struct McpTaskRecord {
 
 #[derive(Clone)]
 pub(crate) struct TaskStateStore {
-    cache: Arc<CacheLayerManager>,
+    cache: Arc<KvLayerManager>,
 }
 
 impl TaskStateStore {
-    pub(crate) fn new(cache: Arc<CacheLayerManager>) -> Self {
+    pub(crate) fn new(cache: Arc<KvLayerManager>) -> Self {
         Self { cache }
     }
 
@@ -149,7 +149,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::cache::{memory_cache_store, CacheLayerManager};
+    use crate::cache::{memory_kv_store, KvLayerManager};
     use crate::identity::{ScopeRef, ServiceInstanceKey};
 
     fn instance(service_name: &str) -> InstanceId {
@@ -171,8 +171,8 @@ mod tests {
 
     #[tokio::test]
     async fn persists_task_records_and_rehydrates_them() {
-        let backend = memory_cache_store();
-        let first = TaskStateStore::new(Arc::new(CacheLayerManager::new(
+        let backend = memory_kv_store();
+        let first = TaskStateStore::new(Arc::new(KvLayerManager::new(
             backend.clone(),
             "task-state",
         )));
@@ -186,7 +186,7 @@ mod tests {
             .await
             .unwrap();
 
-        let second = TaskStateStore::new(Arc::new(CacheLayerManager::new(backend, "task-state")));
+        let second = TaskStateStore::new(Arc::new(KvLayerManager::new(backend, "task-state")));
         let records = second.list(instance_id).await.unwrap();
         assert_eq!(records, vec![observed]);
         assert_eq!(records[0].tool_name.as_deref(), Some("long_tool"));
@@ -195,8 +195,8 @@ mod tests {
 
     #[tokio::test]
     async fn task_ids_are_isolated_by_instance() {
-        let state = TaskStateStore::new(Arc::new(CacheLayerManager::new(
-            memory_cache_store(),
+        let state = TaskStateStore::new(Arc::new(KvLayerManager::new(
+            memory_kv_store(),
             "task-state",
         )));
         let first = state
@@ -222,8 +222,8 @@ mod tests {
 
     #[tokio::test]
     async fn disconnect_marks_non_terminal_tasks_without_touching_terminal_tasks() {
-        let state = TaskStateStore::new(Arc::new(CacheLayerManager::new(
-            memory_cache_store(),
+        let state = TaskStateStore::new(Arc::new(KvLayerManager::new(
+            memory_kv_store(),
             "task-state",
         )));
         let instance_id = instance("alpha");
@@ -262,8 +262,8 @@ mod tests {
 
     #[tokio::test]
     async fn result_error_does_not_delete_task_record() {
-        let state = TaskStateStore::new(Arc::new(CacheLayerManager::new(
-            memory_cache_store(),
+        let state = TaskStateStore::new(Arc::new(KvLayerManager::new(
+            memory_kv_store(),
             "task-state",
         )));
         let instance_id = instance("alpha");

@@ -6,7 +6,7 @@ use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::cache::CacheLayerManager;
+use crate::cache::KvLayerManager;
 use crate::store::prelude::*;
 use crate::store::PanelRole;
 
@@ -153,7 +153,7 @@ impl MCPStore {
         // to the 1s retry sleep.
         loop {
             let mut snapshot = self.event_backend_snapshot().await?;
-            let collection = CacheLayerManager::entity_collection_with_namespace(
+            let collection = KvLayerManager::entity_collection_with_namespace(
                 &self.namespace(),
                 SERVICE_EVENTS,
             );

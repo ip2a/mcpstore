@@ -39,9 +39,9 @@ impl ControlPlane {
                 .await
                 .remove(&instance_id);
             store.kernel.control.auth.remove_status(instance_id).await;
-            store.cache_instance_removed(instance_id).await?;
+            store.remove_instance_projection(instance_id).await?;
         }
-        store.cache_definition_removed(service_name).await?;
+        store.remove_definition_projection(service_name).await?;
         store.clear_openapi_import_for_service(service_name).await?;
 
         store

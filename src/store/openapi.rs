@@ -5,7 +5,7 @@ use crate::openapi::{
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
 };
 use crate::store::prelude::*;
-use crate::store::CacheLayerManager;
+use crate::store::KvLayerManager;
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use std::collections::HashMap;
 use std::future::Future;
@@ -388,7 +388,7 @@ impl MCPStore {
             .registry
             .register_instance(instance)
             .await;
-        self.cache_instance_added(instance_id).await?;
+        self.upsert_instance_projection(instance_id).await?;
         Ok(())
     }
 
@@ -543,7 +543,7 @@ fn openapi_http_client(timeout_millis: u64) -> Result<reqwest::Client> {
 
 async fn bundle_openapi_external_refs(
     client: &reqwest::Client,
-    cache: &CacheLayerManager,
+    cache: &KvLayerManager,
     document_url: &str,
     spec: serde_json::Value,
     options: &OpenApiBundleOptions,
@@ -563,7 +563,7 @@ async fn bundle_openapi_external_refs(
 
 async fn bundle_openapi_external_ref_artifact(
     client: &reqwest::Client,
-    cache: &CacheLayerManager,
+    cache: &KvLayerManager,
     document_url: &str,
     spec: serde_json::Value,
     root_metadata: OpenApiBundleDocumentMetadata,
@@ -622,7 +622,7 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
-    cache: &'a CacheLayerManager,
+    cache: &'a KvLayerManager,
     ref_cache: OpenApiRefCachePolicy,
     documents: Mutex<HashMap<String, serde_json::Value>>,
     document_metadata: Mutex<HashMap<String, OpenApiBundleDocumentMetadata>>,
@@ -666,7 +666,7 @@ enum OpenApiHttpDocumentFetch {
 impl<'a> OpenApiExternalRefResolver<'a> {
     fn new(
         client: &'a reqwest::Client,
-        cache: &'a CacheLayerManager,
+        cache: &'a KvLayerManager,
         root_document: String,
         root_metadata: OpenApiBundleDocumentMetadata,
         ref_cache: OpenApiRefCachePolicy,

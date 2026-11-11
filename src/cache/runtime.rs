@@ -1,21 +1,23 @@
 use std::sync::Arc;
 
 #[cfg(feature = "redis")]
-use crate::cache::redis_store;
-use crate::cache::{memory_cache_store, CacheStore};
+use crate::cache::redis_kv_store;
+#[cfg(feature = "valkey")]
+use crate::cache::valkey_kv_store;
+use crate::cache::{memory_kv_store, KvStore};
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, StoreConfig};
 
 impl MCPStore {
-    pub(crate) fn build_cache_store(
+    pub(crate) fn build_kv_store(
         store_config: &JsonStoreConfig,
         default_store_address: &str,
         namespace: &str,
-    ) -> Result<Arc<dyn CacheStore>> {
+    ) -> Result<Arc<KvStore>> {
         match store_config.store_name() {
-            "memory" => Ok(memory_cache_store()),
+            "memory" => Ok(memory_kv_store()),
             #[cfg(feature = "redis")]
-            "redis" => Ok(redis_store(
+            "redis" => Ok(redis_kv_store(
                 store_config
                     .config
                     .get("url")
@@ -23,9 +25,8 @@ impl MCPStore {
                     .unwrap_or(default_store_address),
                 namespace,
             )),
-            // Valkey speaks RESP; the data path reuses the redis client.
-            #[cfg(feature = "redis")]
-            "valkey" => Ok(redis_store(
+            #[cfg(feature = "valkey")]
+            "valkey" => Ok(valkey_kv_store(
                 store_config
                     .config
                     .get("url")
@@ -52,9 +53,9 @@ impl MCPStore {
             .to_string()
     }
 
-    /// Stable identity for caller-side caches. It distinguishes backend config
+    /// Stable identity for caller-side memoization keys. It distinguishes store config
     /// and namespace even when service instance IDs collide.
-    pub async fn cache_identity(&self) -> String {
+    pub async fn store_identity(&self) -> String {
         let config = self.kernel.persistence.store_config.read().await;
         let serialized = format!("{}:{}", config.store_name(), config.config);
         drop(config);

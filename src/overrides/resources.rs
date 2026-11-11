@@ -317,7 +317,7 @@ impl MCPStore {
 }
 
 async fn load_rule<T: for<'de> Deserialize<'de>>(
-    cache: &std::sync::Arc<crate::cache::CacheLayerManager>,
+    cache: &std::sync::Arc<crate::cache::KvLayerManager>,
     state: &str,
     i: InstanceId,
     key: &str,
@@ -337,7 +337,7 @@ async fn load_rule<T: for<'de> Deserialize<'de>>(
         .transpose()
 }
 async fn list_rules<T: for<'de> Deserialize<'de>, F: FnMut(&T, &T) -> std::cmp::Ordering>(
-    cache: &std::sync::Arc<crate::cache::CacheLayerManager>,
+    cache: &std::sync::Arc<crate::cache::KvLayerManager>,
     state: &str,
     mut cmp: F,
 ) -> Result<Vec<T>> {

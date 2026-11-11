@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use openkeyv::{AsyncKeyValue, MigrationOptions};
 
-use crate::cache::live_store::LiveStore;
-use crate::cache::{CacheLayerManager, CacheStore};
+use crate::cache::store::KvStore;
+use crate::cache::KvLayerManager;
 use crate::store::kernel::persistence::EventBackend;
 use crate::store::kernel::persistence::PersistenceRouter;
 use crate::store::prelude::*;
@@ -45,8 +45,8 @@ impl PersistenceRouter {
 
         let source_name = self.store_config.read().await.store_name().to_string();
         let target_name = config.store_name().to_string();
-        let target_live_store = Arc::new(LiveStore::from_handle(target_handle));
-        let target_handle = target_live_store.handle();
+        let target_kv_store = Arc::new(KvStore::from_handle(target_handle));
+        let target_handle = target_kv_store.handle();
         let target_event_backend = EventBackend::from_store(target_handle.clone());
         let mut copied = 0;
         let mut replayed = 0;
@@ -58,7 +58,7 @@ impl PersistenceRouter {
         let mut changes = None;
         if online {
             let source = self.open_source_event_backend().await?;
-            CacheLayerManager::clear_namespace(target_live_store.as_ref(), &namespace).await?;
+            KvLayerManager::clear_namespace(target_kv_store.as_ref(), &namespace).await?;
             let (report, stream) = openkeyv::copy_snapshot_with_feed(
                 source.cap(),
                 &target_handle,
@@ -147,7 +147,7 @@ impl PersistenceRouter {
             // Target without a feed: snapshot and copy under the barrier, so
             // the switch is exact by construction.
             let snapshot = self.cache.snapshot().await?;
-            CacheLayerManager::clear_namespace(target_live_store.as_ref(), &namespace).await?;
+            KvLayerManager::clear_namespace(target_kv_store.as_ref(), &namespace).await?;
             let layers = [
                 ("entity", &snapshot.entities),
                 ("relations", &snapshot.relations),
@@ -158,7 +158,7 @@ impl PersistenceRouter {
                 for (suffix, entries) in *data {
                     let collection = format!("{namespace}:{layer}:{suffix}");
                     for (key, value) in entries {
-                        target_live_store
+                        target_kv_store
                             .put(key, value.clone(), &collection)
                             .await?;
                         copied += 1;
@@ -179,7 +179,7 @@ impl PersistenceRouter {
                 .map_err(|e| Error::new(FailureCode::Internal, format!("migration marker: {e}")))?;
         }
 
-        self.cache.activate_store_unlocked(target_live_store).await;
+        self.cache.activate_store_unlocked(target_kv_store).await;
         let pause_ms = u64::try_from(pause_started.elapsed().as_millis()).unwrap_or(u64::MAX);
         drop(_barrier);
 

@@ -316,7 +316,7 @@ impl MCPStore {
                 .registry
                 .register_instance(instance)
                 .await;
-            self.cache_instance_added(instance_id).await?;
+            self.upsert_instance_projection(instance_id).await?;
             self.kernel
                 .control
                 .auth
@@ -341,7 +341,7 @@ impl MCPStore {
                 .unregister_instance(instance_id)
                 .await;
             self.kernel.control.auth.remove_status(instance_id).await;
-            self.cache_instance_removed(instance_id).await?;
+            self.remove_instance_projection(instance_id).await?;
         }
         Ok(())
     }
@@ -378,7 +378,7 @@ impl MCPStore {
             .registry
             .register_definition(definition.clone())
             .await;
-        self.cache_definition(&definition).await
+        self.upsert_definition_projection(&definition).await
     }
 
     pub(crate) fn server_config_from_definition(

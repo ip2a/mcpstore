@@ -1089,11 +1089,11 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         meta: None,
     }];
     source
-        .cache_instance_connected(instance_id, &tool_infos)
+        .upsert_instance_tools_projection(instance_id, &tool_infos)
         .await
         .unwrap();
     source
-        .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
+        .upsert_instance_tools_projection(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
         .unwrap();
     source
@@ -1178,7 +1178,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
 }
 
 #[tokio::test]
-async fn local_reset_preserves_cache_schema_marker() {
+async fn local_reset_preserves_kv_schema_marker() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store
@@ -1202,11 +1202,11 @@ async fn local_reset_preserves_cache_schema_marker() {
     assert_eq!(
         store
             .cache()
-            .get_state(crate::cache::layer::CACHE_SCHEMA_STATE, "current")
+            .get_state(crate::cache::layer::KV_SCHEMA_STATE, "current")
             .await
             .unwrap(),
         Some(serde_json::json!({
-            "version": crate::cache::layer::CACHE_SCHEMA_VERSION
+            "version": crate::cache::layer::KV_SCHEMA_VERSION
         }))
     );
 
@@ -4493,7 +4493,7 @@ async fn install_registry_tools(
     tools: Vec<crate::registry::ToolInfo>,
 ) {
     store
-        .cache_instance_connected(instance_id, &tools)
+        .upsert_instance_tools_projection(instance_id, &tools)
         .await
         .unwrap();
 }
@@ -5778,7 +5778,7 @@ mod scoped_contract {
 
     async fn install_tool(store: &MCPStore, instance_id: InstanceId, tool_info: ToolInfo) {
         store
-            .cache_instance_connected(instance_id, &[tool_info])
+            .upsert_instance_tools_projection(instance_id, &[tool_info])
             .await
             .unwrap();
     }
@@ -6153,7 +6153,7 @@ mod scoped_contract {
 
         let store_instance_id = instance_id("svc", store_scope());
         store
-            .cache_instance_connected(store_instance_id, &[tool("echo")])
+            .upsert_instance_tools_projection(store_instance_id, &[tool("echo")])
             .await
             .unwrap();
         store
@@ -6368,7 +6368,7 @@ mod scoped_contract {
             .unwrap();
 
         store
-            .cache_instance_connected(instance_id, &[tool("echo")])
+            .upsert_instance_tools_projection(instance_id, &[tool("echo")])
             .await
             .unwrap();
         store.mark_instance_applied(instance_id).await.unwrap();
@@ -6905,15 +6905,15 @@ mod scoped_contract {
         install_tool(&store, agent_1_id, tool("agent-1-tool")).await;
         install_tool(&store, agent_2_id, tool("agent-2-tool")).await;
         store
-            .cache_instance_connected(store_id, &[tool("store-tool")])
+            .upsert_instance_tools_projection(store_id, &[tool("store-tool")])
             .await
             .unwrap();
         store
-            .cache_instance_connected(agent_1_id, &[tool("agent-1-tool")])
+            .upsert_instance_tools_projection(agent_1_id, &[tool("agent-1-tool")])
             .await
             .unwrap();
         store
-            .cache_instance_connected(agent_2_id, &[tool("agent-2-tool")])
+            .upsert_instance_tools_projection(agent_2_id, &[tool("agent-2-tool")])
             .await
             .unwrap();
 
@@ -7778,8 +7778,8 @@ mod swap_and_cache_tests {
         let first = MCPStore::setup_with_options(options("tenant-a")).unwrap();
         let second = MCPStore::setup_with_options(options("tenant-a")).unwrap();
         let third = MCPStore::setup_with_options(options("tenant-b")).unwrap();
-        assert_eq!(first.cache_identity().await, second.cache_identity().await);
-        assert_ne!(first.cache_identity().await, third.cache_identity().await);
+        assert_eq!(first.store_identity().await, second.store_identity().await);
+        assert_ne!(first.store_identity().await, third.store_identity().await);
 
         std::fs::remove_file(path).ok();
     }
@@ -7830,7 +7830,7 @@ mod swap_and_cache_tests {
     #[cfg(all(feature = "shm", unix))]
     mod shm_swap {
         use super::*;
-        use crate::cache::CacheLayerManager;
+        use crate::cache::KvLayerManager;
         use openkeyv::AsyncChangeFeed;
         use std::os::unix::fs::PermissionsExt;
 
@@ -8087,7 +8087,7 @@ mod swap_and_cache_tests {
 
             let fresh = store.event_backend_snapshot().await.unwrap();
             assert_eq!(fresh.generation, 1);
-            let collection = CacheLayerManager::entity_collection_with_namespace(
+            let collection = KvLayerManager::entity_collection_with_namespace(
                 &store.namespace(),
                 "clients",
             );

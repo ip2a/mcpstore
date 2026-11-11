@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::RwLock as SyncRwLock;
 
 pub(crate) use crate::cache::models::OpenApiImportContextState;
-pub(crate) use crate::cache::CacheLayerManager;
+pub(crate) use crate::cache::KvLayerManager;
 pub(crate) use crate::config::{ConfigManager, ServerConfig, StartupPolicy};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
@@ -33,7 +33,7 @@ use runtime::StoreRuntimeConfig;
 
 pub use crate::agent::models::{ScopedServiceEntry, ScopedToolEntry};
 pub use crate::agent::tool_visibility::ToolVisibilityFilter;
-pub use crate::cache::models::CacheHealthReport;
+pub use crate::cache::models::KvHealthReport;
 pub use crate::events::EventCapabilityReport;
 pub use crate::openapi::{
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
@@ -52,7 +52,7 @@ pub(crate) mod prelude {
     pub(crate) use crate::registry::{AgentInfo, ScopeSummary};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
-        CacheHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
+        KvHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
         DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
         OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
         ServiceDefinition, ServiceInstance, StartupPolicy, ToolChangeServiceResult,
@@ -131,12 +131,12 @@ impl MCPStore {
         };
         #[cfg(not(any(test, feature = "test-shared-memory")))]
         let store_name = store_name;
-        let (cache_store, event_backend) = match store_name.as_str() {
+        let (kv_store, event_backend) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = if store_config.store_name() == "memory-test-shared" {
-                    crate::cache::storage::shared_memory_cache_store_with_handle()
+                    crate::cache::storage::shared_memory_kv_store_with_handle()
                 } else {
-                    crate::cache::storage::memory_cache_store_with_handle()
+                    crate::cache::storage::memory_kv_store_with_handle()
                 };
                 let handle = openkeyv::StoreHandle::with_capabilities(
                     std::sync::Arc::new(mem.clone()),
@@ -148,17 +148,17 @@ impl MCPStore {
                 (store, Some(EventBackend::from_store(handle)))
             }
             "redis" => {
-                let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
+                let store = Self::build_kv_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend opened lazily on migration
             }
             "valkey" => {
-                let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
+                let store = Self::build_kv_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Valkey EventBackend opened lazily on migration
             }
             #[cfg(all(feature = "shm", unix))]
             "shm" => {
                 let (store, handle) =
-                    crate::cache::storage::shm_cache_store_with_handle(&store_config.config)
+                    crate::cache::storage::shm_kv_store_with_handle(&store_config.config)
                         .map_err(|e| Error::new(FailureCode::Internal, format!("shm store: {e}")))?;
                 (store, Some(EventBackend::from_store(handle)))
             }
@@ -170,7 +170,7 @@ impl MCPStore {
         };
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(10_000);
-        let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
+        let cache = std::sync::Arc::new(KvLayerManager::new(kv_store, namespace.clone()));
         let state_panel_id = match &options.panel {
             PanelRole::ControlPanel => crate::state::CONTROL_NODE_ID.to_string(),
             PanelRole::DataPanel { panel_id } => panel_id.clone(),
@@ -319,7 +319,7 @@ impl MCPStore {
         &self.kernel.control.config_manager
     }
 
-    pub fn cache(&self) -> &CacheLayerManager {
+    pub fn cache(&self) -> &KvLayerManager {
         &self.kernel.persistence.cache
     }
 

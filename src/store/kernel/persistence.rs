@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::cache::CacheLayerManager;
+use crate::cache::KvLayerManager;
 use crate::store::store_config::JsonStoreConfig;
 
 pub(crate) use backend::{EventBackend, EventBackendSnapshot};
 
 pub(crate) struct PersistenceRouter {
     pub(crate) store_config: RwLock<JsonStoreConfig>,
-    pub(crate) cache: Arc<CacheLayerManager>,
+    pub(crate) cache: Arc<KvLayerManager>,
     pub(crate) event_backend: RwLock<Option<EventBackend>>,
     /// Bumped on every cutover. Feed consumers hold a `watch::Receiver` and
     /// resubscribe through `event_backend_snapshot` when the generation moves,

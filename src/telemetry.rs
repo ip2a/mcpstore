@@ -62,7 +62,7 @@ impl RequestRecord {
 }
 
 /// Sink for completed request records. Implemented by the host (daemon SQLite
-/// log, tests, or any future backend); the SDK never persists anything itself.
+/// log, tests, or any future sink); the SDK never persists anything itself.
 pub trait RequestTelemetry: Send + Sync {
     fn record(&self, record: RequestRecord);
 }

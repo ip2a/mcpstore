@@ -1,5 +1,5 @@
 use crate::cache::models::{SessionScope, ToolPreferenceState};
-use crate::cache::CacheError;
+use crate::cache::KvError;
 use crate::store::prelude::*;
 
 const TOOL_PREFERENCES_STATE_TYPE: &str = "tool_preferences";
@@ -180,11 +180,11 @@ impl MCPStore {
                 .await
             {
                 Ok(()) => return Ok(state),
-                Err(CacheError::Conflict(_)) => continue,
+                Err(KvError::Conflict(_)) => continue,
                 Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(Error::from(CacheError::Conflict(format!(
+        Err(Error::from(KvError::Conflict(format!(
             "tool preferences conflict after retries: state_key={}",
             target.state_key
         ))))

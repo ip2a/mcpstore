@@ -151,7 +151,7 @@ impl MCPStore {
                     Ok(()) => return Ok(()),
                     Err(error)
                         if error.code() == FailureCode::TaskStateFailed
-                            && error.message().starts_with("cache write conflict") =>
+                            && error.message().starts_with("kv write conflict") =>
                     {
                         continue
                     }
@@ -202,8 +202,8 @@ impl MCPStore {
                     }
                     return Ok(());
                 }
-                Err(crate::cache::CacheError::Conflict(_)) if attempt < 7 => continue,
-                Err(crate::cache::CacheError::Conflict(_)) => {
+                Err(crate::cache::KvError::Conflict(_)) if attempt < 7 => continue,
+                Err(crate::cache::KvError::Conflict(_)) => {
                     return Err(Error::new(
                         FailureCode::Internal,
                         format!("{kind:?} override concurrent modification, retry exhausted"),
