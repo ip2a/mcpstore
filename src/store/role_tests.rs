@@ -585,7 +585,7 @@ async fn remove_of_unknown_service_fails_fast() {
 }
 
 #[tokio::test]
-async fn valkey_backend_is_accepted_and_wired() {
+async fn valkey_store_is_accepted_and_wired() {
     // LazyValkeyStore connects on first use, so setup needs no live server; the
     // assertion pins that the valkey arm passes setup independently of redis.
     let store = MCPStore::setup_with_options(StoreOptions {
