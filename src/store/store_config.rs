@@ -59,14 +59,12 @@ impl StoreSpec for RedisStoreConfig {
 
 /// Valkey store configuration. Independent of RedisStoreConfig by design:
 /// separate type, separate cargo feature, same keyspace semantics.
-#[cfg(feature = "valkey")]
 #[derive(Clone, Debug)]
 pub struct ValkeyStoreConfig {
     pub url: String,
     pub namespace: Option<String>,
 }
 
-#[cfg(feature = "valkey")]
 impl ValkeyStoreConfig {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
@@ -81,7 +79,6 @@ impl ValkeyStoreConfig {
     }
 }
 
-#[cfg(feature = "valkey")]
 impl StoreSpec for ValkeyStoreConfig {
     fn store_name(&self) -> &str {
         "valkey"
@@ -101,7 +98,7 @@ impl StoreSpec for ValkeyStoreConfig {
 /// creates it (explicit, exclusive, resets contents), every other process
 /// opens it. Optional layout hints default to the OpenKeyv shm defaults
 /// when unset.
-#[cfg(feature = "shm")]
+#[cfg(unix)]
 #[derive(Clone, Debug)]
 pub struct ShmStoreConfig {
     path: std::path::PathBuf,
@@ -111,7 +108,7 @@ pub struct ShmStoreConfig {
     change_retention: Option<u32>,
 }
 
-#[cfg(feature = "shm")]
+#[cfg(unix)]
 impl ShmStoreConfig {
     /// Initialize (or reset) the backing file. Fails while any other process
     /// still has it attached.
@@ -152,7 +149,7 @@ impl ShmStoreConfig {
     }
 }
 
-#[cfg(feature = "shm")]
+#[cfg(unix)]
 impl StoreSpec for ShmStoreConfig {
     fn store_name(&self) -> &str {
         "shm"
@@ -196,7 +193,6 @@ impl JsonStoreConfig {
         Self::new("redis", serde_json::json!({"url": url.into()}))
     }
 
-    #[cfg(feature = "valkey")]
     pub fn valkey(url: impl Into<String>) -> Self {
         Self::new("valkey", serde_json::json!({"url": url.into()}))
     }
@@ -236,7 +232,6 @@ mod tests {
         assert!(openkeyv.config.get("keyspace").is_none());
     }
 
-    #[cfg(feature = "valkey")]
     #[test]
     fn valkey_config_serializes_independently_of_redis() {
         let config =
@@ -250,7 +245,7 @@ mod tests {
         assert!(bare.config.get("keyspace").is_none());
     }
 
-    #[cfg(feature = "shm")]
+    #[cfg(unix)]
     #[test]
     fn shm_create_serializes_mode_and_layout() {
         let config = ShmStoreConfig::create("/tmp/a.shm")
@@ -266,7 +261,7 @@ mod tests {
         assert_eq!(config.config["change_retention"], 10_000);
     }
 
-    #[cfg(feature = "shm")]
+    #[cfg(unix)]
     #[test]
     fn shm_open_omits_optional_layout_keys() {
         let config = ShmStoreConfig::open("/tmp/a.shm").to_openkeyv_config();

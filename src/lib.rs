@@ -116,7 +116,6 @@ pub use store::{
     JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
     PanelRole, RedisStoreConfig, StoreSpec, StoreOptions, ToolVisibilityFilter,
 };
-#[cfg(feature = "valkey")]
 pub use store::ValkeyStoreConfig;
-#[cfg(feature = "shm")]
+#[cfg(unix)]
 pub use store::ShmStoreConfig;

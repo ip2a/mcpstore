@@ -32,8 +32,8 @@ dirs = "6.0"
 # MCP protocol
 rmcp = { workspace = true }
 
-# Cache backends
-openkeyv = { version = "0.5", default-features = false, features = ["json"] }
+# KV backends
+openkeyv = "0.6"
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
@@ -50,27 +50,7 @@ jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
 test-shared-memory = []
-default = ["light", "redis", "valkey", "shm"]
-
-# Backend passthrough: enable the openkeyv feature for each store type.
-# Keep memcached opt-in because memcache enables native OpenSSL by default.
-light     = ["openkeyv/light"]
-disk      = ["openkeyv/disk"]
-redis     = ["openkeyv/redis"]
-sqlite    = ["openkeyv/sqlite"]
-postgres  = ["openkeyv/postgres"]
-mongodb   = ["openkeyv/mongodb"]
-memcached = ["openkeyv/memcached"]
-valkey    = ["openkeyv/valkey"]
-shm       = ["openkeyv/shm"]
-rocksdb   = ["openkeyv/rocksdb"]
-duckdb    = ["openkeyv/duckdb"]
-opensearch = ["openkeyv/opensearch"]
-vault     = ["openkeyv/vault"]
-keyring   = ["openkeyv/keyring"]
-firestore = ["openkeyv/firestore"]
-s3        = ["openkeyv/s3"]
-dynamodb  = ["openkeyv/dynamodb"]
+default = []
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -102,3 +82,4 @@ rmcp = { version = "=3.9.0", features = ["auth", "auth-client-credentials-jwt", 
 # Python binding
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"] }
 pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }
+

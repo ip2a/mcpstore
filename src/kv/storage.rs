@@ -1,11 +1,9 @@
 use std::sync::{Arc, OnceLock};
 
-#[cfg(feature = "redis")]
 use crate::kv::redis::LazyRedisStore;
-#[cfg(feature = "valkey")]
 use crate::kv::valkey::LazyValkeyStore;
 use crate::kv::store::KvStore;
-#[cfg(all(feature = "shm", unix))]
+#[cfg(unix)]
 use crate::kv::{KvError, Result};
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
 
@@ -52,7 +50,6 @@ fn kv_store_from_memory(
     )
 }
 
-#[cfg(feature = "redis")]
 pub(crate) fn redis_kv_store(redis_address: &str, keyspace: &str) -> Arc<KvStore> {
     let store = Arc::new(LazyRedisStore::new(redis_address, keyspace));
     let handle = openkeyv::StoreHandle::with_capabilities(
@@ -65,7 +62,6 @@ pub(crate) fn redis_kv_store(redis_address: &str, keyspace: &str) -> Arc<KvStore
     Arc::new(KvStore::from_handle(handle))
 }
 
-#[cfg(feature = "valkey")]
 pub(crate) fn valkey_kv_store(valkey_address: &str, keyspace: &str) -> Arc<KvStore> {
     let store = Arc::new(LazyValkeyStore::new(valkey_address, keyspace));
     let handle = openkeyv::StoreHandle::with_capabilities(
@@ -84,7 +80,7 @@ pub(crate) fn valkey_kv_store(valkey_address: &str, keyspace: &str) -> Arc<KvSto
 /// `capacity_bytes`, `index_entries`, `change_retention`. The parent directory
 /// must not be group/world-writable (openkeyv enforces this). Returns the
 /// kv store plus the change-feed-capable handle for event streaming.
-#[cfg(all(feature = "shm", unix))]
+#[cfg(unix)]
 pub(crate) fn shm_kv_store_with_handle(
     config: &serde_json::Value,
 ) -> Result<(Arc<KvStore>, openkeyv::StoreHandle)> {
@@ -147,7 +143,7 @@ pub(crate) fn shm_kv_store_with_handle(
     ))
 }
 
-#[cfg(all(test, feature = "shm", unix))]
+#[cfg(all(test, unix))]
 mod shm_tests {
     use super::*;
     use serde_json::json;
