@@ -173,7 +173,7 @@ pub enum StoreAccess {
 }
 
 /// Unified business-command entry: connect to the daemon by default, spawning it in the background if absent; `--embedded` or explicit store
-/// args cold-start in-process. The kernel's backend/namespace is decided by daemon startup args;
+/// args cold-start in-process. The kernel's store/namespace is decided by daemon startup args;
 /// the CLI never overrides them.
 pub async fn open_store_access(
     args: &StoreSourceArgs,

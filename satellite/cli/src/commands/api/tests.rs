@@ -1,6 +1,6 @@
 use super::*;
 use mcpstore::{
-    cache::models::{
+    kv::models::{
         InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
     },
     config::{McpStoreExtension, ScopeDeclarations},

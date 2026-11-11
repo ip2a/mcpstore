@@ -597,24 +597,24 @@ pub(super) fn openapi_schema(
     schema
 }
 
-pub(super) fn build_cache_tools() -> HashMap<String, Tool> {
+pub(super) fn build_kv_tools() -> HashMap<String, Tool> {
     [
-        cache_tool(
-            CACHE_HEALTH_TOOL,
-            "Read MCPStore cache health and collection coverage from Rust core.",
+        kv_tool(
+            KV_HEALTH_TOOL,
+            "Read MCPStore KV health and collection coverage from Rust core.",
             empty_object_schema(),
             true,
         ),
-        cache_tool(
-            CACHE_INSPECT_TOOL,
-            "Inspect MCPStore cache state, counts, collections, and request metrics from Rust core.",
+        kv_tool(
+            KV_INSPECT_TOOL,
+            "Inspect MCPStore KV state, counts, collections, and request metrics from Rust core.",
             empty_object_schema(),
             true,
         ),
-        cache_tool(
-            CACHE_SWITCH_TOOL,
+        kv_tool(
+            KV_SWITCH_TOOL,
             "Switch the MCPStore store and migrate existing Rust core state into the target store.",
-            cache_switch_schema(),
+            kv_switch_schema(),
             false,
         ),
     ]
@@ -712,7 +712,7 @@ pub(super) fn service_tool(
 }
 
 pub(super) fn build_search_tools() -> HashMap<String, Tool> {
-    [cache_tool(
+    [kv_tool(
         SEARCH_TOOL,
         "Search visible MCPStore tools by keyword (BM25). Returns up to top_k matching tool names with relevance scores; call a returned name with a normal tool call. Prefer this over scanning the full tool list when the catalog is large.",
         search_schema(),
@@ -723,7 +723,7 @@ pub(super) fn build_search_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
-pub(super) fn cache_tool(
+pub(super) fn kv_tool(
     name: &'static str,
     description: &'static str,
     schema: Map<String, Value>,
@@ -873,7 +873,7 @@ pub(super) fn service_wait_schema() -> Map<String, Value> {
     object_schema(properties, &["instance_id"])
 }
 
-pub(super) fn cache_switch_schema() -> Map<String, Value> {
+pub(super) fn kv_switch_schema() -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert(
         "store".to_string(),
@@ -1614,21 +1614,21 @@ pub(super) async fn call_openapi_tool(
     Ok(CallToolResult::structured(result))
 }
 
-pub(super) async fn call_cache_tool(
+pub(super) async fn call_kv_tool(
     store: &Arc<MCPStore>,
     tool_name: &str,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
-        CACHE_HEALTH_TOOL => {
+        KV_HEALTH_TOOL => {
             let health = store.cache_health_check().await.map_err(map_store_error)?;
             serde_json::json!({"health": health})
         }
-        CACHE_INSPECT_TOOL => {
+        KV_INSPECT_TOOL => {
             let inspect = store.cache_inspect().await.map_err(map_store_error)?;
             serde_json::json!({"inspect": inspect})
         }
-        CACHE_SWITCH_TOOL => {
+        KV_SWITCH_TOOL => {
             let store_name = required_argument_string(&arguments, "store")?;
             let config = arguments
                 .get("config")
@@ -1643,7 +1643,7 @@ pub(super) async fn call_cache_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("Unknown MCPStore cache-management tool: {tool_name}"),
+                format!("Unknown MCPStore KV-management tool: {tool_name}"),
                 None,
             ));
         }

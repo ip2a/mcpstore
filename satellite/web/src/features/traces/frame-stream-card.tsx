@@ -45,7 +45,7 @@ import {
 } from "@/lib/api"
 
 type FrameFace = FrameSessionSummary["face"]
-type FrameViewMode = "table" | "graph" | "history" | "cache"
+type FrameViewMode = "table" | "graph" | "history" | "kv"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -56,8 +56,8 @@ export function FrameStreamCard(props: {
   fill?: boolean
   /** Optional History tab content (Traces page only; Gateway omits this). */
   historySlot?: ReactNode
-  /** Optional Cache tab content (Traces page only; Gateway omits this). */
-  cacheSlot?: ReactNode
+  /** Optional KV tab content (Traces page only; Gateway omits this). */
+  kvSlot?: ReactNode
   initialView?: FrameViewMode
 }) {
   const { t } = useI18n()
@@ -84,9 +84,9 @@ export function FrameStreamCard(props: {
       }),
   })
   const historyFetching = useIsFetching({ queryKey: queryKeys.gatewayHistory }) > 0
-  const cacheHealthFetching = useIsFetching({ queryKey: queryKeys.cacheHealth })
-  const cacheInspectFetching = useIsFetching({ queryKey: queryKeys.cacheInspect })
-  const cacheFetching = cacheHealthFetching + cacheInspectFetching > 0
+  const kvHealthFetching = useIsFetching({ queryKey: queryKeys.kvHealth })
+  const kvInspectFetching = useIsFetching({ queryKey: queryKeys.kvInspect })
+  const kvFetching = kvHealthFetching + kvInspectFetching > 0
 
   const items = sessions.data?.sessions ?? []
   const total = sessions.data?.total ?? 0
@@ -99,9 +99,9 @@ export function FrameStreamCard(props: {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayHistory })
       return
     }
-    if (view === "cache") {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.cacheHealth })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.cacheInspect })
+    if (view === "kv") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.kvHealth })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.kvInspect })
       return
     }
     void queryClient.invalidateQueries({
@@ -115,7 +115,7 @@ export function FrameStreamCard(props: {
   }
 
   const refreshSpinning =
-    view === "history" ? historyFetching : view === "cache" ? cacheFetching : sessions.isFetching
+    view === "history" ? historyFetching : view === "kv" ? kvFetching : sessions.isFetching
 
   function changePageSize(value: string) {
     setPageSize(Number(value) as (typeof PAGE_SIZES)[number])
@@ -252,9 +252,9 @@ export function FrameStreamCard(props: {
                   {t("navHistory")}
                 </TabsTrigger>
               ) : null}
-              {props.cacheSlot ? (
-                <TabsTrigger value="cache" className="flex-none">
-                  {t("cache")}
+              {props.kvSlot ? (
+                <TabsTrigger value="kv" className="flex-none">
+                  {t("kv")}
                 </TabsTrigger>
               ) : null}
             </WorkspaceTabsList>
@@ -282,9 +282,9 @@ export function FrameStreamCard(props: {
               {props.historySlot}
             </TabsContent>
           ) : null}
-          {props.cacheSlot ? (
-            <TabsContent value="cache" className={tabContentClassName}>
-              {props.cacheSlot}
+          {props.kvSlot ? (
+            <TabsContent value="kv" className={tabContentClassName}>
+              {props.kvSlot}
             </TabsContent>
           ) : null}
         </Tabs>

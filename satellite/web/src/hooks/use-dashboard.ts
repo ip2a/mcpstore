@@ -1,7 +1,7 @@
 import { useCallback } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { health, listAgents, listServices, type CacheBackend } from "@/lib/api"
+import { health, listAgents, listServices, type KvStoreName } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 export function useDashboard() {
@@ -29,8 +29,8 @@ export function useDashboard() {
   const services = servicesQuery.data || []
   const agents = agentsQuery.data || []
 
-  // /health returns {status, store} with no backend field; cache status comes from /cache/health (the cache page's own query)
-  const backend: CacheBackend | undefined = undefined
+  // /health returns {status, store} with no store field; KV status comes from /kv/health (the KV page's own query)
+  const kvStore: KvStoreName | undefined = undefined
   const loading = healthQuery.isLoading || servicesQuery.isLoading || agentsQuery.isLoading
   const errorSource = healthQuery.error || servicesQuery.error || agentsQuery.error
   const error =
@@ -45,5 +45,5 @@ export function useDashboard() {
     ])
   }, [queryClient])
 
-  return { services, agents, backend, loading, error, refresh }
+  return { services, agents, kvStore, loading, error, refresh }
 }

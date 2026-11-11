@@ -1,6 +1,6 @@
 import type { ResetTarget } from "@/features/config/reset-config-dialog"
 import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
-import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
+import { SwitchKvDialog } from "@/features/kv/switch-kv-dialog"
 import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
 import {
   ToolDetailDialog,
@@ -8,14 +8,14 @@ import {
   type ToolDetailState,
   type ToolResultState,
 } from "@/features/tools/tool-dialogs"
-import type { CacheBackend, ServiceInstance } from "@/lib/api"
+import type { KvStoreName, ServiceInstance } from "@/lib/api"
 
 export function AppDialogs({
-  backend,
-  cacheDialogOpen,
+  kvStore,
+  kvDialogOpen,
   deleteTarget,
-  onCacheChanged,
-  onCacheDialogOpenChange,
+  onKvChanged,
+  onKvDialogOpenChange,
   onConfirmDelete,
   onConfirmReset,
   onDeleteDialogOpenChange,
@@ -27,11 +27,11 @@ export function AppDialogs({
   toolDetail,
   toolResult,
 }: {
-  backend?: CacheBackend
-  cacheDialogOpen: boolean
+  kvStore?: KvStoreName
+  kvDialogOpen: boolean
   deleteTarget: ServiceInstance | null
-  onCacheChanged: () => Promise<void>
-  onCacheDialogOpenChange: (open: boolean) => void
+  onKvChanged: () => Promise<void>
+  onKvDialogOpenChange: (open: boolean) => void
   onConfirmDelete: (service: ServiceInstance) => void
   onConfirmReset: (target: ResetTarget) => void
   onDeleteDialogOpenChange: (open: boolean) => void
@@ -51,11 +51,11 @@ export function AppDialogs({
         onOpenChange={onToolDetailOpenChange}
         onRun={onRunToolFromDetail}
       />
-      <SwitchCacheDialog
-        open={cacheDialogOpen}
-        current={backend}
-        onOpenChange={onCacheDialogOpenChange}
-        onChanged={onCacheChanged}
+      <SwitchKvDialog
+        open={kvDialogOpen}
+        current={kvStore}
+        onOpenChange={onKvDialogOpenChange}
+        onChanged={onKvChanged}
       />
       <DeleteServiceDialog
         service={deleteTarget}

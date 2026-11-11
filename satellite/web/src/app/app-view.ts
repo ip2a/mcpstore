@@ -29,7 +29,7 @@ export type AppView =
   | { name: "prompts" }
   | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
-  | { name: "traces"; tab?: "table" | "graph" | "history" | "cache" }
+  | { name: "traces"; tab?: "table" | "graph" | "history" | "kv" }
   | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
 

@@ -1292,7 +1292,7 @@ enum ResolveError {
         scope_name: &'static str,
         target: String,
     },
-    Backend(String),
+    Store(String),
 }
 
 impl std::fmt::Display for ResolveError {
@@ -1301,7 +1301,7 @@ impl std::fmt::Display for ResolveError {
             Self::NotFound { scope_name, target } => {
                 write!(f, "service not found in {scope_name} scope: {target}")
             }
-            Self::Backend(msg) => write!(f, "{msg}"),
+            Self::Store(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -1322,7 +1322,7 @@ async fn resolve_target(
     let result = access
         .request(KernelOperation::ListServices, json!({ "scope": scope }))
         .await
-        .map_err(|e| ResolveError::Backend(e.to_string()))?;
+        .map_err(|e| ResolveError::Store(e.to_string()))?;
     let instance_id = result["services"].as_array().and_then(|services| {
         services
             .iter()
@@ -1341,7 +1341,7 @@ async fn resolve_target(
 fn resolve_error(e: ResolveError) -> mcpstore::Error {
     let code = match &e {
         ResolveError::NotFound { .. } => mcpstore::error::FailureCode::ServiceNotFound,
-        ResolveError::Backend(_) => mcpstore::error::FailureCode::Internal,
+        ResolveError::Store(_) => mcpstore::error::FailureCode::Internal,
     };
     mcpstore::Error::new(code, e.to_string())
 }
@@ -1705,7 +1705,7 @@ pub async fn migrate_store(
         .await?;
 
     println!(
-        "[Success] Cache storage hot migration completed: target={} entries={}",
+        "[Success] KV storage hot migration completed: target={} entries={}",
         result["target_store"].as_str().unwrap_or("?"),
         result["copied"]
     );

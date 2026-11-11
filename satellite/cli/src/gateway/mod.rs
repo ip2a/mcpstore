@@ -57,7 +57,7 @@ pub struct GatewayOptions {
     pub expose_resource_override_tools: bool,
     pub expose_openapi_tools: bool,
     pub expose_service_tools: bool,
-    pub expose_cache_tools: bool,
+    pub expose_kv_tools: bool,
     pub expose_search_tools: bool,
 }
 
@@ -76,7 +76,7 @@ impl Default for GatewayOptions {
             expose_resource_override_tools: false,
             expose_openapi_tools: false,
             expose_service_tools: false,
-            expose_cache_tools: false,
+            expose_kv_tools: false,
             expose_search_tools: false,
         }
     }
@@ -243,9 +243,9 @@ const SERVICE_CONNECT_TOOL: &str = "mcpstore_instance_connect";
 const SERVICE_DISCONNECT_TOOL: &str = "mcpstore_instance_disconnect";
 const SERVICE_RESTART_TOOL: &str = "mcpstore_instance_restart";
 const SERVICE_WAIT_TOOL: &str = "mcpstore_instance_wait";
-const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
-const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
-const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
+const KV_HEALTH_TOOL: &str = "mcpstore_kv_health";
+const KV_INSPECT_TOOL: &str = "mcpstore_kv_inspect";
+const KV_SWITCH_TOOL: &str = "mcpstore_kv_switch";
 const SEARCH_TOOL: &str = "mcpstore_search_tools";
 
 #[derive(Clone)]
@@ -383,7 +383,7 @@ pub(crate) struct GatewayManagementTools {
     resource_override_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
-    cache_tools: Arc<HashMap<String, Tool>>,
+    kv_tools: Arc<HashMap<String, Tool>>,
     search_tools: Arc<HashMap<String, Tool>>,
 }
 
@@ -441,7 +441,7 @@ fn merged_tools(
         &management.resource_override_tools,
         &management.openapi_tools,
         &management.service_tools,
-        &management.cache_tools,
+        &management.kv_tools,
         &management.search_tools,
     ];
     for family in &families {

@@ -75,11 +75,11 @@ pub(super) async fn action_swap_store(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let target = params.get("target").map(String::as_str).unwrap_or("");
-    let cache_storage = if target.trim().is_empty() {
+    let kv_storage = if target.trim().is_empty() {
         return Html(
             layout(
                 "mcpstore - Error",
-                error_markup("Target cache storage is required"),
+                error_markup("Target KV storage is required"),
             )
             .into_string(),
         )
@@ -87,7 +87,7 @@ pub(super) async fn action_swap_store(
     } else {
         JsonStoreConfig::new(target, serde_json::json!({}))
     };
-    match store.swap_store(&cache_storage).await {
+    match store.swap_store(&kv_storage).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -95,24 +95,24 @@ pub(super) async fn action_swap_store(
 }
 
 pub(super) async fn modal_swap_store(State(store): State<Arc<MCPStore>>) -> impl IntoResponse {
-    let cache_storage = store.current_store_name().await;
-    let current_label = cache_storage.as_str();
+    let kv_storage = store.current_store_name().await;
+    let current_label = kv_storage.as_str();
     let content = html! {
         dialog open {
             article {
                 header.modal-header {
                     div {
                         h3 { "Data hot migration" }
-                        p.hint { "Current cache storage: " code { (current_label) } }
+                        p.hint { "Current KV storage: " code { (current_label) } }
                     }
                     button.button.button-ghost type="button" onclick="closeModal()" { "Close" }
                 }
                 form.modal-form method="get" action="/action/switch-store" {
                     div.field {
-                        label for="field-target" { "Target cache storage" }
+                        label for="field-target" { "Target KV storage" }
                         select id="field-target" name="target" {
-                            option value="memory" selected[cache_storage.as_str() == "memory"] { "memory" }
-                            option value="redis" selected[cache_storage.as_str() == "redis"] { "redis" }
+                            option value="memory" selected[kv_storage.as_str() == "memory"] { "memory" }
+                            option value="redis" selected[kv_storage.as_str() == "redis"] { "redis" }
                         }
                     }
                     footer {

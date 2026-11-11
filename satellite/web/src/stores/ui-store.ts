@@ -1,19 +1,19 @@
 import { create } from "zustand"
 
 type UiState = {
-  cacheDialogOpen: boolean
+  kvDialogOpen: boolean
   homeHeroCollapsed: boolean
   selectedAgentId: string | null
-  setCacheDialogOpen: (open: boolean) => void
+  setKvDialogOpen: (open: boolean) => void
   setHomeHeroCollapsed: (collapsed: boolean) => void
   setSelectedAgentId: (agentId: string | null) => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
-  cacheDialogOpen: false,
+  kvDialogOpen: false,
   homeHeroCollapsed: false,
   selectedAgentId: null,
-  setCacheDialogOpen: (cacheDialogOpen) => set({ cacheDialogOpen }),
+  setKvDialogOpen: (kvDialogOpen) => set({ kvDialogOpen }),
   setHomeHeroCollapsed: (homeHeroCollapsed) => set({ homeHeroCollapsed }),
   setSelectedAgentId: (selectedAgentId) => set({ selectedAgentId }),
 }))

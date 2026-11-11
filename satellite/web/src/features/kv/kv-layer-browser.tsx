@@ -4,10 +4,10 @@ import { toast } from "sonner"
 
 import {
   LAYER_I18N_KEY,
-  type CacheCollectionNode,
-  type CacheKeyEntry,
-  type CacheLayerNode,
-} from "@/features/cache/cache-model"
+  type KvCollectionNode,
+  type KvKeyEntry,
+  type KvLayerNode,
+} from "@/features/kv/kv-model"
 import { JsonBlock } from "@/components/shared/json-block"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Badge } from "@/components/ui/badge"
@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CacheValueTree } from "@/features/cache/cache-value-tree"
+import { KvValueTree } from "@/features/kv/kv-value-tree"
 import { useI18n } from "@/lib/i18n-context"
 
 function parseCollectionDisplay(collection: string): {
@@ -55,11 +55,11 @@ function fieldToText(value: unknown): string | null {
   return null
 }
 
-function entryName(entry: CacheKeyEntry): string {
+function entryName(entry: KvKeyEntry): string {
   return fieldToText(entry.value.name) ?? entry.key
 }
 
-function entrySummary(entry: CacheKeyEntry): string | null {
+function entrySummary(entry: KvKeyEntry): string | null {
   return (
     fieldToText(entry.value.description) ??
     fieldToText(entry.value.status) ??
@@ -69,11 +69,11 @@ function entrySummary(entry: CacheKeyEntry): string | null {
   )
 }
 
-function CacheKeyDetailDialog({
+function KvKeyDetailDialog({
   entry,
   onOpenChange,
 }: {
-  entry: CacheKeyEntry | null
+  entry: KvKeyEntry | null
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
@@ -123,7 +123,7 @@ function CacheKeyDetailDialog({
 
           <TabsContent value="tree" className="mt-3 min-h-0 flex-1">
             <ScrollPane className="h-[min(50vh,500px)] rounded-md border bg-muted/30 p-3">
-              {entry ? <CacheValueTree value={entry.value} /> : null}
+              {entry ? <KvValueTree value={entry.value} /> : null}
             </ScrollPane>
           </TabsContent>
 
@@ -148,15 +148,15 @@ function CacheKeyDetailDialog({
   )
 }
 
-export function CacheKeysTable({ layers }: { layers: CacheLayerNode[] }) {
+export function KvKeysTable({ layers }: { layers: KvLayerNode[] }) {
   const { t } = useI18n()
-  const [viewEntry, setViewEntry] = useState<CacheKeyEntry | null>(null)
+  const [viewEntry, setViewEntry] = useState<KvKeyEntry | null>(null)
   const [search, setSearch] = useState("")
   const totalKeys = layers.reduce((sum, layer) => sum + layer.keyCount, 0)
 
   const rows = useMemo(() => {
     const all = layers.flatMap((layer) =>
-      layer.collections.flatMap((collection: CacheCollectionNode) =>
+      layer.collections.flatMap((collection: KvCollectionNode) =>
         collection.keys.map((entry) => ({
           entry,
           layer: layer.layer,
@@ -184,7 +184,7 @@ export function CacheKeysTable({ layers }: { layers: CacheLayerNode[] }) {
   }, [layers])
 
   if (totalKeys === 0) {
-    return <p className="px-1 py-3 text-sm text-muted-foreground">{t("cacheNoKeys")}</p>
+    return <p className="px-1 py-3 text-sm text-muted-foreground">{t("kvNoKeys")}</p>
   }
 
   return (
@@ -209,11 +209,11 @@ export function CacheKeysTable({ layers }: { layers: CacheLayerNode[] }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("cacheLayers")}</TableHead>
-                  <TableHead>{t("cacheType")}</TableHead>
+                  <TableHead>{t("kvLayers")}</TableHead>
+                  <TableHead>{t("kvType")}</TableHead>
                   <TableHead>{t("name")}</TableHead>
-                  <TableHead>{t("cacheKey")}</TableHead>
-                  <TableHead>{t("cacheFields")}</TableHead>
+                  <TableHead>{t("kvKey")}</TableHead>
+                  <TableHead>{t("kvFields")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -265,7 +265,7 @@ export function CacheKeysTable({ layers }: { layers: CacheLayerNode[] }) {
           </div>
         )}
       </div>
-      <CacheKeyDetailDialog
+      <KvKeyDetailDialog
         entry={viewEntry}
         onOpenChange={(open) => {
           if (!open) setViewEntry(null)

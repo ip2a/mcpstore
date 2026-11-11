@@ -3,13 +3,13 @@ use super::catalog::{
     resolve_projected_catalog_uri, resolve_projected_prompt, service_override_map,
 };
 use super::tools::{
-    build_cache_tools, build_openapi_tools, build_prompt_override_tools,
+    build_kv_tools, build_openapi_tools, build_prompt_override_tools,
     build_resource_override_tools, build_resource_template_override_tools, build_search_tools,
     build_service_tools, build_session_state_tools, build_tool_override_tools, deserialize_item,
     deserialize_items,
 };
 use super::tools::{
-    call_cache_tool, call_openapi_tool, call_prompt_override_tool, call_resource_override_tool,
+    call_kv_tool, call_openapi_tool, call_prompt_override_tool, call_resource_override_tool,
     call_resource_template_override_tool, call_service_tool, call_session_state_tool,
     call_tool_override_tool, extract_business_session_key, map_store_error,
 };
@@ -68,8 +68,8 @@ impl GatewayServer {
             } else {
                 HashMap::new()
             }),
-            cache_tools: Arc::new(if options.expose_cache_tools {
-                build_cache_tools()
+            kv_tools: Arc::new(if options.expose_kv_tools {
+                build_kv_tools()
             } else {
                 HashMap::new()
             }),
@@ -251,7 +251,7 @@ impl ServerHandler for GatewayServer {
             .or_else(|| self.management.resource_override_tools.get(name).cloned())
             .or_else(|| self.management.openapi_tools.get(name).cloned())
             .or_else(|| self.management.service_tools.get(name).cloned())
-            .or_else(|| self.management.cache_tools.get(name).cloned())
+            .or_else(|| self.management.kv_tools.get(name).cloned())
             .or_else(|| self.management.search_tools.get(name).cloned())
     }
 
@@ -439,7 +439,7 @@ impl ServerHandler for GatewayServer {
             .contains_key(tool_name.as_str());
         let is_openapi_tool = self.management.openapi_tools.contains_key(tool_name.as_str());
         let is_service_tool = self.management.service_tools.contains_key(tool_name.as_str());
-        let is_cache_tool = self.management.cache_tools.contains_key(tool_name.as_str());
+        let is_cache_tool = self.management.kv_tools.contains_key(tool_name.as_str());
         let is_search_tool = self.management.search_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
@@ -522,7 +522,7 @@ impl ServerHandler for GatewayServer {
                     .map(Into::into);
             }
             if is_cache_tool {
-                return call_cache_tool(&store, &tool_name, arguments)
+                return call_kv_tool(&store, &tool_name, arguments)
                     .await
                     .map(Into::into);
             }
@@ -701,7 +701,7 @@ fn scope_label(scope: &mcpstore::ScopeRef) -> String {
     }
 }
 
-/// Gateway management tools (session-state/override/openapi/service/cache/search)
+/// Gateway management tools (session-state/override/openapi/service/kv/search)
 /// execute store methods directly instead of the business execution funnel, so
 /// they are audited here. One record per management call, full args and result.
 fn record_management_call(

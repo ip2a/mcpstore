@@ -1,58 +1,58 @@
-export type CacheLayerId = "entity" | "relations" | "state" | "event"
+export type KvLayerId = "entity" | "relations" | "state" | "event"
 
-export const CACHE_LAYER_ORDER: CacheLayerId[] = ["entity", "relations", "state", "event"]
+export const KV_LAYER_ORDER: KvLayerId[] = ["entity", "relations", "state", "event"]
 
-const LAYER_COUNTS_KEY: Record<CacheLayerId, string> = {
+const LAYER_COUNTS_KEY: Record<KvLayerId, string> = {
   entity: "entities",
   relations: "relations",
   state: "states",
   event: "events",
 }
 
-const LAYER_REPORT_FIELD: Record<CacheLayerId, string> = {
+const LAYER_REPORT_FIELD: Record<KvLayerId, string> = {
   entity: "entities",
   relations: "relations",
   state: "states",
   event: "events",
 }
 
-export const LAYER_I18N_KEY: Record<CacheLayerId, string> = {
-  entity: "cacheEntities",
-  relations: "cacheRelations",
-  state: "cacheStates",
-  event: "cacheEvents",
+export const LAYER_I18N_KEY: Record<KvLayerId, string> = {
+  entity: "kvEntities",
+  relations: "kvRelations",
+  state: "kvStates",
+  event: "kvEvents",
 }
 
-export type CacheKeyEntry = {
+export type KvKeyEntry = {
   id: string
   key: string
   type: string
   collection: string
-  layer: CacheLayerId
+  layer: KvLayerId
   value: Record<string, unknown>
 }
 
-export type CacheCollectionNode = {
+export type KvCollectionNode = {
   namespace: string
-  layer: CacheLayerId
+  layer: KvLayerId
   type: string
   collection: string
   keyCount: number
-  keys: CacheKeyEntry[]
+  keys: KvKeyEntry[]
 }
 
-export type CacheLayerNode = {
-  layer: CacheLayerId
-  collections: CacheCollectionNode[]
+export type KvLayerNode = {
+  layer: KvLayerId
+  collections: KvCollectionNode[]
   typeCount: number
   keyCount: number
 }
 
-export type CacheTree = {
+export type KvTree = {
   namespace: string
-  backend?: string
+  kvStore?: string
   scope?: string
-  layers: CacheLayerNode[]
+  layers: KvLayerNode[]
   totalCollections: number
   totalKeys: number
   totalTypes: number
@@ -68,19 +68,19 @@ function asStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string")
 }
 
-function isCacheLayerId(value: string): value is CacheLayerId {
-  return CACHE_LAYER_ORDER.includes(value as CacheLayerId)
+function isKvLayerId(value: string): value is KvLayerId {
+  return KV_LAYER_ORDER.includes(value as KvLayerId)
 }
 
 export function parseCollectionPath(collection: string): {
   namespace: string
-  layer: CacheLayerId
+  layer: KvLayerId
   type: string
 } | null {
   const parts = collection.split(":")
   if (parts.length < 3) return null
   const layer = parts[1]
-  if (!isCacheLayerId(layer)) return null
+  if (!isKvLayerId(layer)) return null
   return {
     namespace: parts[0],
     layer,
@@ -88,7 +88,7 @@ export function parseCollectionPath(collection: string): {
   }
 }
 
-export function buildCollectionPath(namespace: string, layer: CacheLayerId, type: string): string {
+export function buildCollectionPath(namespace: string, layer: KvLayerId, type: string): string {
   return `${namespace}:${layer}:${type}`
 }
 
@@ -104,7 +104,7 @@ function countForCollection(
   return typeof count === "number" ? count : undefined
 }
 
-function stripCacheMeta(item: Record<string, unknown>): Record<string, unknown> {
+function stripKvMeta(item: Record<string, unknown>): Record<string, unknown> {
   const value = { ...item }
   delete value._key
   delete value._type
@@ -112,10 +112,10 @@ function stripCacheMeta(item: Record<string, unknown>): Record<string, unknown> 
   return value
 }
 
-function asCacheKeyEntries(items: unknown, layer: CacheLayerId): CacheKeyEntry[] {
+function asKvKeyEntries(items: unknown, layer: KvLayerId): KvKeyEntry[] {
   if (!Array.isArray(items)) return []
 
-  const entries: CacheKeyEntry[] = []
+  const entries: KvKeyEntry[] = []
   items.forEach((raw, index) => {
     if (!isRecord(raw)) return
     const key = typeof raw._key === "string" ? raw._key : `unknown-${index}`
@@ -130,7 +130,7 @@ function asCacheKeyEntries(items: unknown, layer: CacheLayerId): CacheKeyEntry[]
       type,
       collection,
       layer,
-      value: stripCacheMeta(raw),
+      value: stripKvMeta(raw),
     })
   })
   return entries
@@ -138,18 +138,18 @@ function asCacheKeyEntries(items: unknown, layer: CacheLayerId): CacheKeyEntry[]
 
 function emptyCollectionNode(
   namespace: string,
-  layer: CacheLayerId,
+  layer: KvLayerId,
   type: string,
   keyCount = 0,
-): CacheCollectionNode {
+): KvCollectionNode {
   const collection = buildCollectionPath(namespace, layer, type)
   return { namespace, layer, type, collection, keyCount, keys: [] }
 }
 
 function buildLayerNode(
-  layer: CacheLayerId,
-  collectionMap: Map<string, CacheCollectionNode>,
-): CacheLayerNode {
+  layer: KvLayerId,
+  collectionMap: Map<string, KvCollectionNode>,
+): KvLayerNode {
   const collections = [...collectionMap.values()]
     .filter((node) => node.layer === layer)
     .sort(
@@ -168,14 +168,14 @@ function buildLayerNode(
 }
 
 function buildLayersFromCollections(
-  collectionMap: Map<string, CacheCollectionNode>,
-): CacheLayerNode[] {
-  return CACHE_LAYER_ORDER.map((layer) => buildLayerNode(layer, collectionMap)).filter(
+  collectionMap: Map<string, KvCollectionNode>,
+): KvLayerNode[] {
+  return KV_LAYER_ORDER.map((layer) => buildLayerNode(layer, collectionMap)).filter(
     (layer) => layer.collections.length > 0,
   )
 }
 
-export function getLayerNode(tree: CacheTree | null, layer: CacheLayerId): CacheLayerNode {
+export function getLayerNode(tree: KvTree | null, layer: KvLayerId): KvLayerNode {
   return (
     tree?.layers.find((node) => node.layer === layer) ?? {
       layer,
@@ -186,27 +186,27 @@ export function getLayerNode(tree: CacheTree | null, layer: CacheLayerId): Cache
   )
 }
 
-export function getAllLayerNodes(tree: CacheTree | null): CacheLayerNode[] {
-  return CACHE_LAYER_ORDER.map((layer) => getLayerNode(tree, layer))
+export function getAllLayerNodes(tree: KvTree | null): KvLayerNode[] {
+  return KV_LAYER_ORDER.map((layer) => getLayerNode(tree, layer))
 }
 
-export function buildDisplayCacheTree(
+export function buildDisplayKvTree(
   inspectReport: unknown,
   healthReport: unknown,
-): CacheTree | null {
-  return buildCacheTreeFromInspect(inspectReport) ?? buildCacheTreeFromHealth(healthReport)
+): KvTree | null {
+  return buildKvTreeFromInspect(inspectReport) ?? buildKvTreeFromHealth(healthReport)
 }
 
 function summarizeTree(
   namespace: string,
-  layers: CacheLayerNode[],
-  meta: Pick<CacheTree, "backend" | "scope" | "requestMetrics">,
-): CacheTree {
+  layers: KvLayerNode[],
+  meta: Pick<KvTree, "kvStore" | "scope" | "requestMetrics">,
+): KvTree {
   const totalCollections = layers.reduce((sum, layer) => sum + layer.typeCount, 0)
   const totalKeys = layers.reduce((sum, layer) => sum + layer.keyCount, 0)
   return {
     namespace,
-    backend: meta.backend,
+    kvStore: meta.kvStore,
     scope: meta.scope,
     requestMetrics: meta.requestMetrics,
     layers,
@@ -216,32 +216,32 @@ function summarizeTree(
   }
 }
 
-export function buildCacheTreeFromHealth(report: unknown): CacheTree | null {
+export function buildKvTreeFromHealth(report: unknown): KvTree | null {
   if (!isRecord(report)) return null
 
   const namespace = typeof report.namespace === "string" ? report.namespace : "default"
-  const backend = typeof report.backend === "string" ? report.backend : undefined
-  const collectionMap = new Map<string, CacheCollectionNode>()
+  const kvStore = typeof report.kvStore === "string" ? report.kvStore : undefined
+  const collectionMap = new Map<string, KvCollectionNode>()
 
-  for (const layer of CACHE_LAYER_ORDER) {
+  for (const layer of KV_LAYER_ORDER) {
     for (const type of asStringArray(report[LAYER_REPORT_FIELD[layer]])) {
       const collection = buildCollectionPath(namespace, layer, type)
       collectionMap.set(collection, emptyCollectionNode(namespace, layer, type))
     }
   }
 
-  return summarizeTree(namespace, buildLayersFromCollections(collectionMap), { backend })
+  return summarizeTree(namespace, buildLayersFromCollections(collectionMap), { kvStore })
 }
 
-export function buildCacheTreeFromInspect(report: unknown): CacheTree | null {
+export function buildKvTreeFromInspect(report: unknown): KvTree | null {
   if (!isRecord(report)) return null
 
   const namespace = typeof report.namespace === "string" ? report.namespace : "default"
-  const backend = typeof report.backend === "string" ? report.backend : undefined
+  const kvStore = typeof report.kvStore === "string" ? report.kvStore : undefined
   const scope = typeof report.scope === "string" ? report.scope : undefined
   const counts = isRecord(report.counts) ? report.counts : {}
   const requestMetrics = isRecord(report.request_metrics) ? report.request_metrics : undefined
-  const collectionMap = new Map<string, CacheCollectionNode>()
+  const collectionMap = new Map<string, KvCollectionNode>()
 
   for (const collection of asStringArray(report.collections)) {
     const parsed = parseCollectionPath(collection)
@@ -257,8 +257,8 @@ export function buildCacheTreeFromInspect(report: unknown): CacheTree | null {
     )
   }
 
-  for (const layer of CACHE_LAYER_ORDER) {
-    for (const entry of asCacheKeyEntries(report[LAYER_REPORT_FIELD[layer]], layer)) {
+  for (const layer of KV_LAYER_ORDER) {
+    for (const entry of asKvKeyEntries(report[LAYER_REPORT_FIELD[layer]], layer)) {
       let node = collectionMap.get(entry.collection)
       if (!node) {
         const parsed = parseCollectionPath(entry.collection)
@@ -283,33 +283,33 @@ export function buildCacheTreeFromInspect(report: unknown): CacheTree | null {
   }
 
   return summarizeTree(namespace, buildLayersFromCollections(collectionMap), {
-    backend,
+    kvStore,
     scope,
     requestMetrics,
   })
 }
 
 export function countHealthActiveTypes(report: unknown): number {
-  const tree = buildCacheTreeFromHealth(report)
+  const tree = buildKvTreeFromHealth(report)
   return tree?.totalTypes ?? 0
 }
 
 export function countInspectKeys(report: unknown): number {
-  const tree = buildCacheTreeFromInspect(report)
+  const tree = buildKvTreeFromInspect(report)
   return tree?.totalKeys ?? 0
 }
 
-export function extractCacheNamespace(...reports: unknown[]): string | null {
+export function extractKvNamespace(...reports: unknown[]): string | null {
   for (const report of reports) {
     if (isRecord(report) && typeof report.namespace === "string") return report.namespace
   }
   return null
 }
 
-export function findCacheKeyEntry(
-  tree: CacheTree | null,
+export function findKvKeyEntry(
+  tree: KvTree | null,
   keyId: string | null,
-): CacheKeyEntry | null {
+): KvKeyEntry | null {
   if (!tree || !keyId) return null
   for (const layer of tree.layers) {
     for (const collection of layer.collections) {

@@ -6,7 +6,7 @@ import { queryKeys } from "@/lib/query-keys"
 
 export function useAppQueryRefreshers() {
   const queryClient = useQueryClient()
-  const [cacheRevision, setCacheRevision] = useState(0)
+  const [kvRevision, setKvRevision] = useState(0)
   const [serviceDetailRevision, setServiceDetailRevision] = useState(0)
 
   async function refreshInstanceQueries(addr: ServiceAddress) {
@@ -40,13 +40,13 @@ export function useAppQueryRefreshers() {
     ])
   }
 
-  async function refreshCacheQueries() {
+  async function refreshKvQueries() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.health }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.cacheHealth }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.cacheInspect }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.kvHealth }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.kvInspect }),
     ])
-    setCacheRevision((value) => value + 1)
+    setKvRevision((value) => value + 1)
   }
 
   async function refreshConfigQueries(target: ResetTarget) {
@@ -56,9 +56,9 @@ export function useAppQueryRefreshers() {
   }
 
   return {
-    cacheRevision,
+    kvRevision,
     refreshAgentQueries,
-    refreshCacheQueries,
+    refreshKvQueries,
     refreshConfigQueries,
     refreshInstanceQueries,
     refreshServiceRegistryQueries,

@@ -42,7 +42,7 @@ pub struct ExposeConfig {
     #[serde(default)]
     pub service: bool,
     #[serde(default)]
-    pub cache: bool,
+    pub kv: bool,
     #[serde(default)]
     pub search: bool,
 }
@@ -56,7 +56,7 @@ impl Default for ExposeConfig {
             resource: false,
             openapi: false,
             service: false,
-            cache: false,
+            kv: false,
             search: false,
         }
     }

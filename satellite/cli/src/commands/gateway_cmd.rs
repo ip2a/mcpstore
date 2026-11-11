@@ -54,7 +54,7 @@ pub struct GatewayArgs {
     #[arg(long, default_value_t = false)]
     pub expose_service_tools: bool,
     #[arg(long, default_value_t = false)]
-    pub expose_cache_tools: bool,
+    pub expose_kv_tools: bool,
     #[arg(long, default_value_t = false)]
     pub expose_search_tools: bool,
 }
@@ -73,7 +73,7 @@ pub struct GatewayArgs {
 fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs, BoxErr> {
     // Probe the same config load_kernel will use: a --config run must judge
     // its own store, not the default user-data-dir config.
-    let backend = store_args.store.clone().unwrap_or_else(|| {
+    let store_name = store_args.store.clone().unwrap_or_else(|| {
         let manager = match store_args.config_path.as_deref() {
             Some(path) => mcpstore::ConfigManager::with_path(path),
             None => mcpstore::ConfigManager::new(),
@@ -83,7 +83,7 @@ fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs
             .map(|config| config.kv.store)
             .unwrap_or_else(|_| "memory".to_string())
     });
-    let shared = matches!(backend.as_str(), "shm" | "redis" | "valkey");
+    let shared = matches!(store_name.as_str(), "shm" | "redis" | "valkey");
     if store_args.control_panel {
         if shared {
             return Err("the gateway cannot run as a control panel on a shared store \
@@ -134,7 +134,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         expose_resource_override_tools: args.expose_resource_override_tools,
         expose_openapi_tools: args.expose_openapi_tools,
         expose_service_tools: args.expose_service_tools,
-        expose_cache_tools: args.expose_cache_tools,
+        expose_kv_tools: args.expose_kv_tools,
         expose_search_tools: args.expose_search_tools,
     };
 
@@ -157,7 +157,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
             !shared
         }
         Err(error) => {
-            // Memory store (or any backend without a feed): keep the 1s
+            // Memory store (or any store without a feed): keep the 1s
             // scopes replay; cross-process projection simply doesn't apply.
             eprintln!(
                 "[GATEWAY] no shared change feed ({error}); keeping scopes replay"
@@ -299,7 +299,7 @@ async fn build_mount(
         expose_resource_override_tools: expose.resource,
         expose_openapi_tools: expose.openapi,
         expose_service_tools: expose.service,
-        expose_cache_tools: expose.kv,
+        expose_kv_tools: expose.kv,
         expose_search_tools: expose.search,
         ..options.clone()
     };
@@ -521,7 +521,7 @@ const SCOPES_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs
 
 /// Cheap fingerprint of the shared scopes.toml: content hash, or a stable
 /// marker while the file is absent. A change means daemon-side override
-/// writes landed via writeback — the gateway's own KV (memory backend) only
+/// writes landed via writeback — the gateway's own KV (memory store) only
 /// sees them through a replay.
 fn scopes_fingerprint(store: &MCPStore) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -819,12 +819,12 @@ mod tests {
 
     #[test]
     fn shared_stores_derive_a_data_panel_with_its_own_identity() {
-        for backend in ["shm", "redis", "valkey"] {
-            let resolved = gateway_panel_role(store_args(Some(backend), false, false)).unwrap();
+        for store_name in ["shm", "redis", "valkey"] {
+            let resolved = gateway_panel_role(store_args(Some(store_name), false, false)).unwrap();
             assert!(!resolved.control_panel);
             assert!(resolved.data_panel);
             let mcpstore::PanelRole::DataPanel { panel_id } = resolved.panel_role() else {
-                panic!("{backend} gateway must resolve to a data panel");
+                panic!("{store_name} gateway must resolve to a data panel");
             };
             assert_ne!(
                 panel_id,
@@ -836,8 +836,8 @@ mod tests {
 
     #[test]
     fn control_panel_on_a_shared_store_is_refused() {
-        for backend in ["shm", "redis", "valkey"] {
-            let error = gateway_panel_role(store_args(Some(backend), true, false)).unwrap_err();
+        for store_name in ["shm", "redis", "valkey"] {
+            let error = gateway_panel_role(store_args(Some(store_name), true, false)).unwrap_err();
             assert!(error.to_string().contains("--data-panel"));
         }
     }
