@@ -41,12 +41,9 @@ pub use crate::openapi::{
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{PanelRole, StoreOptions};
-pub use store_config::{
-        JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreSpec,
-    };
-    #[cfg(feature = "valkey")]
-    pub use store_config::ValkeyStoreConfig;
-#[cfg(feature = "shm")]
+pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreSpec};
+pub use store_config::ValkeyStoreConfig;
+#[cfg(unix)]
 pub use store_config::ShmStoreConfig;
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
@@ -159,7 +156,7 @@ impl MCPStore {
                 let store = Self::build_kv_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Valkey EventLog opened lazily on migration
             }
-            #[cfg(all(feature = "shm", unix))]
+            #[cfg(unix)]
             "shm" => {
                 let (store, handle) =
                     crate::kv::storage::shm_kv_store_with_handle(&store_config.config)

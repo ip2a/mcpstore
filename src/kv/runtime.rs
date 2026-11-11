@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-#[cfg(feature = "redis")]
 use crate::kv::redis_kv_store;
-#[cfg(feature = "valkey")]
 use crate::kv::valkey_kv_store;
 use crate::kv::{memory_kv_store, KvStore};
 use crate::store::prelude::*;
@@ -16,7 +14,6 @@ impl MCPStore {
     ) -> Result<Arc<KvStore>> {
         match store_config.store_name() {
             "memory" => Ok(memory_kv_store()),
-            #[cfg(feature = "redis")]
             "redis" => Ok(redis_kv_store(
                 store_config
                     .config
@@ -25,7 +22,6 @@ impl MCPStore {
                     .unwrap_or(default_store_address),
                 namespace,
             )),
-            #[cfg(feature = "valkey")]
             "valkey" => Ok(valkey_kv_store(
                 store_config
                     .config

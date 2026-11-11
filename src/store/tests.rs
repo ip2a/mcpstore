@@ -124,7 +124,6 @@ fn broken_stdio_config() -> ServerConfig {
     }
 }
 
-#[cfg(feature = "redis")]
 #[test]
 fn setup_scopes_redis_config_to_store_namespace() {
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -7827,7 +7826,7 @@ mod swap_and_cache_tests {
     /// enough to hold every change between the copy point and the barrier —
     /// a narrower ring would expire the barrier cursor and the migration
     /// would legitimately fail.
-    #[cfg(all(feature = "shm", unix))]
+    #[cfg(unix)]
     mod shm_swap {
         use super::*;
         use crate::kv::KvLayerManager;
