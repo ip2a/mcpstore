@@ -19,15 +19,22 @@ const PROJECTION_TYPES: &[(&str, &str)] = &[
     ("state", "context_tool_visibility"),
     ("relations", "session_tools"),
     ("relations", "session_services"),
+    // The relation is the only write when a connect resolves an empty tool
+    // set — no per-tool entity accompanies it, so without this entry the
+    // gateway would keep serving the previous tool list.
+    ("relations", "instance_tools"),
 ];
 
 impl MCPStore {
     /// Subscribe to every projection-relevant collection on the current
-    /// backend's ChangeFeed. Gateway startup calls this before building mounts
+    /// backend's ChangeFeed, returning the subscription together with the
+    /// backend generation it was built on — a consumer watching the event
+    /// epoch can tell whether a cutover already happened between this call
+    /// and its own startup. Gateway startup calls this before building mounts
     /// so a change landing between mount build and bridge start is not lost.
     pub async fn subscribe_tool_projection_changes(
         &self,
-    ) -> Result<openkeyv::ChangeSubscription> {
+    ) -> Result<(openkeyv::ChangeSubscription, u64)> {
         let snapshot = self.event_backend_snapshot().await?;
         let namespace = self.namespace();
         let collections = PROJECTION_TYPES
@@ -40,7 +47,7 @@ impl MCPStore {
                 _ => CacheLayerManager::relation_collection_with_namespace(&namespace, name),
             })
             .collect();
-        snapshot
+        let subscription = snapshot
             .backend
             .subscribe(ChangeFeedRequest {
                 start: ChangeStart::Latest,
@@ -50,6 +57,14 @@ impl MCPStore {
                 },
             })
             .await
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+        Ok((subscription, snapshot.generation))
+    }
+
+    /// Watch the event-backend epoch: the receiver fires on every store
+    /// cutover, positioned at the current generation. Long-lived feed
+    /// consumers resubscribe when it moves.
+    pub fn subscribe_event_epoch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.kernel.persistence.event_epoch.subscribe()
     }
 }

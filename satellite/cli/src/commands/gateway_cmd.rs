@@ -65,12 +65,20 @@ pub struct GatewayArgs {
 /// control panel would fight it CAS-for-CAS on the same column (the
 /// auth-transition panics at startup were exactly that) and double-connect
 /// every service. Shared backends therefore attach as a data panel with their
-/// own identity; a private memory store is the gateway's own universe and
-/// keeps the control panel. Explicit flags win — and `--control-panel` on a
-/// shared store is refused outright.
+/// own identity — suffixed so it can never collide with a real data-panel
+/// daemon defaulting to the same hostname; the suffix keeps their
+/// `{instance}@{panel}` state rows apart. A private memory store is the
+/// gateway's own universe and keeps the control panel. Explicit flags win —
+/// and `--control-panel` on a shared store is refused outright.
 fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs, BoxErr> {
+    // Probe the same config load_kernel will use: a --config run must judge
+    // its own store, not the default user-data-dir config.
     let backend = store_args.store.clone().unwrap_or_else(|| {
-        mcpstore::ConfigManager::new()
+        let manager = match store_args.config_path.as_deref() {
+            Some(path) => mcpstore::ConfigManager::with_path(path),
+            None => mcpstore::ConfigManager::new(),
+        };
+        manager
             .load_app_config_or_default()
             .map(|config| config.cache.store)
             .unwrap_or_else(|_| "memory".to_string())
@@ -87,7 +95,10 @@ fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs
     }
     if !store_args.data_panel && shared {
         store_args.data_panel = true;
-        store_args.panel_id = Some(mcpstore::PanelRole::default_panel_id());
+        store_args.panel_id = Some(format!(
+            "{}-gateway",
+            mcpstore::PanelRole::default_panel_id()
+        ));
     }
     Ok(store_args)
 }
@@ -133,12 +144,16 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     // made before subscribing, so the projection bridge must exist first or a
     // change landing during mount build is lost.
     let replay_scopes = match store.subscribe_tool_projection_changes().await {
-        Ok(subscription) => {
+        Ok((subscription, generation)) => {
             // In shm mode overrides and policies propagate only through the
             // shared KV + ChangeFeed; the scopes.toml writeback replay would
             // resurrect stale file state behind the feed's back.
             let shared = store.store_config().await.store == "shm";
-            crate::gateway::bridge::spawn_projection_bridge(Arc::clone(&store), subscription);
+            crate::gateway::bridge::spawn_projection_bridge(
+                Arc::clone(&store),
+                subscription,
+                generation,
+            );
             !shared
         }
         Err(error) => {

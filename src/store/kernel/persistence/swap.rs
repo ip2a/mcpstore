@@ -76,7 +76,7 @@ impl PersistenceRouter {
         // switch are atomic to the hot path. pause_ms measures this window.
         let pause_started = Instant::now();
         let _barrier = self.cache.route.write().await;
-        let verified = if let Some((source, stream)) = changes.as_mut() {
+        if let Some((source, stream)) = changes.as_mut() {
             // Drain the feed up to the barrier, replaying every change into
             // the target. The barrier change itself is data too: apply it,
             // then read it back from the target — only a matching read-back
@@ -143,7 +143,6 @@ impl PersistenceRouter {
                 .map_err(|e| {
                     Error::new(FailureCode::Internal, format!("migration cleanup: {e}"))
                 })?;
-            true
         } else {
             // Target without a feed: snapshot and copy under the barrier, so
             // the switch is exact by construction.
@@ -166,8 +165,7 @@ impl PersistenceRouter {
                     }
                 }
             }
-            true
-        };
+        }
 
         if !namespace.is_empty() && matches!(target_name.as_str(), "redis" | "valkey") {
             target_handle
@@ -201,7 +199,6 @@ impl PersistenceRouter {
             target_store: target_name,
             copied,
             replayed,
-            verified,
             online,
             pause_ms,
         })

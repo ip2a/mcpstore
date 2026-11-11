@@ -23,39 +23,69 @@ const BRIDGE_BACKOFF_MAX: Duration = Duration::from_secs(5);
 /// Consume the projection subscription and republish changes locally. Runs
 /// for the gateway process lifetime; on stream end or error it resubscribes
 /// with bounded backoff and heals the gap with a broadcast invalidation.
-pub(crate) fn spawn_projection_bridge(store: Arc<MCPStore>, subscription: openkeyv::ChangeSubscription) {
+pub(crate) fn spawn_projection_bridge(
+    store: Arc<MCPStore>,
+    subscription: openkeyv::ChangeSubscription,
+    generation: u64,
+) {
     tokio::spawn(async move {
         let mut subscription = subscription;
         let mut backoff = BRIDGE_BACKOFF_START;
+        // A cutover never announces itself on an alive-but-stale stream
+        // (redis/valkey feeds outlive the handle they were built on), so the
+        // epoch watch is the only reliable cutover signal.
+        let mut epoch = store.subscribe_event_epoch();
+        // A cutover between the caller's subscribe and here leaves us holding
+        // a live stream on the old store — start in resubscribe mode.
+        let mut needs_resubscribe = *epoch.borrow_and_update() != generation;
         loop {
-            match subscription.recv().await {
-                Ok(Some(change)) => {
-                    backoff = BRIDGE_BACKOFF_START;
-                    if let Err(error) = store
-                        .publish_event(
-                            EventKind::McpToolsChanged.as_str(),
-                            projection_event_payload(&change),
-                            false,
-                        )
-                        .await
-                    {
-                        tracing::warn!("[GATEWAY] projection bridge publish: {error}");
+            if !needs_resubscribe {
+                tokio::select! {
+                    change = subscription.recv() => {
+                        match change {
+                            Ok(Some(change)) => {
+                                backoff = BRIDGE_BACKOFF_START;
+                                if let Err(error) = store
+                                    .publish_event(
+                                        EventKind::McpToolsChanged.as_str(),
+                                        projection_event_payload(&change),
+                                        false,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("[GATEWAY] projection bridge publish: {error}");
+                                }
+                                continue;
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!("[GATEWAY] projection bridge: {error}");
+                            }
+                        }
                     }
-                    continue;
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!("[GATEWAY] projection bridge: {error}");
+                    changed = epoch.changed() => {
+                        // The watch closes only when the store itself goes
+                        // down — and takes this gateway process with it.
+                        if changed.is_err() {
+                            return;
+                        }
+                        let generation = *epoch.borrow_and_update();
+                        tracing::debug!(
+                            "[GATEWAY] projection bridge: backend generation {generation} cutover, resubscribing"
+                        );
+                    }
                 }
             }
-            // Stream ended or errored: back off, resubscribe, then heal the
-            // gap. The null instanceId is a broadcast — every mount's
-            // CatalogInvalidator drains (invalidate + warm rebuild) and every
-            // subscribed client gets tools/list_changed.
+            // Stream ended/errored or the backend was cut over: back off,
+            // resubscribe, then heal the gap. The null instanceId is a
+            // broadcast — every mount's CatalogInvalidator drains (invalidate
+            // + warm rebuild) and every subscribed client gets
+            // tools/list_changed.
+            needs_resubscribe = false;
             tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(BRIDGE_BACKOFF_MAX);
             match store.subscribe_tool_projection_changes().await {
-                Ok(fresh) => {
+                Ok((fresh, _)) => {
                     subscription = fresh;
                     backoff = BRIDGE_BACKOFF_START;
                     if let Err(error) = store
@@ -71,6 +101,9 @@ pub(crate) fn spawn_projection_bridge(store: Arc<MCPStore>, subscription: openke
                 }
                 Err(error) => {
                     tracing::warn!("[GATEWAY] projection bridge resubscribe: {error}");
+                    // Stay in resubscribe mode until one succeeds; a dead
+                    // stream would otherwise spin the select below.
+                    needs_resubscribe = true;
                 }
             }
         }
@@ -79,8 +112,9 @@ pub(crate) fn spawn_projection_bridge(store: Arc<MCPStore>, subscription: openke
 
 /// Map one StoreChange to the local event payload. The instance-id parsing
 /// follows each collection's key layout:
-/// - `tools` / `service_instances` / `service_overrides` / `tool_overrides`:
-///   the instance is the first `:`-segment (bare instance keys have none).
+/// - `tools` / `service_instances` / `service_overrides` / `tool_overrides` /
+///   `instance_tools`: the instance is the first `:`-segment (bare instance
+///   keys have none).
 /// - `context_tool_visibility`: keys are `store:<instance>` — the last segment.
 /// - `service_definitions` / `session_tools` / `session_services`: instance
 ///   unknown → broadcast.
@@ -91,9 +125,8 @@ fn projection_event_payload(change: &StoreChange) -> Value {
         .next()
         .unwrap_or(&change.collection);
     let instance_id = match type_name {
-        "tools" | "service_instances" | "service_overrides" | "tool_overrides" => {
-            instance_from_segment(change.key.split(':').next())
-        }
+        "tools" | "service_instances" | "service_overrides" | "tool_overrides"
+        | "instance_tools" => instance_from_segment(change.key.split(':').next()),
         "context_tool_visibility" => instance_from_segment(change.key.rsplit(':').next()),
         _ => None,
     };
@@ -155,6 +188,15 @@ mod tests {
         let payload = projection_event_payload(&change(
             "ns-a:state:context_tool_visibility",
             "store:6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1",
+        ));
+        assert_eq!(instance_id_of(&payload), Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1"));
+    }
+
+    #[test]
+    fn instance_tools_relation_key_yields_its_instance() {
+        let payload = projection_event_payload(&change(
+            "ns-a:relations:instance_tools",
+            "6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1",
         ));
         assert_eq!(instance_id_of(&payload), Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1"));
     }

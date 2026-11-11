@@ -68,25 +68,31 @@ impl MCPStore {
         loop {
             tokio::select! {
                 change = subscription.recv() => {
-                    let change = change
-                        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?
-                        .ok_or_else(|| {
-                            Error::new(FailureCode::Internal, "tool call feed closed".to_string())
-                        })?;
-                    if change.key != response_key {
-                        continue;
-                    }
-                    match self.take_tool_call_response(&response_key).await? {
-                        Some(outcome) => return outcome,
-                        // Someone else consumed it or it vanished mid-read; keep waiting.
-                        None => continue,
+                    match change {
+                        // Healthy subscription: a foreign key is another
+                        // call's response landing; this subscription is fine,
+                        // keep it.
+                        Ok(Some(change)) if change.key != response_key => continue,
+                        // Our response landed — read it. A miss (consumed
+                        // mid-read) also keeps this subscription.
+                        Ok(Some(_)) => {
+                            if let Some(outcome) =
+                                self.take_tool_call_response(&response_key).await?
+                            {
+                                return outcome;
+                            }
+                            continue;
+                        }
+                        // Feed closed (shm streams self-end on a cutover) or
+                        // errored: not fatal for the call — rebuild below on
+                        // the current generation, where a failure fails
+                        // loudly.
+                        Ok(None) | Err(_) => {}
                     }
                 }
                 changed = snapshot.changes.changed() => {
-                    // The backend was swapped under us. Re-resolve, rebuild the
-                    // subscription on the new generation and read the response
-                    // once — a response written into the new store while the old
-                    // subscription was dying must not be missed.
+                    // The backend was swapped under us. Re-resolve and rebuild
+                    // the subscription on the new generation below.
                     changed.map_err(|_| {
                         Error::new(FailureCode::Internal, "event epoch watch closed")
                     })?;
@@ -100,6 +106,9 @@ impl MCPStore {
                     ));
                 }
             }
+            // Rebuild on the current generation, then read the response once —
+            // one written while the old subscription was dying must not be
+            // missed.
             snapshot = self.event_backend_snapshot().await?;
             subscription = self.subscribe_response_feed(&snapshot).await?;
             if let Some(outcome) = self.take_tool_call_response(&response_key).await? {

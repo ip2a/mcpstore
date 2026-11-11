@@ -326,7 +326,6 @@ async fn first_gateway_start_promotes_memory_to_shm_once() {
         .expect("first gateway start migrates memory to shm");
     assert_eq!(migration.source_store, "memory");
     assert_eq!(migration.target_store, "shm");
-    assert!(migration.verified);
     assert!(migration.online);
 
     let stored = store.store_config().await;
