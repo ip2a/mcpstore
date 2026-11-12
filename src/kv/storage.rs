@@ -133,7 +133,10 @@ pub(crate) fn shm_kv_store_with_handle(
         Some(store.clone()),
         Some(store.clone()),
         feed,
-    );
+    )
+    // Shm-style engines only: expose engine stats so /kv/health can surface
+    // them. Memory handles stay stats-less by convention.
+    .with_stats(store.clone());
     Ok((Arc::new(KvStore::from_handle(handle.clone())), handle))
 }
 
@@ -182,6 +185,43 @@ mod shm_tests {
             Some(json!({"v": 1}))
         );
         assert!(handle.capabilities.change_feed);
+    }
+
+    /// Shm handles advertise engine stats, and the /kv/health wire mapping
+    /// mirrors a direct stats() query field for field.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shm_handle_advertises_engine_stats_matching_query() {
+        let dir = shm_test_dir();
+        let path = dir.join("stats.shm");
+        let _ = std::fs::remove_file(&path);
+
+        let (store, handle) =
+            shm_kv_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
+        assert!(handle.capabilities.stats);
+        store
+            .put("k1", json!({"v": 1}), "col")
+            .await
+            .expect("put");
+        store
+            .delete("k1", "col")
+            .await
+            .expect("delete");
+
+        let mapped = crate::kv::health::engine_stats_from_handle(&handle)
+            .await
+            .expect("shm engine block present");
+        let direct = handle
+            .stats
+            .as_ref()
+            .expect("stats attached")
+            .stats()
+            .await
+            .expect("stats query");
+        assert_eq!(mapped["live_entries"], json!(direct.live_entries));
+        assert_eq!(mapped["tombstones"], json!(direct.tombstones));
+        assert_eq!(mapped["change_revision"], json!(direct.change_revision));
+        assert_eq!(mapped["expired_total"], json!(direct.expired_total));
     }
 
     #[test]
