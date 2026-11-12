@@ -8,13 +8,7 @@ import { useI18n } from "@/lib/i18n-context"
  * listings failed (disconnected service, OAuth pending) while the rest of
  * the catalog is usable. Not a page error — content stays visible.
  */
-export function PartialLoadNotice({
-  count,
-  onRefresh,
-}: {
-  count: number
-  onRefresh: () => void
-}) {
+export function PartialLoadNotice({ count, onRefresh }: { count: number; onRefresh: () => void }) {
   const { t } = useI18n()
   if (count <= 0) return null
   return (

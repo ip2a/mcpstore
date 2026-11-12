@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
 use crate::overrides::{
     apply_meta_override, is_override_enabled, ComponentKind, ComponentOverrideCommon,
 };
 use crate::store::prelude::*;
-use serde::{Deserialize, Serialize};
 
 pub(crate) const RESOURCE_OVERRIDES_STATE_TYPE: &str = "resource_overrides";
 const RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE: &str = "resource_template_overrides";
@@ -183,12 +185,38 @@ impl MCPStore {
         )
         .await
     }
-    pub(crate) async fn apply_resource_override(
+
+    /// Batched read of one instance's enabled resource override rules — keys
+    /// derive from URIs the caller already listed, so no second catalog read.
+    pub(crate) async fn enabled_resource_overrides_for_uris(
         &self,
-        i: InstanceId,
-        r: &DiscoveredResource,
-    ) -> Result<Option<serde_json::Value>> {
-        apply_resource(&self.load_resource_override(i, &r.uri).await?, r)
+        instance_id: InstanceId,
+        uris: &[String],
+    ) -> Result<HashMap<String, ResourceOverrideRule>> {
+        enabled_rules_for_keys(
+            &self.kernel.persistence.kv,
+            RESOURCE_OVERRIDES_STATE_TYPE,
+            instance_id,
+            uris,
+            "Resource",
+        )
+        .await
+    }
+
+    /// Batched read of one instance's enabled resource-template override rules.
+    pub(crate) async fn enabled_resource_template_overrides_for_keys(
+        &self,
+        instance_id: InstanceId,
+        uri_templates: &[String],
+    ) -> Result<HashMap<String, ResourceTemplateOverrideRule>> {
+        enabled_rules_for_keys(
+            &self.kernel.persistence.kv,
+            RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
+            instance_id,
+            uri_templates,
+            "Resource template",
+        )
+        .await
     }
 
     pub async fn set_resource_template_override(
@@ -302,18 +330,37 @@ impl MCPStore {
         )
         .await
     }
-    pub(crate) async fn apply_resource_template_override(
-        &self,
-        i: InstanceId,
-        r: &DiscoveredResourceTemplate,
-    ) -> Result<Option<serde_json::Value>> {
-        apply_resource(
-            &self
-                .load_resource_template_override(i, &r.uri_template)
-                .await?,
-            r,
-        )
+}
+
+/// Batched read of one instance's enabled override rules keyed by component
+/// key. One `get_states_many` for the whole set — catalog paths must not
+/// re-read one rule per component.
+async fn enabled_rules_for_keys<T: for<'de> Deserialize<'de>>(
+    kv: &std::sync::Arc<crate::kv::KvLayerManager>,
+    state: &str,
+    instance_id: InstanceId,
+    keys: &[String],
+    label: &str,
+) -> Result<HashMap<String, T>> {
+    let state_keys: Vec<String> = keys
+        .iter()
+        .map(|key| MCPStore::component_override_key(instance_id, key))
+        .collect();
+    let values = kv.get_states_many(state, &state_keys).await?;
+    let mut rules = HashMap::new();
+    for (key, value) in keys.iter().zip(values) {
+        let Some(value) = value else {
+            continue;
+        };
+        let rule: T = serde_json::from_value(value).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("{label} override deserialization failed: {e}"),
+            )
+        })?;
+        rules.insert(key.clone(), rule);
     }
+    Ok(rules)
 }
 
 async fn load_rule<T: for<'de> Deserialize<'de>>(
@@ -323,8 +370,7 @@ async fn load_rule<T: for<'de> Deserialize<'de>>(
     key: &str,
     label: &str,
 ) -> Result<Option<T>> {
-    kv
-        .get_state(state, &format!("{i}:{key}"))
+    kv.get_state(state, &format!("{i}:{key}"))
         .await?
         .map(|v| {
             serde_json::from_value(v).map_err(|e| {
@@ -352,8 +398,11 @@ async fn list_rules<T: for<'de> Deserialize<'de>, F: FnMut(&T, &T) -> std::cmp::
     out.sort_by(|a, b| cmp(a, b));
     Ok(out)
 }
-fn apply_resource<T: Serialize>(
-    rule: &Option<impl RuleCommon>,
+/// Pure projection of one resource/template row through its override rule
+/// (None rule = passthrough). Catalog paths read the rules once per instance
+/// and apply this in memory.
+pub(crate) fn apply_resource<T: Serialize>(
+    rule: Option<&impl RuleCommon>,
     item: &T,
 ) -> Result<Option<serde_json::Value>> {
     let mut value =
@@ -371,7 +420,7 @@ fn apply_resource<T: Serialize>(
     }
     Ok(Some(value))
 }
-trait RuleCommon {
+pub(crate) trait RuleCommon {
     fn common(&self) -> &ComponentOverrideCommon;
     fn mime_type(&self) -> Option<String>;
 }

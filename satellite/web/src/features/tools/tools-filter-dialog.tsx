@@ -122,9 +122,7 @@ export function ToolsFilterDialog(props: {
                 <FieldLabel>{t("availability")}</FieldLabel>
                 <Select
                   value={draftVisibility}
-                  onValueChange={(value) =>
-                    setDraftVisibility(value as ToolVisibilityFilter)
-                  }
+                  onValueChange={(value) => setDraftVisibility(value as ToolVisibilityFilter)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder={t("availability")} />

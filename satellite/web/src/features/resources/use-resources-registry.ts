@@ -1,5 +1,5 @@
 import { useMcpRegistryEntries } from "@/features/mcp-registry/use-mcp-registry-entries"
-import { useInstanceResourcesQueries } from "@/features/resources/queries"
+import { useScopeResourcesQuery } from "@/features/resources/queries"
 import type { AgentItem, ResourceInfo, ServiceInstance } from "@/lib/api"
 
 export function useResourcesRegistry({
@@ -9,10 +9,13 @@ export function useResourcesRegistry({
   agents: AgentItem[]
   services: ServiceInstance[]
 }) {
-  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<ResourceInfo>({
+  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<
+    ResourceInfo & { instance_id: string }
+  >({
     agents,
     services,
-    useEntryQueries: useInstanceResourcesQueries,
+    // biome-ignore lint/correctness/useHookAtTopLevel: invoked unconditionally at the top of useMcpRegistryEntries during render
+    useScopeQuery: useScopeResourcesQuery,
     matchQuery: matchesResourceQuery,
     noun: "resources",
   })

@@ -1,5 +1,6 @@
+use crate::agent::models::insert_instance_identity;
+use crate::overrides::resources::apply_resource;
 use crate::store::prelude::*;
-
 impl MCPStore {
     pub async fn list_resources_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
         self.collect_scope_resources_scoped(scope).await
@@ -12,26 +13,72 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let mut resources = self.list_resources(instance_id).await?;
         resources.sort_by(|left, right| left.uri.cmp(&right.uri));
-        let mut out = Vec::new();
+        let uris: Vec<String> = resources
+            .iter()
+            .map(|resource| resource.uri.clone())
+            .collect();
+        // One batched read for the whole set — never one KV read per resource.
+        let overrides = self
+            .enabled_resource_overrides_for_uris(instance_id, &uris)
+            .await?;
+        let mut out = Vec::with_capacity(resources.len());
         for resource in resources {
-            let Some(mut value) = self.apply_resource_override(instance_id, &resource).await?
-            else {
+            let Some(mut value) = apply_resource(overrides.get(&resource.uri), &resource)? else {
                 continue;
             };
-            if let serde_json::Value::Object(object) = &mut value {
-                object.insert("instance_id".to_string(), serde_json::json!(instance_id));
-                object.insert(
-                    "service_name".to_string(),
-                    serde_json::json!(instance.service_name.clone()),
-                );
-                object.insert(
-                    "scope".to_string(),
-                    serde_json::json!(instance.scope.clone()),
-                );
-            }
+            insert_instance_identity(
+                &mut value,
+                instance_id,
+                &instance.service_name,
+                &instance.scope,
+            );
             out.push(value);
         }
         Ok(out)
+    }
+
+    /// Scope-view resource catalog in one page. A failed instance
+    /// (disconnected, auth pending) is skipped — counted in
+    /// `skipped_instances`, never blanks the page; the per-instance route
+    /// stays loud.
+    pub async fn list_resources_viewed(
+        &self,
+        view: &ScopeView,
+    ) -> Result<ScopedCatalogPage<serde_json::Value>> {
+        let instances = self.list_view_instances(view).await?;
+        let mut entries = Vec::new();
+        let mut skipped_instances = 0usize;
+        for instance in &instances {
+            match self.list_resources_for_instance(instance.instance_id).await {
+                Ok(instance_resources) => entries.extend(instance_resources),
+                Err(error) => {
+                    skipped_instances += 1;
+                    tracing::warn!(
+                        %error,
+                        service = %instance.service_name,
+                        "scope resource catalog skipped a failed instance"
+                    );
+                }
+            }
+        }
+        entries.sort_by(|left, right| {
+            left.get("service_name")
+                .and_then(serde_json::Value::as_str)
+                .cmp(
+                    &right
+                        .get("service_name")
+                        .and_then(serde_json::Value::as_str),
+                )
+                .then_with(|| {
+                    left.get("uri")
+                        .and_then(serde_json::Value::as_str)
+                        .cmp(&right.get("uri").and_then(serde_json::Value::as_str))
+                })
+        });
+        Ok(ScopedCatalogPage {
+            entries,
+            skipped_instances,
+        })
     }
 
     pub async fn list_resource_templates_scoped(
@@ -48,25 +95,26 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let mut templates = self.list_resource_templates(instance_id).await?;
         templates.sort_by(|left, right| left.uri_template.cmp(&right.uri_template));
-        let mut out = Vec::new();
+        let keys: Vec<String> = templates
+            .iter()
+            .map(|template| template.uri_template.clone())
+            .collect();
+        // One batched read for the whole set — never one KV read per template.
+        let overrides = self
+            .enabled_resource_template_overrides_for_keys(instance_id, &keys)
+            .await?;
+        let mut out = Vec::with_capacity(templates.len());
         for template in templates {
-            let Some(mut value) = self
-                .apply_resource_template_override(instance_id, &template)
-                .await?
+            let Some(mut value) = apply_resource(overrides.get(&template.uri_template), &template)?
             else {
                 continue;
             };
-            if let serde_json::Value::Object(object) = &mut value {
-                object.insert("instance_id".to_string(), serde_json::json!(instance_id));
-                object.insert(
-                    "service_name".to_string(),
-                    serde_json::json!(instance.service_name.clone()),
-                );
-                object.insert(
-                    "scope".to_string(),
-                    serde_json::json!(instance.scope.clone()),
-                );
-            }
+            insert_instance_identity(
+                &mut value,
+                instance_id,
+                &instance.service_name,
+                &instance.scope,
+            );
             out.push(value);
         }
         Ok(out)

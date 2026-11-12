@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react"
-import {
-  ClipboardIcon,
-  PanelRightCloseIcon,
-  PanelRightIcon,
-  ScrollTextIcon,
-} from "lucide-react"
+import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, ScrollTextIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -149,7 +144,12 @@ export function PromptDetailView(props: {
                 {t("copy")}
               </Button>
             ) : null}
-            <Button size="sm" variant="outline" onClick={() => void loadPrompts()} disabled={loading}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void loadPrompts()}
+              disabled={loading}
+            >
               <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
               {t("refresh")}
             </Button>
