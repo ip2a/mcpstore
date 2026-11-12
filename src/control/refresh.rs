@@ -310,13 +310,8 @@ impl MCPStore {
         Ok(())
     }
 
-    /// Execution-path hydration: the connection pool / state machine needs in-process structures. Queries don't go through here.
-    pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
-        self.load_from_db().await
-    }
-
     /// Shared-store query side: direct key reads; never goes through or backfills the in-memory registry.
-    /// Full `load_from_db` hydration is reserved for the execution path (pool / state machine need in-process structures).
+    /// Full `load_from_db` hydration is reserved for startup and the periodic reconcile loop.
     pub(crate) async fn definition_from_kv(
         &self,
         service_name: &str,

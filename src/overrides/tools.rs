@@ -232,7 +232,6 @@ impl MCPStore {
         tool_name: &str,
         patch: ToolOverridePatch,
     ) -> Result<ToolOverrideRule> {
-        self.refresh_from_db_if_needed().await?;
         let (instance, original_tool_name) = self
             .resolve_tool_override_target(instance_id, tool_name)
             .await?;
@@ -295,7 +294,6 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<Option<ToolOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let (_, original_tool_name) = self
             .resolve_tool_override_target(instance_id, tool_name)
             .await?;
@@ -308,7 +306,6 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         let (_, original_tool_name) = self
             .resolve_tool_override_target(instance_id, tool_name)
             .await?;
@@ -351,7 +348,6 @@ impl MCPStore {
     }
 
     pub async fn list_tool_overrides(&self) -> Result<Vec<ToolOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel

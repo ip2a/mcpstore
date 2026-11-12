@@ -13,17 +13,8 @@ impl MCPStore {
         ) {
             return self.ensure_data_panel_instance_connected(instance_id).await;
         }
-        // Hydration becomes fill-if-missing: leave instances already in the registry alone, avoiding full-table rebuilds on every execution.
-        if self
-            .kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
-            .is_none()
-        {
-            self.load_from_db().await?;
-        }
+        // The read view is maintained by startup hydration + the reconcile loop;
+        // an instance absent from it is absent from the store.
         if self
             .kernel
             .control
@@ -151,7 +142,7 @@ impl MCPStore {
         Ok(())
     }
 
-    /// The query side reads the shared store directly without hydrating the in-memory registry (`load_from_db` is reserved for the execution path).
+    /// Shared-store query side: direct KV reads, never the in-memory read view.
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
         self.instances_from_kv().await.unwrap_or_default()
     }

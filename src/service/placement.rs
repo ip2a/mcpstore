@@ -38,7 +38,7 @@ impl MCPStore {
     }
 
     /// The data panel's single connection entry for local execution (ensure_instance_connected
-    /// routes here): hydrate once, then connect with the instance's kv effective_config. Data-panel
+    /// routes here): connect with the instance's kv effective_config. Data-panel
     /// processes have no supervisor mounted, so there is no startup probe / health self-healing —
     /// pull the validated config and run it.
     pub(crate) async fn ensure_data_panel_instance_connected(
@@ -47,16 +47,6 @@ impl MCPStore {
     ) -> Result<()> {
         if self.kernel.execution.pool.is_connected(instance_id).await {
             return Ok(());
-        }
-        if self
-            .kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
-            .is_none()
-        {
-            self.load_from_db().await?;
         }
         self.connect_service_internal(instance_id, false).await
     }

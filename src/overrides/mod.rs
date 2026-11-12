@@ -132,7 +132,6 @@ impl MCPStore {
         original_key: &str,
         enabled: bool,
     ) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         self.validate_component_key(kind, instance_id, original_key)
             .await?;
         let key = Self::component_override_key(instance_id, original_key);

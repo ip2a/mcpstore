@@ -4,7 +4,6 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_scope_instances(&self, scope: &ScopeRef) -> Result<Vec<ServiceInstance>> {
-        self.refresh_from_db_if_needed().await?;
         let mut instances = match scope {
             ScopeRef::Store => self
                 .kernel
@@ -36,7 +35,6 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<InstanceId> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .control
             .registry
@@ -57,7 +55,6 @@ impl MCPStore {
         &self,
         view: &ScopeView,
     ) -> Result<Vec<ServiceInstance>> {
-        self.refresh_from_db_if_needed().await?;
         let mut instances = match view.as_scope_ref() {
             Some(scope) => self.list_scope_instances(&scope).await?,
             None => self.kernel.control.registry.list_instances().await,
@@ -73,7 +70,6 @@ impl MCPStore {
     /// Scope registry: root + store + each agent, each entry carrying its runtime service count (from the registry).
     /// Also includes agents from client-agent bindings even if they have no services yet.
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
-        self.refresh_from_db_if_needed().await?;
         let instances = self.kernel.control.registry.list_instances().await;
         let mut agent_counts: HashMap<String, usize> = HashMap::new();
         let mut store_count = 0usize;
@@ -133,7 +129,6 @@ impl MCPStore {
 
     /// Single agent entity (agent_id + its instance ids); returns None if absent.
     pub async fn find_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
-        self.refresh_from_db_if_needed().await?;
         let instance_ids = self
             .kernel
             .control

@@ -81,12 +81,14 @@ impl MCPStore {
     pub async fn load_from_config(&self) -> Result<()> {
         // Unified model: kv is the source of truth. The control panel reads the seed once at startup (mcp.json wins at boot),
         // writes made while we were down are replayed via unconsumed service_events; afterwards the file serves only
-        // as the post-consume flush target. The data panel has no seed, no hydration, no subscription — queries read kv directly,
-        // tool calls are delegated through the shared store.
+        // as the post-consume flush target. The data panel has no seed, no subscription — it hydrates the read view
+        // once and keeps it eventual-consistent via the reconcile loop; queries never rebuild memory.
         if !matches!(
             self.kernel.runtime.panel_role,
             crate::store::PanelRole::ControlPanel
         ) {
+            self.load_from_db().await?;
+            self.spawn_registry_reconcile_from_ref();
             return Ok(());
         }
 
@@ -96,6 +98,7 @@ impl MCPStore {
         }
         self.spawn_service_event_feed_from_ref();
         self.spawn_tool_call_request_feed_from_ref();
+        self.spawn_registry_reconcile_from_ref();
         self.connect_desired_running_instances(None).await;
         Ok(())
     }

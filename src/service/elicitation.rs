@@ -7,7 +7,6 @@ impl MCPStore {
         instance_id: InstanceId,
         options: McpElicitationSessionOptions,
     ) -> Result<Option<McpElicitationSession>> {
-        self.refresh_from_db_if_needed().await?;
         if self
             .kernel
             .control

@@ -499,6 +499,9 @@ async fn db_data_panel_default_placement_executes_locally() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
+    // Panel startup contract: load_from_config hydrates the data panel's read view.
+    data.load_from_config().await.unwrap();
+
     // Default local: the data panel pulls the kv config and connects lazily on first call
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
