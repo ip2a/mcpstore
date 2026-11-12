@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 use crate::registry::{ServiceDefinition, ServiceInstance, ServiceRegistry};
 
@@ -93,5 +95,45 @@ impl ServiceRegistry {
         if let Some(instance) = self.instances.write().await.get_mut(&instance_id) {
             instance.applied_config_revision = Some(instance.config_revision);
         }
+    }
+
+    /// Replace the whole read view atomically: rebuild indexes from the inputs,
+    /// then swap all four tables under their write guards. Concurrent readers
+    /// block only for the pointer moves and never see an empty or half-swapped
+    /// registry. Hydration/reconcile path only — per-key writes keep using
+    /// register/unregister.
+    ///
+    /// Lock order matches the existing writers (instances → instance_index →
+    /// agent_index → definitions). Readers must never hold two table guards at
+    /// once (current readers take at most one).
+    pub async fn swap_all(
+        &self,
+        definitions: HashMap<String, ServiceDefinition>,
+        instances: Vec<ServiceInstance>,
+    ) {
+        let mut instance_map = HashMap::with_capacity(instances.len());
+        let mut instance_index = HashMap::with_capacity(instances.len());
+        let mut agent_index: HashMap<String, Vec<InstanceId>> = HashMap::new();
+        for instance in instances {
+            let instance_id = instance.instance_id;
+            let key = instance.key();
+            if let ScopeRef::Agent { agent_id } = &instance.scope {
+                agent_index
+                    .entry(agent_id.clone())
+                    .or_default()
+                    .push(instance_id);
+            }
+            instance_index.insert(key, instance_id);
+            instance_map.insert(instance_id, instance);
+        }
+
+        let mut definitions_guard = self.definitions.write().await;
+        let mut instances_guard = self.instances.write().await;
+        let mut key_index_guard = self.instance_index.write().await;
+        let mut agent_guard = self.agent_index.write().await;
+        *definitions_guard = definitions;
+        *instances_guard = instance_map;
+        *key_index_guard = instance_index;
+        *agent_guard = agent_index;
     }
 }

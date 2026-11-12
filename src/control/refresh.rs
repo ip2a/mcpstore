@@ -12,8 +12,8 @@ use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
 
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
-        // Acquire lock to ensure atomic registry clear + repopulation.
-        // Prevents race condition where concurrent queries see empty registry.
+        // Acquire lock so concurrent reconcile/reload passes cannot interleave;
+        // readers stay lock-free — swap_all is their atomicity barrier.
         let _guard = self.kernel.control.refresh_mutex.lock().await;
 
         let definition_values = self
@@ -244,14 +244,7 @@ impl MCPStore {
             .write()
             .await
             .retain(|id, _| active_instance_ids.contains(id));
-        self.kernel.control.registry.clear().await;
-        for definition in definitions.into_values() {
-            self.kernel
-                .control
-                .registry
-                .register_definition(definition)
-                .await;
-        }
+        let mut instance_list = Vec::with_capacity(instances.len());
         for (instance, transport_config) in instances {
             let instance_id = instance.instance_id;
             if self.kernel.control.state.get(instance_id).await?.is_none() {
@@ -305,12 +298,15 @@ impl MCPStore {
                     .add(instance_id, transport_config)
                     .await;
             }
-            self.kernel
-                .control
-                .registry
-                .register_instance(instance)
-                .await;
+            instance_list.push(instance);
         }
+        // Read view swap happens last and atomically: readers see the fully
+        // rebuilt registry or the previous one, never an empty or half state.
+        self.kernel
+            .control
+            .registry
+            .swap_all(definitions, instance_list)
+            .await;
         Ok(())
     }
 
