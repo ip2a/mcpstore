@@ -162,6 +162,10 @@ impl MCPStore {
                     start: ChangeStart::Latest,
                     filter: ChangeFilter {
                         collections: vec![collection],
+                        // Put-only is a decision, not an omission: service
+                        // event entities carry no TTL, so `Expired` deletes
+                        // never occur on this collection, and every apply
+                        // consumes its event by delete anyway.
                         operations: vec![ChangeOperation::Put],
                     },
                 })
