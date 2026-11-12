@@ -12,7 +12,7 @@ export function parsePromptArgs(prompt: PromptInfo): PromptArgDef[] {
 
   if (Array.isArray(args)) {
     return args
-      .map((item) => {
+      .map((item): PromptArgDef | null => {
         if (!item || typeof item !== "object") return null
         const record = item as Record<string, unknown>
         const name = String(record.name || "").trim()
@@ -22,7 +22,7 @@ export function parsePromptArgs(prompt: PromptInfo): PromptArgDef[] {
           description:
             record.description != null ? String(record.description).trim() || undefined : undefined,
           required: Boolean(record.required),
-        } satisfies PromptArgDef
+        }
       })
       .filter((item): item is PromptArgDef => item != null)
   }

@@ -15,7 +15,10 @@ impl MCPStore {
     }
 
     /// One override map for the whole list — cards must not N+1 `/service_override`.
-    async fn enrich_services(&self, instances: Vec<ServiceInstance>) -> Result<Vec<serde_json::Value>> {
+    async fn enrich_services(
+        &self,
+        instances: Vec<ServiceInstance>,
+    ) -> Result<Vec<serde_json::Value>> {
         let overrides: HashMap<InstanceId, ServiceOverrideRule> = self
             .list_service_overrides_lenient()
             .await?
@@ -60,7 +63,12 @@ impl MCPStore {
                 serde_json::to_value(mcp)
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             );
-            apply_list_projection(object, &service_name, config_description.as_deref(), override_rule);
+            apply_list_projection(
+                object,
+                &service_name,
+                config_description.as_deref(),
+                override_rule,
+            );
         }
         Ok(value)
     }

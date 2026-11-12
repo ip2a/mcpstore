@@ -184,6 +184,18 @@ export type ConfigRevision = {
 
 export type ToolVisibilityFilter = "all" | "available" | "removed"
 
+/** Catalog entry that carries its owning instance (scope-wide catalog routes). */
+type Scoped = { instance_id: string; service_name: string; scope: ScopeRef }
+export type ScopedToolInfo = ToolInfo & Scoped
+export type ScopedPromptInfo = PromptInfo & Scoped
+export type ScopedResourceInfo = ResourceInfo & Scoped
+
+/** Scope-wide catalog page: entries + how many instances the backend skipped (disconnected, auth pending…). */
+export type ScopeCatalogPage<T> = {
+  entries: T[]
+  skippedInstances: number
+}
+
 export type ToolInfo = {
   name: string
   original_name?: string
@@ -439,6 +451,9 @@ export {
   logoutInstanceAuthorization,
   upgradeInstanceAuthorizationScope,
   listInstanceTools,
+  listScopeTools,
+  listScopePrompts,
+  listScopeResources,
   setInstanceToolPolicy,
   clearInstanceToolPolicy,
   listInstanceResources,

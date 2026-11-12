@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::overrides::{
     apply_meta_override, is_override_enabled, ComponentKind, ComponentOverrideCommon,
@@ -182,12 +183,49 @@ impl MCPStore {
             })
             .transpose()
     }
-    pub(crate) async fn apply_prompt_override(
+    /// Batched read of one instance's prompt override rules (enabled or not —
+    /// a disabled rule must stay in the map so the projection drops the
+    /// prompt). Keys derive from prompt names the caller already listed, so no
+    /// second catalog read.
+    pub(crate) async fn prompt_overrides_for_names(
         &self,
         instance_id: InstanceId,
+        prompt_names: &[String],
+    ) -> Result<HashMap<String, PromptOverrideRule>> {
+        let keys: Vec<String> = prompt_names
+            .iter()
+            .map(|name| Self::component_override_key(instance_id, name))
+            .collect();
+        let values = self
+            .kernel
+            .persistence
+            .kv
+            .get_states_many(PROMPT_OVERRIDES_STATE_TYPE, &keys)
+            .await?;
+        let mut rules = HashMap::new();
+        for (name, value) in prompt_names.iter().zip(values) {
+            let Some(value) = value else {
+                continue;
+            };
+            let rule: PromptOverrideRule = serde_json::from_value(value).map_err(|e| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Prompt override deserialization failed: {e}"),
+                )
+            })?;
+            rules.insert(name.clone(), rule);
+        }
+        Ok(rules)
+    }
+
+    /// Pure projection of one prompt row through its override rule (no rule =
+    /// passthrough). Catalog paths read the rules once per instance and apply
+    /// this in memory.
+    pub(crate) fn project_prompt_value(
         prompt: &DiscoveredPrompt,
+        rule: Option<&PromptOverrideRule>,
     ) -> Result<Option<serde_json::Value>> {
-        let Some(rule) = self.load_prompt_override(instance_id, &prompt.name).await? else {
+        let Some(rule) = rule else {
             return Ok(Some(
                 serde_json::to_value(prompt)
                     .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,

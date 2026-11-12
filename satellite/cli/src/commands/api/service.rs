@@ -53,10 +53,12 @@ pub(super) struct ResourceTemplateOverrideQuery {
     uri_template: String,
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool list.
+/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool list. With
+/// `service_name` absent it answers the whole scope catalog in one page
+/// (scope=all|store|agent; entries carry their service_name/instance_id).
 #[derive(Deserialize)]
 pub(super) struct ToolsListQuery {
-    service_name: String,
+    service_name: Option<String>,
     scope: Option<String>,
     agent_id: Option<String>,
     filter: Option<String>,
@@ -364,20 +366,43 @@ pub(super) async fn service_list_tools(
     ))
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` — top-level entry, equivalent to the service-nested form above.
+/// `GET /tools/list?service_name=&scope=&filter=` — with `service_name` the
+/// per-instance form (same as the service-nested route); without it, the whole
+/// scope catalog in one page (scope=all|store|agent, default store).
 pub(super) async fn tools_list(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ToolsListQuery>,
 ) -> ApiResult {
-    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
-    let service_name = query.service_name.trim();
+    let service_name = query.service_name.as_deref().unwrap_or("").trim();
     if service_name.is_empty() {
-        return Err(ApiError::missing_parameter("service_name"));
+        let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
+        let view = ScopeQuery {
+            scope: query.scope,
+            agent_id: query.agent_id,
+        }
+        .into_scope_view()?;
+        let page = state
+            .store
+            .list_tool_entries_viewed(&view, filter)
+            .await
+            .map_err(ApiError::from_store)?;
+        let total = page.entries.len();
+        return Ok(success(
+            "Tool catalog retrieved successfully",
+            json!({
+                "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+                "filter": tool_filter_label(filter),
+                "tools": page.entries,
+                "total": total,
+                "skipped_instances": page.skipped_instances,
+            }),
+        ));
     }
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
     let instance_id = resolve_instance(&state, service_name, &scope).await?;
     let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
     let filter_name = tool_filter_label(filter);
-    
+
     match state
         .store
         .list_tools_for_instance_with_filter(instance_id, filter)
@@ -583,6 +608,54 @@ pub(super) async fn service_get_prompt(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Prompt retrieved successfully", result))
+}
+
+/// `GET /prompts/list?scope=all|store|agent&agent_id=` — whole-scope prompt
+/// catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn prompts_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_prompts_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Prompt catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "prompts": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
+}
+
+/// `GET /resources/list?scope=all|store|agent&agent_id=` — whole-scope
+/// resource catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn resources_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_resources_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Resource catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "resources": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
 }
 
 // ===== Service definitions (root-level CRUD, kept) =====

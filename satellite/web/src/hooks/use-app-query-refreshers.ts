@@ -28,6 +28,9 @@ export function useAppQueryRefreshers() {
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceResources(addr) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceResourceTemplates(addr) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instancePrompts(addr) }),
+      // Scope-wide catalog pages read the same data — the ["scopes"] prefix
+      // covers scopeServices + scopeTools/scopePrompts/scopeResources.
+      queryClient.invalidateQueries({ queryKey: ["scopes"] }),
       addr.scope.type === "agent"
         ? queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(addr.scope.agent_id) })
         : Promise.resolve(),

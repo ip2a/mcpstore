@@ -13,25 +13,67 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let mut prompts = self.list_prompts(instance_id).await?;
         prompts.sort_by(|left, right| left.name.cmp(&right.name));
-        let mut out = Vec::new();
+        let names: Vec<String> = prompts.iter().map(|prompt| prompt.name.clone()).collect();
+        // One batched read for the whole set — never one KV read per prompt.
+        let overrides = self.prompt_overrides_for_names(instance_id, &names).await?;
+        let mut out = Vec::with_capacity(prompts.len());
         for prompt in prompts {
-            let Some(mut value) = self.apply_prompt_override(instance_id, &prompt).await? else {
+            let Some(mut value) = Self::project_prompt_value(&prompt, overrides.get(&prompt.name))?
+            else {
                 continue;
             };
-            if let serde_json::Value::Object(object) = &mut value {
-                object.insert("instance_id".to_string(), serde_json::json!(instance_id));
-                object.insert(
-                    "service_name".to_string(),
-                    serde_json::json!(instance.service_name.clone()),
-                );
-                object.insert(
-                    "scope".to_string(),
-                    serde_json::json!(instance.scope.clone()),
-                );
-            }
+            crate::agent::models::insert_instance_identity(
+                &mut value,
+                instance_id,
+                &instance.service_name,
+                &instance.scope,
+            );
             out.push(value);
         }
         Ok(out)
+    }
+
+    /// Scope-view prompt catalog in one page. A failed instance (disconnected,
+    /// auth pending) is skipped — counted in `skipped_instances`, never blanks
+    /// the page; the per-instance route stays loud.
+    pub async fn list_prompts_viewed(
+        &self,
+        view: &ScopeView,
+    ) -> Result<ScopedCatalogPage<serde_json::Value>> {
+        let instances = self.list_view_instances(view).await?;
+        let mut entries = Vec::new();
+        let mut skipped_instances = 0usize;
+        for instance in &instances {
+            match self.list_prompts_for_instance(instance.instance_id).await {
+                Ok(instance_prompts) => entries.extend(instance_prompts),
+                Err(error) => {
+                    skipped_instances += 1;
+                    tracing::warn!(
+                        %error,
+                        service = %instance.service_name,
+                        "scope prompt catalog skipped a failed instance"
+                    );
+                }
+            }
+        }
+        entries.sort_by(|left, right| {
+            left.get("service_name")
+                .and_then(serde_json::Value::as_str)
+                .cmp(
+                    &right
+                        .get("service_name")
+                        .and_then(serde_json::Value::as_str),
+                )
+                .then_with(|| {
+                    left.get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .cmp(&right.get("name").and_then(serde_json::Value::as_str))
+                })
+        });
+        Ok(ScopedCatalogPage {
+            entries,
+            skipped_instances,
+        })
     }
 
     pub async fn get_prompt_scoped(

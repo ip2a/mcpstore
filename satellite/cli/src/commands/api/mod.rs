@@ -431,6 +431,9 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         )
         .route("/tools/list", get(service::tools_list))
         .route("/tools/call", post(service::tools_call))
+        // ===== scope-wide catalogs: one page per scope (entries carry instance identity) =====
+        .route("/prompts/list", get(service::prompts_list))
+        .route("/resources/list", get(service::resources_list))
         // ===== resources / prompts (service name + scope addressing) =====
         .route(
             "/services/:service_name/resources/list",
