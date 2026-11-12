@@ -109,12 +109,17 @@ pub(crate) fn shm_kv_store_with_handle(
     }
     let store = Arc::new(
         match shm.mode {
-            ShmOpenMode::Create => ShmStore::create(
-                ShmCreateConfig::new(shm.path.clone())
+            ShmOpenMode::Create => {
+                // openkeyv >= 0.6.1: index_entries None means autofit from
+                // capacity; forward the Option instead of forcing a default.
+                let mut create = ShmCreateConfig::new(shm.path.clone())
                     .with_capacity_bytes(shm.capacity_bytes)
-                    .with_index_entries(shm.index_entries)
-                    .with_change_retention(shm.change_retention),
-            ),
+                    .with_change_retention(shm.change_retention);
+                if let Some(entries) = shm.index_entries {
+                    create = create.with_index_entries(entries);
+                }
+                ShmStore::create(create)
+            }
             ShmOpenMode::Open => ShmStore::open(shm.path.clone()),
         }
         .map_err(|e| KvError::Store(format!("shm store attach failed: {e}")))?,
