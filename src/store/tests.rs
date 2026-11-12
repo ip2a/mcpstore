@@ -1092,7 +1092,10 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .upsert_instance_tools_projection(instance_id, &source.list_tools(instance_id).await.unwrap())
+        .upsert_instance_tools_projection(
+            instance_id,
+            &source.list_tools(instance_id).await.unwrap(),
+        )
         .await
         .unwrap();
     source
@@ -4951,7 +4954,11 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     std::fs::create_dir_all(&fixture_dir).unwrap();
     let path = fixture_dir.join("mcp.json").to_string_lossy().to_string();
     let app_path = fixture_dir.join("config.toml");
-    std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\nstartup_hard_timeout = 1\n").unwrap();
+    std::fs::write(
+        &app_path,
+        "[health_check]\nstartup_timeout = 1\nstartup_hard_timeout = 1\n",
+    )
+    .unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         store: Some(JsonStoreConfig::memory()),
@@ -5675,9 +5682,9 @@ mod scoped_contract {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    use crate::kv::models::ServiceDefinitionEntity;
     use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
+    use crate::kv::models::ServiceDefinitionEntity;
     use crate::registry::{ConfigRevision, ToolInfo};
     use crate::{CreateSessionRequest, SessionToolSelection, ToolOverridePatch};
 
@@ -7883,14 +7890,11 @@ mod swap_and_cache_tests {
                 }));
             }
             let migration = store.swap_store(&target);
-            let (result, ()) = tokio::join!(
-                migration,
-                async {
-                    for writer in writers {
-                        writer.await.unwrap();
-                    }
+            let (result, ()) = tokio::join!(migration, async {
+                for writer in writers {
+                    writer.await.unwrap();
                 }
-            );
+            });
             let result = result.unwrap();
             assert!(result.online);
 
@@ -7969,14 +7973,12 @@ mod swap_and_cache_tests {
             assert_eq!(winners.len(), 1, "a request must have exactly one claimant");
             assert_eq!(winners[0]["request_id"], "req-1");
             // Rescans must not revive a claimed request.
-            assert!(
-                store
-                    .kv()
-                    .claim_entity("tool_call_requests", "req-1")
-                    .await
-                    .unwrap()
-                    .is_none()
-            );
+            assert!(store
+                .kv()
+                .claim_entity("tool_call_requests", "req-1")
+                .await
+                .unwrap()
+                .is_none());
 
             std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
             std::fs::remove_file(path).ok();
@@ -7996,7 +7998,11 @@ mod swap_and_cache_tests {
             for index in 0..300 {
                 store
                     .kv()
-                    .put_entity("clients", &format!("seed-{index}"), serde_json::json!({"i": index}))
+                    .put_entity(
+                        "clients",
+                        &format!("seed-{index}"),
+                        serde_json::json!({"i": index}),
+                    )
                     .await
                     .unwrap();
             }
@@ -8006,7 +8012,11 @@ mod swap_and_cache_tests {
                 for index in 0..50 {
                     writer_store
                         .kv()
-                        .put_entity("clients", &format!("live-{index}"), serde_json::json!({"i": index}))
+                        .put_entity(
+                            "clients",
+                            &format!("live-{index}"),
+                            serde_json::json!({"i": index}),
+                        )
                         .await
                         .unwrap();
                 }
@@ -8055,7 +8065,10 @@ mod swap_and_cache_tests {
             let stored = store.kernel.persistence.store_config.read().await;
             assert_eq!(stored.store_name(), "shm");
             assert_eq!(
-                stored.config.get("mode").and_then(serde_json::Value::as_str),
+                stored
+                    .config
+                    .get("mode")
+                    .and_then(serde_json::Value::as_str),
                 Some("open"),
                 "the active shm config must be attach-only after cutover"
             );
@@ -8086,10 +8099,8 @@ mod swap_and_cache_tests {
 
             let fresh = store.event_log_snapshot().await.unwrap();
             assert_eq!(fresh.generation, 1);
-            let collection = KvLayerManager::entity_collection_with_namespace(
-                &store.namespace(),
-                "clients",
-            );
+            let collection =
+                KvLayerManager::entity_collection_with_namespace(&store.namespace(), "clients");
             let mut subscription = fresh
                 .log
                 .subscribe(openkeyv::ChangeFeedRequest {

@@ -3,7 +3,6 @@
 pub(crate) mod agent;
 pub mod agents;
 pub mod auth;
-pub mod kv;
 pub mod client_agent;
 pub mod client_config;
 pub mod client_wire;
@@ -14,9 +13,10 @@ pub mod core;
 pub mod error;
 pub mod events;
 pub mod facade;
-pub mod http_limit;
 pub(crate) mod health;
+pub mod http_limit;
 pub mod identity;
+pub mod kv;
 pub mod openapi;
 pub mod openapi_runtime;
 pub mod overrides;
@@ -39,8 +39,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, KvConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig, ServerConfig,
-    ScopesConfig, ScopesConfigError,
+    AppConfig, ConfigManager, GatewayConfig, KvConfig, McpConfig, RuntimeLogConfig, ScopesConfig,
+    ScopesConfigError, ServerConfig,
 };
 
 // Facade re-exports: KV layer
@@ -65,7 +65,8 @@ pub use identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 // Facade re-exports: registry
 pub use registry::{
-    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance, ToolInfo,
+    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance,
+    ServiceListProjection, ToolInfo,
 };
 
 // Facade re-exports: business sessions
@@ -112,10 +113,10 @@ pub use overrides::{
     ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
 };
 pub use store::swap::SwapResult;
-pub use store::{
-    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
-    PanelRole, RedisStoreConfig, StoreSpec, StoreOptions, ToolVisibilityFilter,
-};
-pub use store::ValkeyStoreConfig;
 #[cfg(unix)]
 pub use store::ShmStoreConfig;
+pub use store::ValkeyStoreConfig;
+pub use store::{
+    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
+    PanelRole, RedisStoreConfig, StoreOptions, StoreSpec, ToolVisibilityFilter,
+};

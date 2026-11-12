@@ -26,7 +26,10 @@ policy = ["search_repos", "create_issue"]
     assert!(config.store.services.contains_key("github"));
     let github = &config.store.services["github"];
     assert_eq!(github.enabled, Some(true));
-    assert_eq!(github.tools.policy, Some(vec!["search_repos".to_string(), "get_repo".to_string()]));
+    assert_eq!(
+        github.tools.policy,
+        Some(vec!["search_repos".to_string(), "get_repo".to_string()])
+    );
 
     let search_override = &github.tools.overrides["search_repos"];
     assert_eq!(search_override.display_name, Some("🔍 Search".to_string()));
@@ -38,7 +41,10 @@ policy = ["search_repos", "create_issue"]
     // Agent scope checks
     assert!(config.agents.contains_key("admin"));
     let admin_github = &config.agents["admin"].services["github"];
-    assert_eq!(admin_github.tools.policy, Some(vec!["search_repos".to_string(), "create_issue".to_string()]));
+    assert_eq!(
+        admin_github.tools.policy,
+        Some(vec!["search_repos".to_string(), "create_issue".to_string()])
+    );
 }
 
 #[test]

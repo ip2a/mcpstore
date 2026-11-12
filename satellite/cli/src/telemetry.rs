@@ -484,7 +484,11 @@ impl TelemetryLog {
             args.push(value);
         };
         if let Some(value) = filter.caller.as_deref() {
-            push(&mut where_sql, "AND caller = ", Value::Text(value.to_string()));
+            push(
+                &mut where_sql,
+                "AND caller = ",
+                Value::Text(value.to_string()),
+            );
         }
         if let Some(value) = filter.service.as_deref() {
             push(
@@ -494,7 +498,11 @@ impl TelemetryLog {
             );
         }
         if let Some(value) = filter.tool.as_deref() {
-            push(&mut where_sql, "AND tool = ", Value::Text(value.to_string()));
+            push(
+                &mut where_sql,
+                "AND tool = ",
+                Value::Text(value.to_string()),
+            );
         }
         if let Some(value) = filter.success {
             push(&mut where_sql, "AND success = ", Value::from(value));

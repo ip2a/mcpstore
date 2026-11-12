@@ -9,7 +9,6 @@ fn repo_root() -> PathBuf {
         .expect("failed to resolve repo root")
 }
 
-
 fn fixture_script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/mock_mcp_server.py")
@@ -59,9 +58,7 @@ fn cli_binary_completes_real_stdio_service_flow() {
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
 

@@ -124,18 +124,19 @@ impl MCPStore {
                 .registry
                 .list_instance_tools(instance_id)
                 .await;
-            self.upsert_instance_tools_projection(instance_id, &tools).await?;
+            self.upsert_instance_tools_projection(instance_id, &tools)
+                .await?;
 
-        // scopes.toml tool/policy entries skip never-connected instances at
-        // boot ("no synced tools yet"), which made override persistence
-        // require a manual /config/reload after every restart. Tools are
-        // synced now — replay the scopes config so file-declared overrides
-        // land. Idempotent (set_* upserts + journal reconciliation); the
-        // gateway's boot connect runs through this same path, so its private
-        // KV is seeded too. Never fail the connect over a reload hiccup.
-        if let Err(error) = self.load_scopes_config().await {
-            tracing::warn!("scopes.toml replay after connect failed: {error}");
-        }
+            // scopes.toml tool/policy entries skip never-connected instances at
+            // boot ("no synced tools yet"), which made override persistence
+            // require a manual /config/reload after every restart. Tools are
+            // synced now — replay the scopes config so file-declared overrides
+            // land. Idempotent (set_* upserts + journal reconciliation); the
+            // gateway's boot connect runs through this same path, so its private
+            // KV is seeded too. Never fail the connect over a reload hiccup.
+            if let Err(error) = self.load_scopes_config().await {
+                tracing::warn!("scopes.toml replay after connect failed: {error}");
+            }
             self.kernel
                 .execution
                 .event_bus
@@ -184,7 +185,8 @@ impl MCPStore {
                         Error::new(FailureCode::Internal, "connection pool is shut down")
                     })?;
                 tracing::info!(%instance_id, "[CONNECT] window permit acquired");
-                self.connect_wired_instance(instance_id, instance, automatic_retry).await
+                self.connect_wired_instance(instance_id, instance, automatic_retry)
+                    .await
             },
         )
         .await;
@@ -205,7 +207,12 @@ impl MCPStore {
                     ),
                 );
                 let cleanup = tokio::time::timeout(budget, async {
-                    self.kernel.execution.pool.disconnect(instance_id).await.ok();
+                    self.kernel
+                        .execution
+                        .pool
+                        .disconnect(instance_id)
+                        .await
+                        .ok();
                     if let Err(record_error) = self.record_failure(instance_id, &error).await {
                         // A rejected transition (e.g. desired stopped) must not
                         // mask the real cause: the caller still gets the timeout.
@@ -573,7 +580,8 @@ impl MCPStore {
             .registry
             .list_instance_tools(instance_id)
             .await;
-        self.upsert_instance_tools_projection(instance_id, &tools).await?;
+        self.upsert_instance_tools_projection(instance_id, &tools)
+            .await?;
 
         // scopes.toml tool/policy entries skip never-connected instances at
         // boot ("no synced tools yet"), which made override persistence

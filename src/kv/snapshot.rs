@@ -33,10 +33,7 @@ impl KvLayerManager {
         Self::clear_namespace(store.as_ref(), &next_namespace).await?;
         self.restore_to_store_with_namespace(store.as_ref(), &snapshot, &next_namespace)
             .await?;
-        *self
-            .namespace
-            .write()
-            .expect("kv namespace lock poisoned") = next_namespace;
+        *self.namespace.write().expect("kv namespace lock poisoned") = next_namespace;
         self.activate_store(store).await;
         Ok(snapshot)
     }

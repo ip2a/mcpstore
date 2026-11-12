@@ -116,20 +116,12 @@ impl MCPStore {
                 self.kernel
                     .control
                     .state
-                    .dispatch(
-                        instance_id,
-                        ServiceStateEvent::StartRequested,
-                        now,
-                    )
+                    .dispatch(instance_id, ServiceStateEvent::StartRequested, now)
                     .await?;
                 self.kernel
                     .control
                     .state
-                    .dispatch(
-                        instance_id,
-                        ServiceStateEvent::TransportConnected,
-                        now,
-                    )
+                    .dispatch(instance_id, ServiceStateEvent::TransportConnected, now)
                     .await?;
                 self.kernel
                     .control

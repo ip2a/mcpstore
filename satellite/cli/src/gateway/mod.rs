@@ -13,10 +13,9 @@ use std::sync::{
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
-    ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution,
-    OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
-    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef,
-    ToolOverridePatch,
+    ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution, OpenApiBundleOptions,
+    OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
+    ResourceTemplateOverridePatch, ScopeRef, ToolOverridePatch,
 };
 use rmcp::{
     model::{

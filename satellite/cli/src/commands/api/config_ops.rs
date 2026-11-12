@@ -5,7 +5,10 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::commands::api::{envelope::{success, ApiError, ApiResult}, ApiState};
+use crate::commands::api::{
+    envelope::{success, ApiError, ApiResult},
+    ApiState,
+};
 
 #[derive(Deserialize)]
 pub(super) struct ExportQuery {
@@ -34,11 +37,10 @@ pub(super) async fn config_export(
         .unwrap_or_default();
 
     let data = match query.format.as_str() {
-        "json" => serde_json::to_value(&config)
-            .map_err(|e| ApiError::internal(e.to_string()))?,
+        "json" => serde_json::to_value(&config).map_err(|e| ApiError::internal(e.to_string()))?,
         _ => {
-            let toml_str = toml::to_string_pretty(&config)
-                .map_err(|e| ApiError::internal(e.to_string()))?;
+            let toml_str =
+                toml::to_string_pretty(&config).map_err(|e| ApiError::internal(e.to_string()))?;
             serde_json::json!({ "content": toml_str, "format": "toml" })
         }
     };
@@ -87,8 +89,7 @@ pub(super) async fn config_import(
         .scopes_config_path()
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let content = toml::to_string_pretty(&config)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let content = toml::to_string_pretty(&config).map_err(|e| ApiError::internal(e.to_string()))?;
 
     std::fs::write(&path, content)
         .map_err(|e| ApiError::internal(format!("Failed to write config: {}", e)))?;

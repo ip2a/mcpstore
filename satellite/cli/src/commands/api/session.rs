@@ -129,7 +129,10 @@ pub(super) async fn session_create(
         })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session created successfully", json!({ "session": session })))
+    Ok(success(
+        "Session created successfully",
+        json!({ "session": session }),
+    ))
 }
 
 /// `GET /sessions/get?session_key=`
@@ -143,7 +146,10 @@ pub(super) async fn session_get(
         .await
         .map_err(ApiError::from_store)?;
     let session = require_present_session(session, &query.session_key, "session")?;
-    Ok(success("Session retrieved successfully", json!({ "session": session })))
+    Ok(success(
+        "Session retrieved successfully",
+        json!({ "session": session }),
+    ))
 }
 
 pub(super) async fn session_find(

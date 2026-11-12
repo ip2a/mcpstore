@@ -592,9 +592,7 @@ pub(crate) fn map_service_error(
         // upstream server's own "fetch failed") keep passing through
         // verbatim as tool_failed — a pass-through gateway reports what the
         // upstream said.
-        error @ rmcp::ServiceError::McpError(_)
-            if error.to_string().contains("Auth required") =>
-        {
+        error @ rmcp::ServiceError::McpError(_) if error.to_string().contains("Auth required") => {
             Error::new(
                 FailureCode::ConnectionAuthRequired,
                 format!("{operation} failed: {error}"),

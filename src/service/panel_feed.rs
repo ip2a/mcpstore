@@ -41,8 +41,7 @@ impl MCPStore {
         {
             return Err(Error::new(
                 FailureCode::Internal,
-                "store does not provide ChangeFeed; service events cannot be consumed"
-                    .to_string(),
+                "store does not provide ChangeFeed; service events cannot be consumed".to_string(),
             ));
         }
         // Stamp enqueue time: backlog replay sorts by it, preserving the user's write order.
@@ -153,10 +152,8 @@ impl MCPStore {
         // to the 1s retry sleep.
         loop {
             let mut snapshot = self.event_log_snapshot().await?;
-            let collection = KvLayerManager::entity_collection_with_namespace(
-                &self.namespace(),
-                SERVICE_EVENTS,
-            );
+            let collection =
+                KvLayerManager::entity_collection_with_namespace(&self.namespace(), SERVICE_EVENTS);
             // Latest can't deliver events written before subscribing, so subscribe first, then scan existing keys.
             // For an entry seen by both, skip when the later get comes back empty.
             let mut subscription = snapshot

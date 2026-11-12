@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::kv::{KvError, KvLayerManager};
 use crate::events::types::EventKind;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
+use crate::kv::{KvError, KvLayerManager};
 
 use super::{ServiceState, ServiceStateError, ServiceStateEvent};
 
@@ -186,8 +186,8 @@ impl ServiceStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::storage::memory_kv_store;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
+    use crate::kv::storage::memory_kv_store;
     use crate::state::{AuthState, DesiredState, RuntimePhase};
 
     fn manager() -> (Arc<ServiceStateManager>, EventBus) {
@@ -199,7 +199,7 @@ mod tests {
         let kv = Arc::new(KvLayerManager::new(memory_kv_store(), "state-test"));
         (
             Arc::new(ServiceStateManager::new(
-            kv,
+                kv,
                 event_bus.clone(),
                 panel_id.to_string(),
             )),

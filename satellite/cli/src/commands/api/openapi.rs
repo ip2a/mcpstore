@@ -112,7 +112,10 @@ pub(super) async fn store_import_openapi_impl(
         }
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("OpenAPI import succeeded", json!({ "import": import })))
+    Ok(success(
+        "OpenAPI import succeeded",
+        json!({ "import": import }),
+    ))
 }
 
 pub(super) async fn store_bundle_openapi(
@@ -157,7 +160,10 @@ pub(super) async fn store_bundle_openapi(
         }
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("OpenAPI spec bundled successfully", json!({ "bundle": bundle })))
+    Ok(success(
+        "OpenAPI spec bundled successfully",
+        json!({ "bundle": bundle }),
+    ))
 }
 
 pub(super) async fn store_bundle_openapi_artifact(

@@ -39,9 +39,10 @@ impl KvStore {
     }
 
     fn enumerate_collections(&self) -> Result<&Arc<dyn AsyncEnumerateCollections>> {
-        self.handle.enumerate_collections.as_ref().ok_or_else(|| {
-            KvError::Store("store does not provide collection enumeration".into())
-        })
+        self.handle
+            .enumerate_collections
+            .as_ref()
+            .ok_or_else(|| KvError::Store("store does not provide collection enumeration".into()))
     }
 }
 
@@ -126,9 +127,9 @@ impl KvStore {
 
         match result {
             CompareAndSwapResult::Applied { .. } => Ok(()),
-            CompareAndSwapResult::Conflict { .. } => Err(KvError::Conflict(
-                "concurrent modification detected".into(),
-            )),
+            CompareAndSwapResult::Conflict { .. } => {
+                Err(KvError::Conflict("concurrent modification detected".into()))
+            }
         }
     }
 
@@ -187,7 +188,11 @@ impl KvStore {
             .map_err(map_openkeyv_err)
     }
 
-    pub(crate) async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<JsonValue>>> {
+    pub(crate) async fn get_many(
+        &self,
+        keys: &[String],
+        collection: &str,
+    ) -> Result<Vec<Option<JsonValue>>> {
         let values = self
             .handle
             .base

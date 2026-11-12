@@ -49,9 +49,7 @@ impl Fixture {
         let pythonpath = format!(
             "{}:{}",
             repo_root().join("satellite/python").display(),
-            repo_root()
-                .join("satellite/cli/tests/fixtures")
-                .display()
+            repo_root().join("satellite/cli/tests/fixtures").display()
         );
         std::fs::write(
             &config,
@@ -124,13 +122,7 @@ fn resource_list_and_read_have_machine_contracts() {
 
     // Listing never connects: a disconnected instance yields the stable
     // not_connected error instead of a hidden connect side effect.
-    let listed = fixture.command(&[
-        "resource",
-        "list",
-        &fixture.instance_id,
-        "--output",
-        "json",
-    ]);
+    let listed = fixture.command(&["resource", "list", &fixture.instance_id, "--output", "json"]);
     assert_eq!(listed.status.code(), Some(40));
     assert!(listed.stdout.is_empty());
     let error: Value = serde_json::from_slice(&listed.stderr).expect("valid JSON error");
@@ -157,13 +149,7 @@ fn prompt_list_and_get_have_machine_contracts() {
     let fixture = Fixture::new();
 
     // Listing never connects (see resource_list_and_read_have_machine_contracts).
-    let listed = fixture.command(&[
-        "prompt",
-        "list",
-        &fixture.instance_id,
-        "--output",
-        "json",
-    ]);
+    let listed = fixture.command(&["prompt", "list", &fixture.instance_id, "--output", "json"]);
     assert_eq!(listed.status.code(), Some(40));
     assert!(listed.stdout.is_empty());
     let error: Value = serde_json::from_slice(&listed.stderr).expect("valid JSON error");

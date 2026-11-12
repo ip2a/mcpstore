@@ -14,7 +14,10 @@ pub mod wizard;
 pub struct TuiArgs {
     #[command(flatten)]
     pub store: StoreSourceArgs,
-    #[arg(long, help = "cold-start an embedded kernel in this process instead of connecting to the daemon")]
+    #[arg(
+        long,
+        help = "cold-start an embedded kernel in this process instead of connecting to the daemon"
+    )]
     pub embedded: bool,
 }
 

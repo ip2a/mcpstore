@@ -158,9 +158,7 @@ impl PersistenceRouter {
                 for (suffix, entries) in *data {
                     let collection = format!("{namespace}:{layer}:{suffix}");
                     for (key, value) in entries {
-                        target_kv_store
-                            .put(key, value.clone(), &collection)
-                            .await?;
+                        target_kv_store.put(key, value.clone(), &collection).await?;
                         copied += 1;
                     }
                 }
@@ -187,8 +185,7 @@ impl PersistenceRouter {
         // reconnect replaying "create" would reset a live store other
         // processes are attached to.
         if target_name == "shm" {
-            target_openkeyv_config.config["mode"] =
-                serde_json::Value::String("open".to_string());
+            target_openkeyv_config.config["mode"] = serde_json::Value::String("open".to_string());
         }
         *self.store_config.write().await =
             JsonStoreConfig::new(config.store_name(), target_openkeyv_config.config);

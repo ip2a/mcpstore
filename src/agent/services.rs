@@ -1,23 +1,42 @@
 use std::collections::HashMap;
 
 use crate::overrides::ServiceOverrideRule;
+use crate::registry::ServiceListProjection;
 use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_services(&self) -> Result<Vec<serde_json::Value>> {
-        let instances = self.list_instances().await;
-        self.enrich_services(instances).await
+        self.list_services_projected(ServiceListProjection::FULL)
+            .await
     }
 
     pub async fn list_services_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
+        self.list_services_scoped_projected(scope, ServiceListProjection::FULL)
+            .await
+    }
+
+    pub async fn list_services_projected(
+        &self,
+        projection: ServiceListProjection,
+    ) -> Result<Vec<serde_json::Value>> {
+        let instances = self.list_instances().await;
+        self.enrich_services(instances, projection).await
+    }
+
+    pub async fn list_services_scoped_projected(
+        &self,
+        scope: &ScopeRef,
+        projection: ServiceListProjection,
+    ) -> Result<Vec<serde_json::Value>> {
         let instances = self.list_scope_instances(scope).await?;
-        self.enrich_services(instances).await
+        self.enrich_services(instances, projection).await
     }
 
     /// One override map for the whole list — cards must not N+1 `/service_override`.
     async fn enrich_services(
         &self,
         instances: Vec<ServiceInstance>,
+        projection: ServiceListProjection,
     ) -> Result<Vec<serde_json::Value>> {
         let overrides: HashMap<InstanceId, ServiceOverrideRule> = self
             .list_service_overrides_lenient()
@@ -28,7 +47,10 @@ impl MCPStore {
         let mut services = Vec::with_capacity(instances.len());
         for instance in instances {
             let override_rule = overrides.get(&instance.instance_id);
-            services.push(self.enrich_service(instance, override_rule).await?);
+            services.push(
+                self.enrich_service(instance, override_rule, projection)
+                    .await?,
+            );
         }
         Ok(services)
     }
@@ -37,6 +59,7 @@ impl MCPStore {
         &self,
         instance: ServiceInstance,
         override_rule: Option<&ServiceOverrideRule>,
+        projection: ServiceListProjection,
     ) -> Result<serde_json::Value> {
         let instance_id = instance.instance_id;
         let service_name = instance.service_name.clone();
@@ -47,7 +70,15 @@ impl MCPStore {
             .and_then(|value| value.as_str())
             .map(str::to_string);
         let state = self.service_state_entry(instance_id).await?;
-        let mcp = self.mcp_server_metadata(instance_id).await?;
+        // The instance is already in hand — read the pool directly. Going through
+        // `mcp_server_metadata` would re-fetch the instance for every row and can
+        // even trigger a full registry rebuild via `require_instance`.
+        let mcp = self
+            .kernel
+            .execution
+            .pool
+            .server_metadata(instance_id)
+            .await?;
         let mut value = serde_json::to_value(&instance)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
@@ -69,6 +100,15 @@ impl MCPStore {
                 config_description.as_deref(),
                 override_rule,
             );
+            if projection.summary {
+                // Opt-in slim payload: strip the heavy fields the caller did not ask back.
+                if !projection.include_tools {
+                    object.remove("tools");
+                }
+                if !projection.include_config {
+                    object.remove("effective_config");
+                }
+            }
         }
         Ok(value)
     }
@@ -100,18 +140,39 @@ impl MCPStore {
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let override_rule = self.get_service_override(instance_id).await?;
-        self.enrich_service(instance, override_rule.as_ref()).await
+        self.enrich_service(
+            instance,
+            override_rule.as_ref(),
+            ServiceListProjection::FULL,
+        )
+        .await
     }
 
     /// List services by read view: All aggregates all (`list_services`); Store/Agent pass through to `list_services_scoped`.
     pub async fn list_services_viewed(&self, view: &ScopeView) -> Result<Vec<serde_json::Value>> {
+        self.list_services_viewed_projected(view, ServiceListProjection::FULL)
+            .await
+    }
+
+    /// Same as `list_services_viewed` with a payload-width projection.
+    pub async fn list_services_viewed_projected(
+        &self,
+        view: &ScopeView,
+        projection: ServiceListProjection,
+    ) -> Result<Vec<serde_json::Value>> {
         match view {
-            ScopeView::All => self.list_services().await,
-            ScopeView::Store => self.list_services_scoped(&ScopeRef::Store).await,
+            ScopeView::All => self.list_services_projected(projection).await,
+            ScopeView::Store => {
+                self.list_services_scoped_projected(&ScopeRef::Store, projection)
+                    .await
+            }
             ScopeView::Agent { agent_id } => {
-                self.list_services_scoped(&ScopeRef::Agent {
-                    agent_id: agent_id.clone(),
-                })
+                self.list_services_scoped_projected(
+                    &ScopeRef::Agent {
+                        agent_id: agent_id.clone(),
+                    },
+                    projection,
+                )
                 .await
             }
         }

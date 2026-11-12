@@ -17,8 +17,8 @@ pub mod serializer;
 pub(crate) mod service_projection;
 pub(crate) mod snapshot;
 pub(crate) mod state;
-pub(crate) mod store;
 pub(crate) mod storage;
+pub(crate) mod store;
 pub(crate) mod valkey;
 
 pub use layer::{KvError, KvLayerManager, KvSnapshot, Result};

@@ -361,7 +361,7 @@ fn test_default_template_contains_runtime_sections() {
 
 #[test]
 fn test_hosts_config_roundtrip() {
-    use super::{HostsConfig};
+    use super::HostsConfig;
 
     // Legacy single-`url` entries migrate to `urls`; multi-URL entries pass
     // through in preference order; `active` selects which one wins.

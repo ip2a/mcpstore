@@ -234,8 +234,7 @@ mod tests {
 
     #[test]
     fn valkey_config_serializes_independently_of_redis() {
-        let config =
-            ValkeyStoreConfig::new("valkey://127.0.0.1/").with_namespace("tenant-a");
+        let config = ValkeyStoreConfig::new("valkey://127.0.0.1/").with_namespace("tenant-a");
         let openkeyv = config.to_openkeyv_config();
         assert_eq!(openkeyv.store, "valkey");
         assert_eq!(openkeyv.config["url"], "valkey://127.0.0.1/");

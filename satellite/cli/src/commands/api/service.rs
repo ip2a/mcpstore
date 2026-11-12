@@ -114,15 +114,19 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
 
 // ===== List endpoints =====
 
-/// `GET /services/list?scope=all|store|agent&agent_id=` — service list (all = aggregation of all scopes).
+/// `GET /services/list?scope=all|store|agent&agent_id=&fields=summary|full&include=tools,config`
+/// — service list (all = aggregation of all scopes). Absent payload params keep
+/// the legacy full response; `fields=summary` strips the heavy per-row fields.
 pub(super) async fn service_list_services(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ScopeQuery>,
+    Query(list_query): Query<ServiceListQuery>,
 ) -> ApiResult {
     let view = query.into_scope_view()?;
+    let projection = list_query.into_projection()?;
     let services = state
         .store
-        .list_services_viewed(&view)
+        .list_services_viewed_projected(&view, projection)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -175,7 +179,10 @@ async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
                 None,
             )
         })?;
-    Ok(success("Scope details retrieved successfully", json!(scope)))
+    Ok(success(
+        "Scope details retrieved successfully",
+        json!(scope),
+    ))
 }
 
 /// `GET /agents/list` — agent list (kept).
@@ -209,7 +216,10 @@ pub(super) async fn agent_info(
                 None,
             )
         })?;
-    Ok(success("Agent details retrieved successfully", json!(agent)))
+    Ok(success(
+        "Agent details retrieved successfully",
+        json!(agent),
+    ))
 }
 
 // ===== Service instances: info / status / lifecycle (service name + scope addressing) =====
@@ -241,7 +251,10 @@ pub(super) async fn service_state(
         .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service status retrieved successfully", service_state))
+    Ok(success(
+        "Service status retrieved successfully",
+        service_state,
+    ))
 }
 
 pub(super) async fn service_connect(
@@ -306,7 +319,10 @@ pub(super) async fn service_restart(
         .restart_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service restarted successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service restarted successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn service_wait(
@@ -417,21 +433,19 @@ pub(super) async fn tools_list(
                 "total": tools.len(),
             }),
         )),
-        Err(err) => {
-            Ok(success(
-                "Service unavailable",
-                json!({
-                    "service_name": service_name,
-                    "filter": filter_name,
-                    "tools": [],
-                    "total": 0,
-                    "service_error": {
-                        "code": err.code().as_str(),
-                        "message": err.message(),
-                    }
-                }),
-            ))
-        }
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "service_name": service_name,
+                "filter": filter_name,
+                "tools": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
     }
 }
 
@@ -497,7 +511,7 @@ pub(super) async fn service_list_resources(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    
+
     // MCP service errors (401, 409, 502, etc.) are expected business states,
     // not system failures. Return them as successful responses with error info.
     match state.store.list_resources_for_instance(instance_id).await {
@@ -569,25 +583,23 @@ pub(super) async fn service_list_prompts(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    
+
     match state.store.list_prompts_for_instance(instance_id).await {
         Ok(prompts) => Ok(success(
             "Prompt list retrieved successfully",
             json!({ "prompts": prompts, "total": prompts.len() }),
         )),
-        Err(err) => {
-            Ok(success(
-                "Service unavailable",
-                json!({
-                    "prompts": [],
-                    "total": 0,
-                    "service_error": {
-                        "code": err.code().as_str(),
-                        "message": err.message(),
-                    }
-                }),
-            ))
-        }
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "prompts": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
     }
 }
 
@@ -673,7 +685,10 @@ pub(super) async fn add_service_definition(
         .add_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition added successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition added successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn update_service_definition(
@@ -697,7 +712,10 @@ pub(super) async fn update_service_definition(
         .update_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition updated successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition updated successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn remove_service_definition(
@@ -709,7 +727,10 @@ pub(super) async fn remove_service_definition(
         .remove_service(&service_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 // ===== Scope declarations (kept) =====
@@ -778,7 +799,10 @@ pub(super) async fn service_get_tool_policy(
         .get_context_tool_visibility(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool policy retrieved successfully", json!({ "policy": policy })))
+    Ok(success(
+        "Tool policy retrieved successfully",
+        json!({ "policy": policy }),
+    ))
 }
 
 pub(super) async fn service_set_tool_policy(
@@ -794,7 +818,10 @@ pub(super) async fn service_set_tool_policy(
         .set_context_tool_visibility(instance_id, payload.available_tools)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool policy updated successfully", json!({ "policy": policy })))
+    Ok(success(
+        "Tool policy updated successfully",
+        json!({ "policy": policy }),
+    ))
 }
 
 pub(super) async fn service_clear_tool_policy(
@@ -875,7 +902,10 @@ pub(super) async fn service_delete_tool_override(
         .delete_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool override removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Tool override removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1101,7 +1131,10 @@ pub(super) async fn service_get_service_override(
         .get_service_override(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override retrieved successfully", json!({ "override": rule })))
+    Ok(success(
+        "Service override retrieved successfully",
+        json!({ "override": rule }),
+    ))
 }
 
 pub(super) async fn service_set_service_override(
@@ -1117,7 +1150,10 @@ pub(super) async fn service_set_service_override(
         .set_service_override(instance_id, patch)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override set successfully", json!({ "override": rule })))
+    Ok(success(
+        "Service override set successfully",
+        json!({ "override": rule }),
+    ))
 }
 
 pub(super) async fn service_delete_service_override(
@@ -1132,7 +1168,10 @@ pub(super) async fn service_delete_service_override(
         .delete_service_override(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service override removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 // ===== Argument completions (service name + scope addressing) =====
@@ -1175,7 +1214,10 @@ pub(super) async fn service_subscribe_resource(
         .subscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Resource updates subscribed successfully", json!({ "uri": uri })))
+    Ok(success(
+        "Resource updates subscribed successfully",
+        json!({ "uri": uri }),
+    ))
 }
 
 pub(super) async fn service_unsubscribe_resource(
@@ -1198,7 +1240,10 @@ pub(super) async fn service_unsubscribe_resource(
         .unsubscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Resource update subscription removed", json!({ "uri": uri })))
+    Ok(success(
+        "Resource update subscription removed",
+        json!({ "uri": uri }),
+    ))
 }
 
 // ===== Config view / reset (kept) =====
@@ -1263,7 +1308,10 @@ pub(super) async fn agent_reset_config(
         .reset_scope(&ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent config reset successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Agent config reset successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1272,5 +1320,8 @@ pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> Ap
         .reset_config()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Config reset successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Config reset successfully",
+        json!({ "status": "ok" }),
+    ))
 }

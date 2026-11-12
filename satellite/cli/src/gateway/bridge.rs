@@ -165,8 +165,14 @@ mod tests {
 
     #[test]
     fn tools_key_yields_first_segment_instance() {
-        let payload = projection_event_payload(&change("ns-a:entity:tools", "c81af510-755b-55c7-8487-5668ab36e06e:echo"));
-        assert_eq!(instance_id_of(&payload), Some("c81af510-755b-55c7-8487-5668ab36e06e"));
+        let payload = projection_event_payload(&change(
+            "ns-a:entity:tools",
+            "c81af510-755b-55c7-8487-5668ab36e06e:echo",
+        ));
+        assert_eq!(
+            instance_id_of(&payload),
+            Some("c81af510-755b-55c7-8487-5668ab36e06e")
+        );
     }
 
     #[test]
@@ -175,12 +181,18 @@ mod tests {
             "ns-a:state:service_overrides",
             "127ce370-1ed6-5b00-9713-e88d01b3010d",
         ));
-        assert_eq!(instance_id_of(&service), Some("127ce370-1ed6-5b00-9713-e88d01b3010d"));
+        assert_eq!(
+            instance_id_of(&service),
+            Some("127ce370-1ed6-5b00-9713-e88d01b3010d")
+        );
         let tool = projection_event_payload(&change(
             "ns-a:state:tool_overrides",
             "90e3880b-4a70-5f0e-a9b3-9f24c2f6b7aa:orig_tool",
         ));
-        assert_eq!(instance_id_of(&tool), Some("90e3880b-4a70-5f0e-a9b3-9f24c2f6b7aa"));
+        assert_eq!(
+            instance_id_of(&tool),
+            Some("90e3880b-4a70-5f0e-a9b3-9f24c2f6b7aa")
+        );
     }
 
     #[test]
@@ -189,7 +201,10 @@ mod tests {
             "ns-a:state:context_tool_visibility",
             "store:6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1",
         ));
-        assert_eq!(instance_id_of(&payload), Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1"));
+        assert_eq!(
+            instance_id_of(&payload),
+            Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1")
+        );
     }
 
     #[test]
@@ -198,7 +213,10 @@ mod tests {
             "ns-a:relations:instance_tools",
             "6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1",
         ));
-        assert_eq!(instance_id_of(&payload), Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1"));
+        assert_eq!(
+            instance_id_of(&payload),
+            Some("6c9d24ee-1f28-5dd9-9c8d-8d81b4a3e5f1")
+        );
     }
 
     #[test]
@@ -206,10 +224,8 @@ mod tests {
         let definitions =
             projection_event_payload(&change("ns-a:entity:service_definitions", "svc-a"));
         assert_eq!(definitions["instanceId"], Value::Null);
-        let sessions = projection_event_payload(&change(
-            "ns-a:relations:session_tools",
-            "sess-1:inst-5",
-        ));
+        let sessions =
+            projection_event_payload(&change("ns-a:relations:session_tools", "sess-1:inst-5"));
         assert_eq!(sessions["instanceId"], Value::Null);
     }
 }

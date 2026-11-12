@@ -3,23 +3,23 @@ use std::path::PathBuf;
 mod api_web_validation;
 mod app_schema;
 mod app_validation;
-mod kv_schema;
 mod defaults;
 mod examples;
 mod field_validation;
 mod flatten;
 mod health_schema;
 mod health_validation;
+mod kv_schema;
 mod manager;
 mod mcp_schema;
 mod merge;
+pub mod models;
+pub mod resolver;
 mod scopes;
 mod scopes_loader;
 #[cfg(test)]
 mod scopes_tests;
 mod scopes_writeback;
-pub mod models;
-pub mod resolver;
 mod server_validation;
 mod service_schema;
 mod sparse;
@@ -35,8 +35,8 @@ pub use app_schema::{
     ApiSettings, AppConfig, DiagnosticsConfig, GatewayConfig, HostEntry, HostsConfig,
     PluginsConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, WebSettings,
 };
-pub use kv_schema::KvConfig;
 pub use health_schema::HealthCheckConfig;
+pub use kv_schema::KvConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
 pub use merge::merge_config;

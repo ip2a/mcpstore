@@ -16,8 +16,8 @@ mod tests;
 pub mod tool;
 
 pub use models::{
-    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance, ServiceRegistry,
-    ToolInfo,
+    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance,
+    ServiceListProjection, ServiceRegistry, ToolInfo,
 };
 
 impl ServiceRegistry {

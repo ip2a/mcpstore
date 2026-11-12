@@ -40,9 +40,7 @@ impl MCPStore {
         let collections = PROJECTION_TYPES
             .iter()
             .map(|(layer, name)| match *layer {
-                "entity" => {
-                    KvLayerManager::entity_collection_with_namespace(&namespace, name)
-                }
+                "entity" => KvLayerManager::entity_collection_with_namespace(&namespace, name),
                 "state" => KvLayerManager::state_collection_with_namespace(&namespace, name),
                 _ => KvLayerManager::relation_collection_with_namespace(&namespace, name),
             })
