@@ -82,28 +82,16 @@ export function AgentsView(props: {
     addableServiceNames,
     loadAgentScope,
     loadingScopeServices,
-    loadingScopeTools,
     scopeServiceName,
     scopeServices,
     scopeServicesError,
     scopeServicesErrorMessage,
-    scopeTools,
-    scopeToolsError,
-    scopeToolsErrorMessage,
     setScopeServiceName,
-  } = useAgentScope({ busy: props.busy, selectedScope, services: props.services })
+  } = useAgentScope({ selectedScope, services: props.services })
 
-  const loadingScope = loadingScopeServices || loadingScopeTools
-  const scopeError = scopeServicesError || scopeToolsError
-  const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
-
-  const scopeToolCountByInstance = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const { instance } of scopeTools) {
-      counts.set(instance.instance_id, (counts.get(instance.instance_id) || 0) + 1)
-    }
-    return counts
-  }, [scopeTools])
+  const loadingScope = loadingScopeServices
+  const scopeError = scopeServicesError
+  const scopeErrorMessage = scopeServicesErrorMessage
 
   function loadScopeConfig() {
     void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())
@@ -187,7 +175,6 @@ export function AgentsView(props: {
                     scopeErrorMessage={scopeErrorMessage}
                     scopeServiceName={scopeServiceName}
                     scopeServices={scopeServices}
-                    scopeToolCountByInstance={scopeToolCountByInstance}
                     selectedScope={selectedScope}
                     setAddScopeDialogOpen={setAddScopeDialogOpen}
                     setConfigDialogOpen={setConfigDialogOpen}
@@ -259,7 +246,6 @@ function ScopeDetailPanel({
   scopeErrorMessage,
   scopeServiceName,
   scopeServices,
-  scopeToolCountByInstance,
   selectedScope,
   setAddScopeDialogOpen,
   setConfigDialogOpen,
@@ -280,7 +266,6 @@ function ScopeDetailPanel({
   scopeErrorMessage: string
   scopeServiceName: string
   scopeServices: ServiceInstance[]
-  scopeToolCountByInstance: Map<string, number>
   selectedScope: ScopeView
   setAddScopeDialogOpen: (open: boolean) => void
   setConfigDialogOpen: (open: boolean) => void
@@ -322,19 +307,13 @@ function ScopeDetailPanel({
         ) : loadingScopeServices ? (
           <PageSkeleton className="col-span-full" />
         ) : scopeServices.length ? (
-          scopeServices.map((service) => {
-            const toolCount =
-              scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
-
-            return (
-              <ServiceListCard
-                key={service.instance_id}
-                service={service}
-                toolCount={toolCount}
-                onSelect={() => onOpenService(service)}
-              />
-            )
-          })
+          scopeServices.map((service) => (
+            <ServiceListCard
+              key={service.instance_id}
+              service={service}
+              onSelect={() => onOpenService(service)}
+            />
+          ))
         ) : (
           <PageEmpty
             className="col-span-full"

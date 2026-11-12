@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { WORKSPACE_TOOLBAR_CLASSNAME } from "@/components/shared/workspace-toolbar"
@@ -11,7 +10,6 @@ import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -28,24 +26,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
 import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
-import {
-  getFrameHistory,
-  getFrameSessions,
-  type FrameRecord,
-  type FrameSessionSummary,
-} from "@/lib/api"
+import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
 type FrameFace = FrameSessionSummary["face"]
-type FrameViewMode = "table" | "graph" | "history" | "kv"
+type FrameViewMode = "table" | "history" | "kv"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -63,7 +50,9 @@ export function FrameStreamCard(props: {
    * Parent owns tab chrome (e.g. Gateway workspace). Renders only this view
    * without PanelCard / internal tabs; refresh stays in a slim toolbar.
    */
-  embedView?: "table" | "graph"
+  embedView?: "table"
+  /** Open shared session detail page (replaces the old dialog). */
+  onOpenSession?: (session: FrameSessionSummary) => void
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
@@ -74,7 +63,6 @@ export function FrameStreamCard(props: {
   )
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
-  const [active, setActive] = useState<FrameSessionSummary | null>(null)
 
   useEffect(() => {
     if (props.embedView) {
@@ -119,11 +107,6 @@ export function FrameStreamCard(props: {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.gatewayFrameSessions,
     })
-    if (active) {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.gatewayFrameHistory(active.session_id),
-      })
-    }
   }
 
   const refreshSpinning =
@@ -212,8 +195,8 @@ export function FrameStreamCard(props: {
               {items.map((session) => (
                 <TableRow
                   key={session.session_id}
-                  className="cursor-pointer"
-                  onClick={() => setActive(session)}
+                  className={props.onOpenSession ? "cursor-pointer" : undefined}
+                  onClick={() => props.onOpenSession?.(session)}
                 >
                   <TableCell className="max-w-[220px] truncate font-mono text-xs">
                     {session.peer ?? session.caller ?? session.session_id.slice(0, 12)}
@@ -244,14 +227,7 @@ export function FrameStreamCard(props: {
   )
 
   const body =
-    view === "graph" ? (
-      <FrameGraphView
-        face={props.face}
-        fill={fill}
-        isLoading={sessions.isLoading}
-        sessions={items}
-      />
-    ) : view === "history" && props.historySlot ? (
+    view === "history" && props.historySlot ? (
       props.historySlot
     ) : view === "kv" && props.kvSlot ? (
       props.kvSlot
@@ -304,9 +280,6 @@ export function FrameStreamCard(props: {
                 <TabsTrigger value="table" className="flex-none">
                   {t("gatewayFramesTabTable")}
                 </TabsTrigger>
-                <TabsTrigger value="graph" className="flex-none">
-                  {t("gatewayFramesTabGraph")}
-                </TabsTrigger>
                 {props.historySlot ? (
                   <TabsTrigger value="history" className="flex-none">
                     {t("navHistory")}
@@ -324,14 +297,6 @@ export function FrameStreamCard(props: {
             <TabsContent value="table" className={tabContentClassName}>
               {tableBody}
             </TabsContent>
-            <TabsContent value="graph" className={tabContentClassName}>
-              <FrameGraphView
-                face={props.face}
-                fill={fill}
-                isLoading={sessions.isLoading}
-                sessions={items}
-              />
-            </TabsContent>
             {props.historySlot ? (
               <TabsContent value="history" className={tabContentClassName}>
                 {props.historySlot}
@@ -345,259 +310,6 @@ export function FrameStreamCard(props: {
           </Tabs>
         </PanelCard>
       )}
-
-      <SessionTimelineDialog
-        onOpenChange={(open) => {
-          if (!open) setActive(null)
-        }}
-        session={active}
-      />
     </>
-  )
-}
-
-/** Bucket window for the graph: visible sessions span at most 24h (see
- * `getFrameSessions({ hours: 24 })` above), so 30-minute buckets keep the
- * x axis readable without flattening short bursts. */
-const GRAPH_BUCKET_MS = 30 * 60_000
-
-type GraphPoint = { bucketMs: number; label: string; frames: number }
-
-function buildGraphPoints(sessions: FrameSessionSummary[]): GraphPoint[] {
-  if (sessions.length === 0) return []
-  const byBucket = new Map<number, number>()
-  for (const session of sessions) {
-    const bucket = Math.floor(session.last_ts_unix_ms / GRAPH_BUCKET_MS) * GRAPH_BUCKET_MS
-    byBucket.set(bucket, (byBucket.get(bucket) ?? 0) + session.frame_count)
-  }
-  const buckets = [...byBucket.keys()]
-  const first = Math.min(...buckets)
-  const last = Math.max(...buckets)
-  const points: GraphPoint[] = []
-  for (let bucket = first; bucket <= last; bucket += GRAPH_BUCKET_MS) {
-    const date = new Date(bucket)
-    points.push({
-      bucketMs: bucket,
-      label: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      frames: byBucket.get(bucket) ?? 0,
-    })
-  }
-  return points
-}
-
-/** Frame volume over time — line chart of frame counts bucketed from the
- * currently loaded session page (same data as the table tab). */
-function FrameGraphView({
-  face,
-  fill,
-  isLoading,
-  sessions,
-}: {
-  face: FrameFace
-  fill: boolean
-  isLoading: boolean
-  sessions: FrameSessionSummary[]
-}) {
-  const { t } = useI18n()
-  const points = useMemo(() => buildGraphPoints(sessions), [sessions])
-  const totalFrames = points.reduce((sum, p) => sum + p.frames, 0)
-
-  const chartConfig = {
-    frames: {
-      label: t("gatewayFramesColCount"),
-      color: face === "gateway" ? "#5b5bd5" : "#38bdf8",
-    },
-  } satisfies ChartConfig
-
-  if (isLoading) return null
-
-  if (points.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex flex-1 items-center justify-center text-sm text-muted-foreground",
-          fill ? "min-h-0 px-4 py-6" : "py-6",
-        )}
-      >
-        {t(face === "gateway" ? "gatewayFramesEmptyGateway" : "gatewayFramesEmptyUpstream")}
-      </div>
-    )
-  }
-
-  return (
-    <div className={cn("flex min-h-0 flex-1 flex-col gap-2", fill ? "px-4 py-3" : "py-2")}>
-      <ChartContainer config={chartConfig} className="aspect-auto h-[240px] w-full min-w-0">
-        <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
-            height={32}
-            minTickGap={30}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-          />
-          <YAxis
-            tickLine={false}
-            axisLine={false}
-            width={36}
-            allowDecimals={false}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-          />
-          <ChartTooltip cursor={{ stroke: "var(--border)" }} content={<ChartTooltipContent />} />
-          <Line
-            dataKey="frames"
-            type="monotone"
-            stroke={chartConfig.frames.color}
-            strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 4 }}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ChartContainer>
-      <p className="shrink-0 text-xs text-muted-foreground">
-        {t("gatewayFramesShowing", { from: 1, to: sessions.length, total: totalFrames })}
-      </p>
-    </div>
-  )
-}
-
-function SessionTimelineDialog({
-  session,
-  onOpenChange,
-}: {
-  session: FrameSessionSummary | null
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useI18n()
-  const [openFrame, setOpenFrame] = useState<number | null>(null)
-  useEffect(() => {
-    setOpenFrame(null)
-  }, [session?.session_id])
-  const timeline = useQuery({
-    queryKey: queryKeys.gatewayFrameHistory(session?.session_id ?? ""),
-    enabled: session !== null,
-    queryFn: () => getFrameHistory(session!.session_id),
-  })
-
-  return (
-    <Dialog open={session !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-3 overflow-hidden sm:max-w-2xl">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="truncate font-mono text-base">
-            {t("gatewayFramesDialogTitle", {
-              id: session?.peer ?? session?.session_id.slice(0, 12) ?? "",
-            })}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {!timeline.data || timeline.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("gatewayFramesNoFrames")}</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {timeline.data.map((frame) => (
-                <FrameRow
-                  frame={frame}
-                  key={frame.id}
-                  open={openFrame === frame.id}
-                  onToggle={() => setOpenFrame((prev) => (prev === frame.id ? null : frame.id))}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function FrameRow({
-  frame,
-  open,
-  onToggle,
-}: {
-  frame: FrameRecord
-  open: boolean
-  onToggle: () => void
-}) {
-  const Arrow = frame.direction === "up" ? ArrowUpIcon : ArrowDownIcon
-  return (
-    <div className="rounded-md border border-dashed">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-        onClick={onToggle}
-      >
-        <Arrow
-          className={`size-3.5 shrink-0 ${
-            frame.direction === "up" ? "text-blue-500" : "text-emerald-500"
-          }`}
-        />
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {new Date(frame.ts_unix_ms).toLocaleTimeString()}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-sm">
-          {frame.method ?? `#${frame.jsonrpc_id ?? "—"}`}
-        </span>
-        <Badge
-          variant={
-            frame.kind === "error"
-              ? "destructive"
-              : frame.kind === "notification"
-                ? "outline"
-                : "secondary"
-          }
-          className="shrink-0"
-        >
-          {frame.kind}
-        </Badge>
-        <span className="shrink-0 text-xs text-muted-foreground">{frame.size_bytes}B</span>
-      </button>
-      {open ? (
-        <div className="border-t px-3 py-2 text-xs">
-          <PayloadBlock
-            payload={frame.payload}
-            title={`${frame.face} / ${frame.kind}`}
-            truncated={frame.truncated}
-          />
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function PayloadBlock({
-  title,
-  payload,
-  truncated,
-}: {
-  title: string
-  payload: string | null
-  truncated: boolean
-}) {
-  const { t } = useI18n()
-  if (!payload) return null
-  let pretty = payload
-  try {
-    pretty = JSON.stringify(JSON.parse(payload), null, 2)
-  } catch {
-    // Not JSON (truncated leftover) — show as-is
-  }
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="font-medium">{title}</span>
-        {truncated ? (
-          <Badge variant="outline" className="text-[10px]">
-            {t("gatewayTruncated")}
-          </Badge>
-        ) : null}
-      </div>
-      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
-        {pretty}
-      </pre>
-    </div>
   )
 }

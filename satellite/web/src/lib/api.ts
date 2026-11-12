@@ -275,6 +275,14 @@ export type ServiceInstance = {
   applied_config_revision: ConfigRevision | null
   added_time: number
   mcp?: McpServerMetadata | null
+  /** List enrichment: override display_name, else service_name. */
+  display_name?: string
+  /** List enrichment: override description, else effective_config.description. */
+  description?: string
+  /** List enrichment: override icons when set (else use mcp.serverInfo.icons). */
+  icons?: unknown
+  /** List enrichment: tools.len() — prefer over re-fetching /tools/list for counts. */
+  tool_count?: number
 }
 
 export type AgentItem = {

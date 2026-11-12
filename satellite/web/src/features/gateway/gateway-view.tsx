@@ -51,6 +51,7 @@ import {
   getGatewayRequests,
   startMcpHub,
   stopMcpHub,
+  type FrameSessionSummary,
   type GatewayProjectionIssue,
   type GatewayRequestRecord,
   type GatewayStatus,
@@ -66,9 +67,13 @@ const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
   path: "/mcp",
 }
 
-type GatewayPanelTab = "calls" | "projection" | "table" | "graph"
+type GatewayPanelTab = "calls" | "projection" | "table"
 
-export function GatewayView() {
+export function GatewayView({
+  onOpenSession,
+}: {
+  onOpenSession?: (session: FrameSessionSummary) => void
+} = {}) {
   const { t } = useI18n()
   const status = useGatewayStatusQuery()
   const clients = useClientsQuery()
@@ -160,9 +165,6 @@ export function GatewayView() {
               <TabsTrigger value="table" className="flex-none">
                 {t("gatewayFramesTabTable")}
               </TabsTrigger>
-              <TabsTrigger value="graph" className="flex-none">
-                {t("gatewayFramesTabGraph")}
-              </TabsTrigger>
             </WorkspaceTabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               {status.data?.running ? (
@@ -253,13 +255,12 @@ export function GatewayView() {
 
           <TabsContent value="table" className={tabContentClassName}>
             {panelTab === "table" ? (
-              <FrameStreamCard face="gateway" embedView="table" fill />
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="graph" className={tabContentClassName}>
-            {panelTab === "graph" ? (
-              <FrameStreamCard face="gateway" embedView="graph" fill />
+              <FrameStreamCard
+                face="gateway"
+                embedView="table"
+                fill
+                onOpenSession={onOpenSession}
+              />
             ) : null}
           </TabsContent>
         </Tabs>

@@ -18,7 +18,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useScopesQuery } from "@/features/agents/queries"
-import { useInstanceToolsQueries } from "@/features/tools/queries"
 import { useToolOverridesQuery } from "@/features/overrides/queries"
 import { ToolConfigRow } from "@/features/scope/tool-config-row"
 import { ToolPolicyDialog } from "@/features/scope/tool-policy-dialog"
@@ -110,20 +109,19 @@ export function ScopeView(props: {
     )
   }, [props.services, selectedScope])
 
-  const toolQueries = useInstanceToolsQueries(scopeServices, "all")
-  const detailLoading = toolQueries.some((result) => result.isFetching)
-  const loading = scopesQuery.isFetching || (selectedScope !== null && detailLoading)
-  const error = scopesQuery.error || toolQueries.find((result) => result.error)?.error
+  const loading = scopesQuery.isFetching
+  const error = scopesQuery.error
   const errorMessage =
     error instanceof Error ? error.message : error ? String(error) : "Failed to load scope"
 
+  // List payload already embeds tools[] — no per-service /tools/list fan-out.
   const serviceTools = useMemo(
     () =>
-      scopeServices.map((service, index) => ({
+      scopeServices.map((service) => ({
         service,
-        tools: toolQueries[index]?.data || [],
+        tools: service.tools || [],
       })),
-    [scopeServices, toolQueries],
+    [scopeServices],
   )
 
   const filteredServiceTools = useMemo(() => {
@@ -151,10 +149,7 @@ export function ScopeView(props: {
     : ""
 
   async function handleRefresh() {
-    await scopesQuery.refetch()
-    if (selectedScope) {
-      await Promise.all(toolQueries.map((result) => result.refetch()))
-    }
+    await Promise.all([scopesQuery.refetch(), toolOverridesQuery.refetch()])
   }
 
   function backToOverview() {

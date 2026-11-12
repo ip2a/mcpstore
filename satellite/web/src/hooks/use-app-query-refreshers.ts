@@ -10,8 +10,18 @@ export function useAppQueryRefreshers() {
   const [serviceDetailRevision, setServiceDetailRevision] = useState(0)
 
   async function refreshInstanceQueries(addr: ServiceAddress) {
+    // Invalidate the list (exact) plus this instance's deep queries — not every
+    // other service's override/tools via the instances prefix.
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instances, exact: true }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.scopeServices({ type: "all" }) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.scopeServices(
+          addr.scope.type === "agent"
+            ? { type: "agent", agent_id: addr.scope.agent_id }
+            : { type: "store" },
+        ),
+      }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instance(addr) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceStatus(addr) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceTools(addr) }),
@@ -27,8 +37,9 @@ export function useAppQueryRefreshers() {
 
   async function refreshServiceRegistryQueries() {
     await Promise.all([
-      queryClient.refetchQueries({ queryKey: queryKeys.instances }),
-      queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+      queryClient.refetchQueries({ queryKey: queryKeys.instances, exact: true }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agents, exact: true }),
+      queryClient.invalidateQueries({ queryKey: ["scopes"] }),
     ])
   }
 

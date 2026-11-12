@@ -54,9 +54,15 @@ export function useAppView(services: ServiceInstance[]) {
       navigate("/prompts", { replace: location.key === "default" })
       return
     }
+    if (view.name === "traceSession") {
+      navigate(view.face === "gateway" ? "/gateway" : "/traces", {
+        replace: location.key === "default",
+      })
+      return
+    }
     if (location.key !== "default") navigate(-1)
     else navigate("/services", { replace: true })
-  }, [location.key, navigate, view.name])
+  }, [location.key, navigate, view])
 
   return {
     goBack,
@@ -102,9 +108,13 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/history") return { name: "traces", tab: "history" }
   // Legacy /cache bookmarks land on Traces → KV tab.
   if (pathname === "/cache") return { name: "traces", tab: "kv" }
+  if (pathname.startsWith("/traces/")) {
+    const parsed = parseTraceSessionPath(pathname.slice("/traces/".length))
+    if (parsed) return { name: "traceSession", ...parsed }
+  }
   if (pathname === "/traces") {
     const tab = new URLSearchParams(search).get("tab")
-    if (tab === "history" || tab === "table" || tab === "graph" || tab === "kv") {
+    if (tab === "history" || tab === "table" || tab === "kv") {
       return { name: "traces", tab }
     }
     return { name: "traces" }
@@ -139,6 +149,20 @@ function parseRegistryDetailPath(rest: string): { instanceId: string; key: strin
   }
 }
 
+function parseTraceSessionPath(
+  rest: string,
+): { face: "gateway" | "upstream"; sessionId: string } | null {
+  const slash = rest.indexOf("/")
+  if (slash <= 0) return null
+  const face = rest.slice(0, slash)
+  if (face !== "gateway" && face !== "upstream") return null
+  try {
+    return { face, sessionId: decodeURIComponent(rest.slice(slash + 1)) }
+  } catch {
+    return { face, sessionId: rest.slice(slash + 1) }
+  }
+}
+
 function pathForView(view: AppView): string {
   if (view.name === "services") return "/services"
   if (view.name === "tool") {
@@ -149,6 +173,9 @@ function pathForView(view: AppView): string {
   }
   if (view.name === "prompt") {
     return `/prompts/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.promptName)}`
+  }
+  if (view.name === "traceSession") {
+    return `/traces/${view.face}/${encodeURIComponent(view.sessionId)}`
   }
   if (view.name === "instance") {
     const base = `/services/${encodeURIComponent(view.addr.service_name)}`
