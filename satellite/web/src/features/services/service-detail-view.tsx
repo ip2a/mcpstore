@@ -43,10 +43,19 @@ import {
   resourceTemplateMimeType,
   resourceTemplateUri,
 } from "@/lib/resource-template-info"
-import type { PromptInfo, ResourceInfo, ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
+import {
+  getInstancePrompt,
+  readInstanceResource,
+  type PromptInfo,
+  type ResourceInfo,
+  type ServiceInstance,
+  type ServiceState,
+  type ToolInfo,
+} from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
+import { usePromptArgsForm } from "@/features/prompts/use-prompt-args-form"
 
 import {
   ServiceOverviewPane,
@@ -150,6 +159,10 @@ export function ServiceDetailView(props: {
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
   const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
   const [playgroundOpen, setPlaygroundOpen] = useState(true)
+  const [resourceContent, setResourceContent] = useState<unknown>(null)
+  const [readingResource, setReadingResource] = useState(false)
+  const [promptContent, setPromptContent] = useState<unknown>(null)
+  const [gettingPrompt, setGettingPrompt] = useState(false)
   const detailQuery = useServiceDetailQuery(props.service)
   const authQuery = useServiceAuthQuery(props.service)
   const statusQuery = useServiceStatusQuery(props.service)
@@ -211,6 +224,7 @@ export function ServiceDetailView(props: {
     setField: setToolArg,
     schema: toolArgsSchema,
   } = useToolArgsForm(selectedTool)
+  const { values: promptArgs, setField: setPromptArg } = usePromptArgsForm(selectedPrompt)
   const runningSelectedTool = Boolean(selectedTool && props.isToolRunning?.(selectedTool))
 
   useEffect(() => {
@@ -238,6 +252,14 @@ export function ServiceDetailView(props: {
       setSelectedResourceKey(resourceKey(resources[0]))
     }
   }, [resources, selectedResourceKey])
+
+  useEffect(() => {
+    setResourceContent(null)
+  }, [selectedResourceKey, service.instance_id])
+
+  useEffect(() => {
+    setPromptContent(null)
+  }, [selectedPromptKey, service.instance_id])
 
   useEffect(() => {
     if (!resourceTemplates.length) {
@@ -319,6 +341,34 @@ export function ServiceDetailView(props: {
       storage: localStorage,
     })
 
+  async function onReadSelectedResource() {
+    if (!selectedResource) return
+    setReadingResource(true)
+    try {
+      const result = await readInstanceResource(service, selectedResource.uri)
+      setResourceContent(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("readResourceFailed")
+      toast.error(message)
+    } finally {
+      setReadingResource(false)
+    }
+  }
+
+  async function onGetSelectedPrompt() {
+    if (!selectedPrompt) return
+    setGettingPrompt(true)
+    try {
+      const result = await getInstancePrompt(service, selectedPrompt.name, promptArgs)
+      setPromptContent(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("getPromptFailed")
+      toast.error(message)
+    } finally {
+      setGettingPrompt(false)
+    }
+  }
+
   const previewActionsProps = {
     activeTab,
     resourceSubTab,
@@ -341,9 +391,19 @@ export function ServiceDetailView(props: {
       activeTab === "tools" && selectedTool
         ? () => props.onToolDetail(selectedTool, service, statusReport)
         : undefined,
+    onReadResource:
+      activeTab === "resources" && resourceSubTab === "items" && selectedResource
+        ? () => void onReadSelectedResource()
+        : undefined,
+    readingResource,
+    onGetPrompt:
+      activeTab === "prompts" && selectedPrompt ? () => void onGetSelectedPrompt() : undefined,
+    gettingPrompt,
     playgroundOpen,
     onTogglePlayground:
-      activeTab === "tools" && selectedTool
+      (activeTab === "tools" && selectedTool) ||
+      (activeTab === "resources" && resourceSubTab === "items" && selectedResource) ||
+      (activeTab === "prompts" && selectedPrompt)
         ? () => setPlaygroundOpen((open) => !open)
         : undefined,
   }
@@ -421,6 +481,28 @@ export function ServiceDetailView(props: {
               />
             ) : null}
           </div>
+        ) : activeTab === "resources" &&
+          resourceSubTab === "items" &&
+          selectedResource ? (
+          <ServiceResourceDetailPane
+            resource={selectedResource}
+            service={service}
+            playgroundOpen={playgroundOpen}
+            onRead={() => void onReadSelectedResource()}
+            reading={readingResource}
+            content={resourceContent}
+          />
+        ) : activeTab === "prompts" && selectedPrompt ? (
+          <ServicePromptDetailPane
+            prompt={selectedPrompt}
+            service={service}
+            promptArgs={promptArgs}
+            onPromptArgChange={setPromptArg}
+            playgroundOpen={playgroundOpen}
+            onGet={() => void onGetSelectedPrompt()}
+            getting={gettingPrompt}
+            content={promptContent}
+          />
         ) : (
           <ScrollPane className="flex-1">
             {activeTab === "tools" ? (
@@ -443,8 +525,6 @@ export function ServiceDetailView(props: {
                     onRefresh={refreshCurrentView}
                   />
                 )
-              ) : selectedResource ? (
-                <ServiceResourceDetailPane resource={selectedResource} service={service} />
               ) : (
                 <PageEmpty
                   title={t("noResourceSelected")}
@@ -452,8 +532,6 @@ export function ServiceDetailView(props: {
                   onRefresh={refreshCurrentView}
                 />
               )
-            ) : selectedPrompt ? (
-              <ServicePromptDetailPane prompt={selectedPrompt} service={service} />
             ) : (
               <PageEmpty title={t("noPromptSelected")} onRefresh={refreshCurrentView} />
             )}

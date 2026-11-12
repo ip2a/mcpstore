@@ -262,9 +262,23 @@ export function FrameStreamCard(props: {
   return (
     <>
       {embedded ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex justify-end">{refreshButton}</div>
-          {body}
+        <div
+          className={cn(
+            "flex flex-col",
+            fill ? "min-h-0 flex-1 gap-0 overflow-hidden" : "gap-2",
+          )}
+        >
+          <div
+            className={cn(
+              "flex justify-end",
+              fill ? "shrink-0 px-4 py-2" : undefined,
+            )}
+          >
+            {refreshButton}
+          </div>
+          <div className={cn(fill && "flex min-h-0 flex-1 flex-col overflow-hidden")}>
+            {body}
+          </div>
         </div>
       ) : (
         <PanelCard

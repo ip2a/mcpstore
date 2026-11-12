@@ -442,6 +442,7 @@ export {
   disconnectInstance,
   restartInstance,
   callInstanceTool,
+  getInstancePrompt,
 } from "./api/service"
 export {
   getMcpHubDescriptor,
