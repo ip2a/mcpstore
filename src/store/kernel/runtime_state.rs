@@ -27,5 +27,6 @@ pub(crate) struct RuntimeState {
     /// Set when the store has no ChangeFeed: write paths fail fast on it instead of pretending success.
     pub(crate) service_event_feed_failed: AtomicBool,
     pub(crate) tool_call_feed_started: AtomicBool,
+    pub(crate) registry_reconcile_started: AtomicBool,
     pub(crate) self_weak: OnceLock<Weak<MCPStore>>,
 }

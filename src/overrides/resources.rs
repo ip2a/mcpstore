@@ -90,7 +90,6 @@ impl MCPStore {
         uri: &str,
         patch: ResourceOverridePatch,
     ) -> Result<ResourceOverrideRule> {
-        self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(instance_id).await?;
         let raw_uris = self
             .list_resources(instance_id)
@@ -139,11 +138,9 @@ impl MCPStore {
         instance_id: InstanceId,
         uri: &str,
     ) -> Result<Option<ResourceOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         self.load_resource_override(instance_id, uri).await
     }
     pub async fn delete_resource_override(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
             .kv
@@ -155,7 +152,6 @@ impl MCPStore {
             .map_err(Error::from)
     }
     pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         list_rules::<ResourceOverrideRule, _>(
             &self.kernel.persistence.kv,
             RESOURCE_OVERRIDES_STATE_TYPE,
@@ -225,7 +221,6 @@ impl MCPStore {
         u: &str,
         patch: ResourceTemplateOverridePatch,
     ) -> Result<ResourceTemplateOverrideRule> {
-        self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(i).await?;
         let raw_templates = self
             .list_resource_templates(i)
@@ -279,11 +274,9 @@ impl MCPStore {
         i: InstanceId,
         u: &str,
     ) -> Result<Option<ResourceTemplateOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         self.load_resource_template_override(i, u).await
     }
     pub async fn delete_resource_template_override(&self, i: InstanceId, u: &str) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
             .kv
@@ -297,7 +290,6 @@ impl MCPStore {
     pub async fn list_resource_template_overrides(
         &self,
     ) -> Result<Vec<ResourceTemplateOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         list_rules::<ResourceTemplateOverrideRule, _>(
             &self.kernel.persistence.kv,
             RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,

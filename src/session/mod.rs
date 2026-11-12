@@ -1785,7 +1785,6 @@ impl MCPStore {
         session: &SessionEntity,
         instance_id: InstanceId,
     ) -> Result<ServiceInstance> {
-        self.refresh_from_db_if_needed().await?;
         let instance = self
             .kernel
             .control

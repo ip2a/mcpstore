@@ -10,8 +10,9 @@ pub(crate) struct ControlPlane {
     pub(crate) registry: ServiceRegistry,
     pub(crate) auth: AuthCoordinator,
     pub(crate) state: Arc<ServiceStateManager>,
-    /// Mutex to protect load_from_db against race conditions. Ensures registry.clear()
-    /// and re-population are atomic; prevents concurrent queries from seeing empty state.
+    /// Mutex to serialize load_from_db passes (startup hydration, manual reload,
+    /// periodic reconcile) against each other; readers stay lock-free — the
+    /// registry swap is their atomicity barrier.
     pub(crate) refresh_mutex: tokio::sync::Mutex<()>,
 }
 

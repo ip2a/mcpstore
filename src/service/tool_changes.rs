@@ -9,7 +9,6 @@ impl MCPStore {
         instance_id: InstanceId,
         force_refresh: bool,
     ) -> Result<ToolChangeSummary> {
-        self.refresh_from_db_if_needed().await?;
         if self
             .kernel
             .control
@@ -79,7 +78,6 @@ impl MCPStore {
         instance_id: InstanceId,
         force_refresh: bool,
     ) -> Result<ToolChangeServiceResult> {
-        self.refresh_from_db_if_needed().await?;
         let Some(instance) = self
             .kernel
             .control

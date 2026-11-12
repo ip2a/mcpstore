@@ -32,7 +32,6 @@ impl MCPStore {
         instance_id: InstanceId,
         patch: ServiceOverridePatch,
     ) -> Result<ServiceOverrideRule> {
-        self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(instance_id).await?;
         let loaded = self.get_service_override(instance_id).await?;
         let expected_version = loaded.as_ref().map(|rule| rule.version);
@@ -84,7 +83,6 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<Option<ServiceOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
             .kv
@@ -105,7 +103,6 @@ impl MCPStore {
     }
 
     pub async fn delete_service_override(&self, instance_id: InstanceId) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
             .kv
@@ -141,7 +138,6 @@ impl MCPStore {
     }
 
     pub async fn list_service_overrides(&self) -> Result<Vec<ServiceOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel

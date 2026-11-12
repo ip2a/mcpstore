@@ -224,6 +224,7 @@ impl MCPStore {
                     service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
                     service_event_feed_failed: std::sync::atomic::AtomicBool::new(false),
                     tool_call_feed_started: std::sync::atomic::AtomicBool::new(false),
+                    registry_reconcile_started: std::sync::atomic::AtomicBool::new(false),
                     self_weak: std::sync::OnceLock::new(),
                 },
             },

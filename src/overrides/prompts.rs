@@ -56,7 +56,6 @@ impl MCPStore {
         prompt_name: &str,
         patch: PromptOverridePatch,
     ) -> Result<PromptOverrideRule> {
-        self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(instance_id).await?;
         let raw_names = self
             .list_prompts(instance_id)
@@ -109,7 +108,6 @@ impl MCPStore {
         instance_id: InstanceId,
         prompt_name: &str,
     ) -> Result<Option<PromptOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         self.load_prompt_override(instance_id, prompt_name).await
     }
     pub async fn delete_prompt_override(
@@ -117,7 +115,6 @@ impl MCPStore {
         instance_id: InstanceId,
         prompt_name: &str,
     ) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
             .kv
@@ -129,7 +126,6 @@ impl MCPStore {
             .map_err(Error::from)
     }
     pub async fn list_prompt_overrides(&self) -> Result<Vec<PromptOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let mut rules = self
             .kernel
             .persistence

@@ -1065,7 +1065,7 @@ async fn db_source_add_lands_after_control_panel_consumes_the_event() {
 }
 
 #[tokio::test]
-async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
+async fn db_source_hydrates_definition_instance_tools_and_status() {
     let _shared_store = super::shared_store_test_guard().lock().await;
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
@@ -1157,6 +1157,8 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     })
     .unwrap();
     copy_cache_snapshot(&source, &db).await;
+    // Reads never rebuild; hydration is the startup contract (load_from_config).
+    db.load_from_db().await.unwrap();
 
     let instances = db.list_scope_instances(&store_scope()).await.unwrap();
     assert_eq!(instances.len(), 1);

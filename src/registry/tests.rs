@@ -133,3 +133,96 @@ async fn same_service_name_has_isolated_scope_instances() {
         }
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn swap_all_is_atomic_for_concurrent_readers() {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    fn store_instance(service_name: &str) -> ServiceInstance {
+        let instance_id = ServiceInstanceKey::new(service_name, ScopeRef::Store).instance_id();
+        ServiceInstance {
+            instance_id,
+            service_name: service_name.to_string(),
+            scope: ScopeRef::Store,
+            transport: "stdio".to_string(),
+            url: None,
+            command: Some("demo".to_string()),
+            tools: Vec::new(),
+            effective_config: Map::new(),
+            config_revision: ConfigRevision {
+                base_revision: 1,
+                scope_revision: 1,
+            },
+            applied_config_revision: None,
+            added_time: 1,
+        }
+    }
+
+    fn generation(generation: u32) -> (HashMap<String, ServiceDefinition>, Vec<ServiceInstance>) {
+        let mut definitions = HashMap::new();
+        let mut instances = Vec::new();
+        for suffix in 0..4 {
+            let name = format!("svc-gen{generation}-{suffix}");
+            definitions.insert(
+                name.clone(),
+                ServiceDefinition {
+                    service_name: name.clone(),
+                    base_config: Map::new(),
+                    scopes: ScopeDeclarations::store_only(),
+                    lifecycle: None,
+                    handshake_mode: None,
+                    base_revision: 1,
+                    metadata: Map::new(),
+                    added_time: 1,
+                },
+            );
+            instances.push(store_instance(&name));
+        }
+        (definitions, instances)
+    }
+
+    let reg = ServiceRegistry::new();
+    let (definitions, instances) = generation(0);
+    reg.swap_all(definitions, instances).await;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut readers = Vec::new();
+    for _ in 0..4 {
+        let reg = reg.clone();
+        let stop = Arc::clone(&stop);
+        readers.push(tokio::spawn(async move {
+            while !stop.load(Ordering::Relaxed) {
+                let instances = reg.list_instances().await;
+                // A swap replaces whole generations atomically: each single read
+                // observes the previous or the next complete view — every snapshot
+                // is non-empty and all its instances come from one generation.
+                assert!(!instances.is_empty());
+                let mut generations = instances.iter().map(|instance| {
+                    instance.service_name.split('-').nth(1).unwrap().to_string()
+                });
+                let view = generations.next().unwrap();
+                assert!(generations.all(|gen| gen == view), "torn view: {instances:?}");
+                for instance in &instances {
+                    let expected_id = ServiceInstanceKey::new(
+                        &instance.service_name,
+                        instance.scope.clone(),
+                    )
+                    .instance_id();
+                    assert_eq!(expected_id, instance.instance_id);
+                }
+            }
+        }));
+    }
+
+    for current in 1..200u32 {
+        let (definitions, instances) = generation(current);
+        reg.swap_all(definitions, instances).await;
+        tokio::task::yield_now().await;
+    }
+    stop.store(true, Ordering::Relaxed);
+    for reader in readers {
+        reader.await.unwrap();
+    }
+}
