@@ -443,8 +443,27 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         .is_empty());
 }
 
-#[tokio::test]
-async fn db_data_panel_default_placement_executes_locally() {
+#[test]
+fn db_data_panel_default_placement_executes_locally() {
+    // Workspace feature unification (mcpstore_python pulls pyo3 features into
+    // this build) fattens debug frames; libtest threads run on the 2MB default
+    // and the deep store->rmcp poll chain overflows. Grant the same headroom
+    // the daemon runtime grants itself (satellite/cli bootstrap build_runtime).
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(db_data_panel_default_placement_executes_locally_case())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn db_data_panel_default_placement_executes_locally_case() {
     let _shared_store = super::shared_store_test_guard().lock().await;
     let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
