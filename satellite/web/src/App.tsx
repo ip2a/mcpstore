@@ -186,10 +186,7 @@ export function App() {
                     onBack={goBack}
                   />
                 ) : view.name === "scope" ? (
-                  <ScopeView
-                    services={services}
-                    onOpenService={(service) => setView({ name: "instance", addr: service })}
-                  />
+                  <ScopeView services={services} />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (

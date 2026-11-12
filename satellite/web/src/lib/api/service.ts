@@ -172,3 +172,14 @@ export async function callInstanceTool(
     body: JSON.stringify({ tool_name: toolName, args }),
   })
 }
+
+export async function getInstancePrompt(
+  addr: ServiceAddress,
+  promptName: string,
+  args: Record<string, unknown> = {},
+) {
+  return api(svcPath(addr, "/prompts/get"), {
+    method: "POST",
+    body: JSON.stringify({ prompt_name: promptName, args }),
+  })
+}
