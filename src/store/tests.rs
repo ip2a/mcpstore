@@ -4447,6 +4447,8 @@ async fn event_history_and_cache_health_are_reported() {
         .as_array()
         .unwrap()
         .contains(&serde_json::json!("service_definitions")));
+    // Memory carries no stats capability: no engine block, not a zero-filled one.
+    assert!(health.get("engine").is_none());
 
     std::fs::remove_file(path).ok();
 }
