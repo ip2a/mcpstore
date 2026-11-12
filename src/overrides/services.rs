@@ -61,9 +61,8 @@ impl MCPStore {
                 SERVICE_OVERRIDES_STATE_TYPE,
                 &self.service_override_key(instance_id),
                 expected_version,
-                serde_json::to_value(&rule).map_err(|err| {
-                    Error::new(FailureCode::Internal, err.to_string())
-                })?,
+                serde_json::to_value(&rule)
+                    .map_err(|err| Error::new(FailureCode::Internal, err.to_string()))?,
             )
             .await?;
         // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
@@ -119,19 +118,24 @@ impl MCPStore {
         // the deleted rule from its writeback. Skipped when the instance is
         // already gone (nothing to resolve the file path from).
         let mut service_name = None;
-        if let Some(instance) = self.kernel.control.registry.find_instance(instance_id).await {
+        if let Some(instance) = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+        {
             service_name = Some(instance.service_name.clone());
             if let Err(error) = self
                 .writeback_service_override_removal(&instance.service_name, &instance.scope)
                 .await
             {
-                tracing::warn!(
-                    "Failed to clean up service override in scopes.toml: {error}"
-                );
+                tracing::warn!("Failed to clean up service override in scopes.toml: {error}");
             }
         }
         if let Some(service_name) = service_name.as_deref() {
-            self.publish_override_changed(instance_id, service_name).await;
+            self.publish_override_changed(instance_id, service_name)
+                .await;
         }
         Ok(())
     }

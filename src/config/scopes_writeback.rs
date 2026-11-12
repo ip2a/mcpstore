@@ -42,29 +42,48 @@ impl MCPStore {
         // Navigate safely: toml_edit's Index READ panics on a missing key, so
         // every level goes through contains_key + get_mut instead of chained
         // indexing (a missing service used to panic the whole API worker).
-        let services = scope_services_table_mut(&mut doc, scope)
-            .ok_or_else(|| Error::new(FailureCode::Internal, "cannot represent scope in scopes.toml".to_string()))?;
+        let services = scope_services_table_mut(&mut doc, scope).ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                "cannot represent scope in scopes.toml".to_string(),
+            )
+        })?;
         if !services.contains_key(service_name) {
             services[service_name] = toml_edit::table();
         }
         let service_table = services
             .get_mut(service_name)
             .and_then(|item| item.as_table_mut())
-            .ok_or_else(|| Error::new(FailureCode::Internal, "service entry is not a table".to_string()))?;
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    "service entry is not a table".to_string(),
+                )
+            })?;
         if !service_table.contains_key("tools") {
             service_table["tools"] = toml_edit::table();
         }
         let tools_table = service_table
             .get_mut("tools")
             .and_then(|item| item.as_table_mut())
-            .ok_or_else(|| Error::new(FailureCode::Internal, "tools entry is not a table".to_string()))?;
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    "tools entry is not a table".to_string(),
+                )
+            })?;
         if !tools_table.contains_key("overrides") {
             tools_table["overrides"] = toml_edit::table();
         }
         let overrides_table = tools_table
             .get_mut("overrides")
             .and_then(|item| item.as_table_mut())
-            .ok_or_else(|| Error::new(FailureCode::Internal, "overrides entry is not a table".to_string()))?;
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    "overrides entry is not a table".to_string(),
+                )
+            })?;
 
         // Mutate the existing override table in place so hand-written keys
         // (meta, icons, annotations) survive a writeback. Owned fields follow
@@ -74,7 +93,10 @@ impl MCPStore {
             overrides_table.get(tool_name),
             Some(toml_edit::Item::Table(_))
         ) {
-            overrides_table.insert(tool_name, toml_edit::Item::Table(toml_edit::Table::default()));
+            overrides_table.insert(
+                tool_name,
+                toml_edit::Item::Table(toml_edit::Table::default()),
+            );
         }
         let override_item = overrides_table
             .get_mut(tool_name)
@@ -84,11 +106,19 @@ impl MCPStore {
 
         // Write back atomically
         let temp_path = path.with_extension("toml.tmp");
-        std::fs::write(&temp_path, doc.to_string())
-            .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to write temp file: {}", e)))?;
+        std::fs::write(&temp_path, doc.to_string()).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Failed to write temp file: {}", e),
+            )
+        })?;
 
-        std::fs::rename(&temp_path, &path)
-            .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to rename temp file: {}", e)))?;
+        std::fs::rename(&temp_path, &path).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Failed to rename temp file: {}", e),
+            )
+        })?;
 
         tracing::debug!("Wrote back tool override for {service_name}::{tool_name} to scopes.toml");
         Ok(())
@@ -256,7 +286,10 @@ impl MCPStore {
 fn load_or_empty_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
     if !path.exists() {
         return "".parse().map_err(|e| {
-            Error::new(FailureCode::Internal, format!("empty scopes.toml parse failed: {e}"))
+            Error::new(
+                FailureCode::Internal,
+                format!("empty scopes.toml parse failed: {e}"),
+            )
         });
     }
     parse_scopes_doc(path)
@@ -265,11 +298,17 @@ fn load_or_empty_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
 /// Parse scopes.toml into an editable document.
 fn parse_scopes_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
     let content = std::fs::read_to_string(path).map_err(|e| {
-        Error::new(FailureCode::Internal, format!("Failed to read scopes.toml: {}", e))
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to read scopes.toml: {}", e),
+        )
     })?;
-    content
-        .parse()
-        .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to parse scopes.toml: {}", e)))
+    content.parse().map_err(|e| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to parse scopes.toml: {}", e),
+        )
+    })
 }
 
 /// Atomic temp-file + rename write, preserving the existing tool-writeback
@@ -277,10 +316,16 @@ fn parse_scopes_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
 fn write_scopes_doc_atomic(path: &std::path::Path, doc: &toml_edit::DocumentMut) -> Result<()> {
     let temp_path = path.with_extension("toml.tmp");
     std::fs::write(&temp_path, doc.to_string()).map_err(|e| {
-        Error::new(FailureCode::Internal, format!("Failed to write temp file: {}", e))
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to write temp file: {}", e),
+        )
     })?;
     std::fs::rename(&temp_path, path).map_err(|e| {
-        Error::new(FailureCode::Internal, format!("Failed to rename temp file: {}", e))
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to rename temp file: {}", e),
+        )
     })
 }
 
@@ -316,7 +361,11 @@ fn scope_services_table_mut<'a>(
             if !doc.contains_key("agents") {
                 doc["agents"] = toml_edit::table();
             }
-            if !doc["agents"].as_table().map(|t| t.contains_key(agent_id)).unwrap_or(false) {
+            if !doc["agents"]
+                .as_table()
+                .map(|t| t.contains_key(agent_id))
+                .unwrap_or(false)
+            {
                 doc["agents"][agent_id] = toml_edit::table();
             }
             &mut doc["agents"][agent_id]
@@ -483,10 +532,8 @@ mod tests {
 
     #[test]
     fn missing_scopes_toml_yields_empty_doc_for_first_write() {
-        let dir = std::env::temp_dir().join(format!(
-            "mcpstore-scopes-wb-missing-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("mcpstore-scopes-wb-missing-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("scopes.toml");
         let _ = std::fs::remove_file(&path);
@@ -552,9 +599,18 @@ enabled = false
         .parse()
         .unwrap();
         let services = doc["store"]["services"].as_table_mut().unwrap();
-        let service = services.get_mut("filesystem").and_then(|i| i.as_table_mut()).unwrap();
-        let tools = service.get_mut("tools").and_then(|i| i.as_table_mut()).unwrap();
-        let overrides = tools.get_mut("overrides").and_then(|i| i.as_table_mut()).unwrap();
+        let service = services
+            .get_mut("filesystem")
+            .and_then(|i| i.as_table_mut())
+            .unwrap();
+        let tools = service
+            .get_mut("tools")
+            .and_then(|i| i.as_table_mut())
+            .unwrap();
+        let overrides = tools
+            .get_mut("overrides")
+            .and_then(|i| i.as_table_mut())
+            .unwrap();
         overrides.remove("write_file");
         // list_directory survives its sibling's removal
         assert!(overrides.contains_key("list_directory"));
@@ -565,7 +621,6 @@ enabled = false
         let written = doc.to_string();
         assert!(!written.contains("filesystem"), "service pruned: {written}");
         assert!(!written.contains("write_file"), "tool pruned: {written}");
-
     }
 
     fn writeback_writes_argument_defaults_wrapped() {
@@ -626,7 +681,10 @@ enabled = false
         let mut doc: toml_edit::DocumentMut = "".parse().unwrap();
         let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store)
             .expect("store scope is navigable");
-        apply_service_override_fields(table, &common(Some("GitHub 巨人"), None, Some(false), vec![]));
+        apply_service_override_fields(
+            table,
+            &common(Some("GitHub 巨人"), None, Some(false), vec![]),
+        );
         let written = doc.to_string();
         assert!(written.contains("[store.services.github]"));
         assert!(written.contains("display_name = \"GitHub 巨人\""));
@@ -646,8 +704,15 @@ display_name = "Search"
         .parse()
         .unwrap();
         let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store).unwrap();
-        for key in ["display_name", "description", "enabled", "tags", "meta", "annotations", "icons"]
-        {
+        for key in [
+            "display_name",
+            "description",
+            "enabled",
+            "tags",
+            "meta",
+            "annotations",
+            "icons",
+        ] {
             table.remove(key);
         }
         let written = doc.to_string();
@@ -666,8 +731,15 @@ display_name = "GitHub"
         .parse()
         .unwrap();
         let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store).unwrap();
-        for key in ["display_name", "description", "enabled", "tags", "meta", "annotations", "icons"]
-        {
+        for key in [
+            "display_name",
+            "description",
+            "enabled",
+            "tags",
+            "meta",
+            "annotations",
+            "icons",
+        ] {
             table.remove(key);
         }
         if table.is_empty() {
@@ -676,6 +748,9 @@ display_name = "GitHub"
             }
         }
         let written = doc.to_string();
-        assert!(!written.contains("github"), "empty entry should be dropped: {written}");
+        assert!(
+            !written.contains("github"),
+            "empty entry should be dropped: {written}"
+        );
     }
 }

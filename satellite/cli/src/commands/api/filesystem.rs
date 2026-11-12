@@ -23,7 +23,9 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 fn directory_listing(requested_path: Option<&str>) -> Result<Value, ApiError> {
-    let requested = requested_path.map(str::trim).filter(|path| !path.is_empty());
+    let requested = requested_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
     let candidate = match requested {
         Some(path) => {
             let path = PathBuf::from(path);
@@ -37,14 +39,12 @@ fn directory_listing(requested_path: Option<&str>) -> Result<Value, ApiError> {
         None => home_dir().unwrap_or_else(|| PathBuf::from(".")),
     };
 
-    let path = candidate
-        .canonicalize()
-        .map_err(|error| {
-            ApiError::invalid_request(format!(
-                "Cannot access directory {}: {error}",
-                candidate.display()
-            ))
-        })?;
+    let path = candidate.canonicalize().map_err(|error| {
+        ApiError::invalid_request(format!(
+            "Cannot access directory {}: {error}",
+            candidate.display()
+        ))
+    })?;
     if !path.is_dir() {
         return Err(ApiError::invalid_request(format!(
             "Path is not a directory: {}",

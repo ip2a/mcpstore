@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::RwLock;
 
-use crate::kv::KvLayerManager;
 use crate::health::supervisor::InstanceSupervisor;
+use crate::kv::KvLayerManager;
 
 use crate::auth::AuthCoordinator;
 use crate::config::ServerConfig;
@@ -30,8 +30,7 @@ pub(crate) const CONNECT_MAX_PARALLEL: usize = 4;
 /// span (OAuth discovery, transport connect, startup probe, tool sync), and
 /// the terminal-failure cleanup. Anything still inside when it elapses is
 /// recorded as a terminal failure — no eternal `starting`, panel-visible.
-pub(crate) const CONNECT_HARD_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_secs(90);
+pub(crate) const CONNECT_HARD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
 pub struct ConnectionPool {
     /// One mutex per connection: transport-level awaits (connect, disconnect,
@@ -164,25 +163,19 @@ impl ConnectionPool {
         &self,
         instance_id: InstanceId,
     ) -> Result<Arc<tokio::sync::Mutex<McpConnection>>> {
-        self.connection_opt(instance_id)
-            .await
-            .ok_or_else(|| {
-                Error::new(
-                    FailureCode::NotConnected,
-                    format!("Service instance not found: {instance_id}"),
-                )
-            })
+        self.connection_opt(instance_id).await.ok_or_else(|| {
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
+        })
     }
 
     async fn connection_opt(
         &self,
         instance_id: InstanceId,
     ) -> Option<Arc<tokio::sync::Mutex<McpConnection>>> {
-        self.connections
-            .read()
-            .await
-            .get(&instance_id)
-            .cloned()
+        self.connections.read().await.get(&instance_id).cloned()
     }
 
     pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {

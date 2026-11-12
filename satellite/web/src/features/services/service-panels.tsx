@@ -7,6 +7,7 @@ import {
   LayoutTemplateIcon,
   PanelRightCloseIcon,
   PanelRightIcon,
+  ScrollTextIcon,
   WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -20,10 +21,16 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { CatalogTabTrigger, CatalogTabsList } from "@/components/shared/catalog-tabs-list"
 import {
-  ToolDetailDocBody,
-  ToolDetailDocHeader,
-  ToolPlaygroundAside,
-} from "@/components/shared/tool-detail-playground"
+  PromptDetailDocBody,
+  PromptDetailDocHeader,
+  PromptPlaygroundAside,
+} from "@/components/shared/prompt-detail-playground"
+import {
+  ResourceDetailDocBody,
+  ResourceDetailDocHeader,
+  ResourcePlaygroundAside,
+} from "@/components/shared/resource-detail-playground"
+import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -49,13 +56,12 @@ import {
   resourceTemplateMimeType,
   resourceTemplateUri,
 } from "@/lib/resource-template-info"
-import {
-  readInstanceResource,
-  type PromptInfo,
-  type ResourceInfo,
-  type ResourceTemplateInfo,
-  type ServiceInstance,
-  type ToolInfo,
+import type {
+  PromptInfo,
+  ResourceInfo,
+  ResourceTemplateInfo,
+  ServiceInstance,
+  ToolInfo,
 } from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
@@ -99,6 +105,10 @@ export function ServicePreviewActions({
   onRun,
   runningTool,
   onDetail,
+  onReadResource,
+  readingResource,
+  onGetPrompt,
+  gettingPrompt,
   playgroundOpen,
   onTogglePlayground,
   className,
@@ -118,6 +128,10 @@ export function ServicePreviewActions({
   onRun?: () => void
   runningTool?: boolean
   onDetail?: () => void
+  onReadResource?: () => void
+  readingResource?: boolean
+  onGetPrompt?: () => void
+  gettingPrompt?: boolean
   playgroundOpen?: boolean
   onTogglePlayground?: () => void
   className?: string
@@ -139,18 +153,6 @@ export function ServicePreviewActions({
     if (!copyPayload) return
     await navigator.clipboard.writeText(JSON.stringify(copyPayload, null, 2))
     toast.success(t("copied"))
-  }
-
-  async function onReadResource() {
-    if (!selectedResource) return
-    try {
-      const result = await readInstanceResource(service, selectedResource.uri)
-      await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
-      toast.success(t("resourceContentCopied"))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("readResourceFailed")
-      toast.error(message)
-    }
   }
 
   return (
@@ -180,10 +182,27 @@ export function ServicePreviewActions({
           {t("details")}
         </Button>
       ) : null}
-      {activeTab === "resources" && resourceSubTab === "items" && selectedResource ? (
-        <Button size="sm" variant="outline" onClick={onReadResource}>
-          <FileIcon data-icon="inline-start" />
-          {t("read")}
+      {activeTab === "resources" &&
+      resourceSubTab === "items" &&
+      selectedResource &&
+      onReadResource ? (
+        <Button size="sm" onClick={onReadResource} disabled={readingResource}>
+          {readingResource ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <FileIcon data-icon="inline-start" />
+          )}
+          {readingResource ? t("reading") : t("read")}
+        </Button>
+      ) : null}
+      {activeTab === "prompts" && selectedPrompt && onGetPrompt ? (
+        <Button size="sm" onClick={onGetPrompt} disabled={gettingPrompt}>
+          {gettingPrompt ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <ScrollTextIcon data-icon="inline-start" />
+          )}
+          {gettingPrompt ? t("executing") : t("get")}
         </Button>
       ) : null}
       {copyPayload ? (
@@ -340,75 +359,44 @@ export function ServiceOverviewPane({
 export function ServiceResourceDetailPane({
   resource,
   service,
+  playgroundOpen = true,
+  onRead,
+  reading,
+  content,
 }: {
   resource: ResourceInfo
   service: ServiceInstance
+  playgroundOpen?: boolean
+  onRead?: () => void
+  reading?: boolean
+  content?: unknown
 }) {
-  const { t } = useI18n()
-  const [content, setContent] = useState<unknown>(null)
-  const [reading, setReading] = useState(false)
-  const mimeType = resourceMimeType(resource)
-
-  async function onRead() {
-    setReading(true)
-    try {
-      const result = await readInstanceResource(service, resource.uri)
-      setContent(result)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("readResourceFailed")
-      toast.error(message)
-    } finally {
-      setReading(false)
-    }
-  }
-
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section className="border-b pb-4">
-        <SectionHeading title={t("resource")} titleAs="h2" className="border-b-0 pb-3" />
-        <dl className="grid gap-3 text-sm">
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("uri")}</dt>
-            <dd className="font-mono break-all">{resource.uri}</dd>
-          </div>
-          {resource.name ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("name")}</dt>
-              <dd>{resource.name}</dd>
-            </div>
-          ) : null}
-          {resource.description ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("description")}</dt>
-              <dd>{resource.description}</dd>
-            </div>
-          ) : null}
-          {mimeType ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("mimeType")}</dt>
-              <dd className="font-mono">{mimeType}</dd>
-            </div>
-          ) : null}
-        </dl>
-        <div className="mt-4">
-          <Button size="sm" variant="outline" onClick={onRead} disabled={reading}>
-            <FileIcon data-icon="inline-start" />
-            {reading ? t("reading") : t("readResource")}
-          </Button>
-        </div>
-      </section>
-      {content ? (
-        <section className="pb-2">
-          <SectionHeading title={t("content")} titleAs="h2" className="border-b-0 pb-3" />
-          <JsonBlock value={content} />
-        </section>
+    <div
+      className={cn(
+        toolDetailPlaygroundGrid,
+        !playgroundOpen && "@min-[42rem]:grid-cols-1",
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <ScrollPane className="min-h-0 flex-1">
+          <ResourceDetailDocHeader resource={resource} serviceState={service.state} />
+          <ResourceDetailDocBody
+            resource={resource}
+            serviceName={service.service_name}
+            scope={service.scope}
+          />
+        </ScrollPane>
+      </div>
+      {playgroundOpen ? (
+        <ResourcePlaygroundAside
+          resource={resource}
+          service={service}
+          onRead={onRead}
+          reading={reading}
+          content={content}
+        />
       ) : null}
-      <OverrideEditor
-        kind="resource"
-        serviceName={service.service_name}
-        componentKey={resource.uri}
-        scope={service.scope}
-      />
     </div>
   )
 }
@@ -486,57 +474,51 @@ export function ServiceResourceTemplateDetailPane({
 export function ServicePromptDetailPane({
   prompt,
   service,
+  promptArgs,
+  onPromptArgChange,
+  playgroundOpen = true,
+  onGet,
+  getting,
+  content,
 }: {
   prompt: PromptInfo
   service: ServiceInstance
+  promptArgs: Record<string, unknown>
+  onPromptArgChange: (name: string, value: unknown) => void
+  playgroundOpen?: boolean
+  onGet?: () => void
+  getting?: boolean
+  content?: unknown
 }) {
-  const { t } = useI18n()
-  const argCount = promptArgCount(prompt)
-
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section className="border-b pb-4">
-        <SectionHeading title={t("promptLabel")} titleAs="h2" className="border-b-0 pb-3" />
-        <dl className="grid gap-3 text-sm">
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="font-mono">{prompt.name}</dd>
-          </div>
-          {prompt.title ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("titleLabel")}</dt>
-              <dd>{prompt.title}</dd>
-            </div>
-          ) : null}
-          {prompt.description ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("description")}</dt>
-              <dd>{prompt.description}</dd>
-            </div>
-          ) : null}
-        </dl>
-      </section>
-      <OverrideEditor
-        kind="prompt"
-        serviceName={service.service_name}
-        componentKey={prompt.name}
-        scope={service.scope}
-      />
-      <section className="pb-2">
-        <SectionHeading
-          title={t("arguments")}
-          titleAs="h2"
-          badge={argCount || undefined}
-          className="border-b-0 pb-3"
+    <div
+      className={cn(
+        toolDetailPlaygroundGrid,
+        !playgroundOpen && "@min-[42rem]:grid-cols-1",
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <ScrollPane className="min-h-0 flex-1">
+          <PromptDetailDocHeader prompt={prompt} serviceState={service.state} />
+          <PromptDetailDocBody
+            prompt={prompt}
+            promptArgs={promptArgs}
+            onPromptArgChange={onPromptArgChange}
+            serviceName={service.service_name}
+            scope={service.scope}
+          />
+        </ScrollPane>
+      </div>
+      {playgroundOpen ? (
+        <PromptPlaygroundAside
+          prompt={prompt}
+          service={service}
+          promptArgs={promptArgs}
+          onGet={onGet}
+          getting={getting}
+          content={content}
         />
-        {prompt.arguments ? (
-          <JsonBlock value={prompt.arguments} />
-        ) : (
-          <p className="rounded-lg border border-dashed bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
-            {t("noPromptArguments")}
-          </p>
-        )}
-      </section>
+      ) : null}
     </div>
   )
 }

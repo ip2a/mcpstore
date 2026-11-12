@@ -29,11 +29,15 @@ export type AppView =
   | { name: "prompts" }
   | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
-  | { name: "traces"; tab?: "table" | "graph" | "history" | "kv" }
+  | { name: "traces"; tab?: "table" | "history" | "kv" }
+  | { name: "traceSession"; sessionId: string; face: "gateway" | "upstream" }
   | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
 
-export type NavViewName = Exclude<AppView["name"], "instance" | "tool" | "resource" | "prompt">
+export type NavViewName = Exclude<
+  AppView["name"],
+  "instance" | "tool" | "resource" | "prompt" | "traceSession"
+>
 export type NavGroupKey = "work" | "extensions" | "primitives" | "observability" | "config"
 
 type NavEntry = { view: NavViewName; labelKey: I18nKey; icon: LucideIcon; group: NavGroupKey }
@@ -92,6 +96,7 @@ export function useViewTitle(view: AppView): string {
   if (view.name === "tool") return view.toolName
   if (view.name === "resource") return view.resourceUri
   if (view.name === "prompt") return view.promptName
+  if (view.name === "traceSession") return view.sessionId
   const entry = NAV_ENTRIES.find((item) => item.view === view.name)
   return entry ? t(entry.labelKey) : t("navServices")
 }

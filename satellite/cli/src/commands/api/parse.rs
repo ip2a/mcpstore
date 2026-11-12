@@ -1,4 +1,4 @@
-use mcpstore::{ScopeRef, ScopeView};
+use mcpstore::{ScopeRef, ScopeView, ServiceListProjection};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -64,6 +64,58 @@ impl ScopeQuery {
     /// Read-view scope: root | store | agent (root = aggregate, read/list only).
     pub(super) fn into_scope_view(self) -> ApiResult<ScopeView> {
         parse_scope_view(self.scope.as_deref(), self.agent_id.as_deref())
+    }
+}
+
+/// Payload-width params for `GET /services/list`: `?fields=summary|full&include=tools,config`.
+/// Absent params keep the legacy full payload; `fields=summary` strips the heavy
+/// fields (`tools`, `effective_config`) and `include` adds individual ones back.
+#[derive(Deserialize)]
+pub(super) struct ServiceListQuery {
+    fields: Option<String>,
+    include: Option<String>,
+}
+
+impl ServiceListQuery {
+    pub(super) fn into_projection(self) -> ApiResult<ServiceListProjection> {
+        let mut projection = ServiceListProjection::FULL;
+        match self
+            .fields
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            None | Some("full") => {}
+            Some("summary") => projection.summary = true,
+            Some(other) => {
+                return Err(ApiError::invalid_parameter(
+                    format!("Unsupported fields value: {other} (expected 'full' or 'summary')"),
+                    Some("fields"),
+                ))
+            }
+        }
+        if let Some(include) = self
+            .include
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            for part in include.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                match part {
+                    "tools" => projection.include_tools = true,
+                    "config" => projection.include_config = true,
+                    other => {
+                        return Err(ApiError::invalid_parameter(
+                            format!(
+                                "Unsupported include value: {other} (expected 'tools' or 'config')"
+                            ),
+                            Some("include"),
+                        ))
+                    }
+                }
+            }
+        }
+        Ok(projection)
     }
 }
 

@@ -363,7 +363,8 @@ pub fn validate_form_response(
             validate_property(field, property, value)?;
         }
     }
-    Ok(())}
+    Ok(())
+}
 
 fn validate_property(
     field: &str,

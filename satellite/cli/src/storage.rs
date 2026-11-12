@@ -27,8 +27,8 @@ impl StorageManager {
         if self.telemetry.is_some() {
             return Ok(());
         }
-        let log = TelemetryLog::open(&self.telemetry_path)
-            .map_err(|e| format!("telemetry DB: {e}"))?;
+        let log =
+            TelemetryLog::open(&self.telemetry_path).map_err(|e| format!("telemetry DB: {e}"))?;
         self.telemetry = Some(log);
         Ok(())
     }

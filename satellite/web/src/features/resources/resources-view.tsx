@@ -119,11 +119,7 @@ export function ResourcesView(props: {
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
-        <Tabs
-          value={instanceId}
-          onValueChange={setInstanceId}
-          className={WORKSPACE_TABS_CLASSNAME}
-        >
+        <Tabs value={instanceId} onValueChange={setInstanceId} className={WORKSPACE_TABS_CLASSNAME}>
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
             <WorkspaceTabsList value={instanceId}>
               {serviceTabs.map((tab) => (

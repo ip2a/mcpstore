@@ -53,10 +53,12 @@ pub(super) struct ResourceTemplateOverrideQuery {
     uri_template: String,
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool list.
+/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool list. With
+/// `service_name` absent it answers the whole scope catalog in one page
+/// (scope=all|store|agent; entries carry their service_name/instance_id).
 #[derive(Deserialize)]
 pub(super) struct ToolsListQuery {
-    service_name: String,
+    service_name: Option<String>,
     scope: Option<String>,
     agent_id: Option<String>,
     filter: Option<String>,
@@ -112,15 +114,19 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
 
 // ===== List endpoints =====
 
-/// `GET /services/list?scope=all|store|agent&agent_id=` — service list (all = aggregation of all scopes).
+/// `GET /services/list?scope=all|store|agent&agent_id=&fields=summary|full&include=tools,config`
+/// — service list (all = aggregation of all scopes). Absent payload params keep
+/// the legacy full response; `fields=summary` strips the heavy per-row fields.
 pub(super) async fn service_list_services(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ScopeQuery>,
+    Query(list_query): Query<ServiceListQuery>,
 ) -> ApiResult {
     let view = query.into_scope_view()?;
+    let projection = list_query.into_projection()?;
     let services = state
         .store
-        .list_services_viewed(&view)
+        .list_services_viewed_projected(&view, projection)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -173,7 +179,10 @@ async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
                 None,
             )
         })?;
-    Ok(success("Scope details retrieved successfully", json!(scope)))
+    Ok(success(
+        "Scope details retrieved successfully",
+        json!(scope),
+    ))
 }
 
 /// `GET /agents/list` — agent list (kept).
@@ -207,7 +216,10 @@ pub(super) async fn agent_info(
                 None,
             )
         })?;
-    Ok(success("Agent details retrieved successfully", json!(agent)))
+    Ok(success(
+        "Agent details retrieved successfully",
+        json!(agent),
+    ))
 }
 
 // ===== Service instances: info / status / lifecycle (service name + scope addressing) =====
@@ -239,7 +251,10 @@ pub(super) async fn service_state(
         .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service status retrieved successfully", service_state))
+    Ok(success(
+        "Service status retrieved successfully",
+        service_state,
+    ))
 }
 
 pub(super) async fn service_connect(
@@ -304,7 +319,10 @@ pub(super) async fn service_restart(
         .restart_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service restarted successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service restarted successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn service_wait(
@@ -364,20 +382,43 @@ pub(super) async fn service_list_tools(
     ))
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` — top-level entry, equivalent to the service-nested form above.
+/// `GET /tools/list?service_name=&scope=&filter=` — with `service_name` the
+/// per-instance form (same as the service-nested route); without it, the whole
+/// scope catalog in one page (scope=all|store|agent, default store).
 pub(super) async fn tools_list(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ToolsListQuery>,
 ) -> ApiResult {
-    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
-    let service_name = query.service_name.trim();
+    let service_name = query.service_name.as_deref().unwrap_or("").trim();
     if service_name.is_empty() {
-        return Err(ApiError::missing_parameter("service_name"));
+        let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
+        let view = ScopeQuery {
+            scope: query.scope,
+            agent_id: query.agent_id,
+        }
+        .into_scope_view()?;
+        let page = state
+            .store
+            .list_tool_entries_viewed(&view, filter)
+            .await
+            .map_err(ApiError::from_store)?;
+        let total = page.entries.len();
+        return Ok(success(
+            "Tool catalog retrieved successfully",
+            json!({
+                "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+                "filter": tool_filter_label(filter),
+                "tools": page.entries,
+                "total": total,
+                "skipped_instances": page.skipped_instances,
+            }),
+        ));
     }
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
     let instance_id = resolve_instance(&state, service_name, &scope).await?;
     let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
     let filter_name = tool_filter_label(filter);
-    
+
     match state
         .store
         .list_tools_for_instance_with_filter(instance_id, filter)
@@ -392,21 +433,19 @@ pub(super) async fn tools_list(
                 "total": tools.len(),
             }),
         )),
-        Err(err) => {
-            Ok(success(
-                "Service unavailable",
-                json!({
-                    "service_name": service_name,
-                    "filter": filter_name,
-                    "tools": [],
-                    "total": 0,
-                    "service_error": {
-                        "code": err.code().as_str(),
-                        "message": err.message(),
-                    }
-                }),
-            ))
-        }
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "service_name": service_name,
+                "filter": filter_name,
+                "tools": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
     }
 }
 
@@ -472,7 +511,7 @@ pub(super) async fn service_list_resources(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    
+
     // MCP service errors (401, 409, 502, etc.) are expected business states,
     // not system failures. Return them as successful responses with error info.
     match state.store.list_resources_for_instance(instance_id).await {
@@ -544,25 +583,23 @@ pub(super) async fn service_list_prompts(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    
+
     match state.store.list_prompts_for_instance(instance_id).await {
         Ok(prompts) => Ok(success(
             "Prompt list retrieved successfully",
             json!({ "prompts": prompts, "total": prompts.len() }),
         )),
-        Err(err) => {
-            Ok(success(
-                "Service unavailable",
-                json!({
-                    "prompts": [],
-                    "total": 0,
-                    "service_error": {
-                        "code": err.code().as_str(),
-                        "message": err.message(),
-                    }
-                }),
-            ))
-        }
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "prompts": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
     }
 }
 
@@ -585,6 +622,54 @@ pub(super) async fn service_get_prompt(
     Ok(success("Prompt retrieved successfully", result))
 }
 
+/// `GET /prompts/list?scope=all|store|agent&agent_id=` — whole-scope prompt
+/// catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn prompts_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_prompts_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Prompt catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "prompts": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
+}
+
+/// `GET /resources/list?scope=all|store|agent&agent_id=` — whole-scope
+/// resource catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn resources_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_resources_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Resource catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "resources": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
+}
+
 // ===== Service definitions (root-level CRUD, kept) =====
 
 pub(super) async fn add_service_definition(
@@ -600,7 +685,10 @@ pub(super) async fn add_service_definition(
         .add_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition added successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition added successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn update_service_definition(
@@ -624,7 +712,10 @@ pub(super) async fn update_service_definition(
         .update_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition updated successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition updated successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn remove_service_definition(
@@ -636,7 +727,10 @@ pub(super) async fn remove_service_definition(
         .remove_service(&service_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service definition removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service definition removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 // ===== Scope declarations (kept) =====
@@ -705,7 +799,10 @@ pub(super) async fn service_get_tool_policy(
         .get_context_tool_visibility(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool policy retrieved successfully", json!({ "policy": policy })))
+    Ok(success(
+        "Tool policy retrieved successfully",
+        json!({ "policy": policy }),
+    ))
 }
 
 pub(super) async fn service_set_tool_policy(
@@ -721,7 +818,10 @@ pub(super) async fn service_set_tool_policy(
         .set_context_tool_visibility(instance_id, payload.available_tools)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool policy updated successfully", json!({ "policy": policy })))
+    Ok(success(
+        "Tool policy updated successfully",
+        json!({ "policy": policy }),
+    ))
 }
 
 pub(super) async fn service_clear_tool_policy(
@@ -802,7 +902,10 @@ pub(super) async fn service_delete_tool_override(
         .delete_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool override removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Tool override removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1028,7 +1131,10 @@ pub(super) async fn service_get_service_override(
         .get_service_override(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override retrieved successfully", json!({ "override": rule })))
+    Ok(success(
+        "Service override retrieved successfully",
+        json!({ "override": rule }),
+    ))
 }
 
 pub(super) async fn service_set_service_override(
@@ -1044,7 +1150,10 @@ pub(super) async fn service_set_service_override(
         .set_service_override(instance_id, patch)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override set successfully", json!({ "override": rule })))
+    Ok(success(
+        "Service override set successfully",
+        json!({ "override": rule }),
+    ))
 }
 
 pub(super) async fn service_delete_service_override(
@@ -1059,7 +1168,10 @@ pub(super) async fn service_delete_service_override(
         .delete_service_override(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Service override removed successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Service override removed successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 // ===== Argument completions (service name + scope addressing) =====
@@ -1102,7 +1214,10 @@ pub(super) async fn service_subscribe_resource(
         .subscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Resource updates subscribed successfully", json!({ "uri": uri })))
+    Ok(success(
+        "Resource updates subscribed successfully",
+        json!({ "uri": uri }),
+    ))
 }
 
 pub(super) async fn service_unsubscribe_resource(
@@ -1125,7 +1240,10 @@ pub(super) async fn service_unsubscribe_resource(
         .unsubscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Resource update subscription removed", json!({ "uri": uri })))
+    Ok(success(
+        "Resource update subscription removed",
+        json!({ "uri": uri }),
+    ))
 }
 
 // ===== Config view / reset (kept) =====
@@ -1190,7 +1308,10 @@ pub(super) async fn agent_reset_config(
         .reset_scope(&ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent config reset successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Agent config reset successfully",
+        json!({ "status": "ok" }),
+    ))
 }
 
 pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1199,5 +1320,8 @@ pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> Ap
         .reset_config()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Config reset successfully", json!({ "status": "ok" })))
+    Ok(success(
+        "Config reset successfully",
+        json!({ "status": "ok" }),
+    ))
 }

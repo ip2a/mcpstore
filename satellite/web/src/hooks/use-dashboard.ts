@@ -37,11 +37,12 @@ export function useDashboard() {
     errorSource instanceof Error ? errorSource.message : errorSource ? String(errorSource) : null
 
   const refresh = useCallback(async () => {
-    // Use refetchQueries to reset the polling timer
+    // exact: true — queryKeys.instances is a prefix of every per-instance
+    // query (override/tools/…); a partial refetch would re-fan-out the grid.
     await Promise.all([
-      queryClient.refetchQueries({ queryKey: queryKeys.health }),
-      queryClient.refetchQueries({ queryKey: queryKeys.instances }),
-      queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+      queryClient.refetchQueries({ queryKey: queryKeys.health, exact: true }),
+      queryClient.refetchQueries({ queryKey: queryKeys.instances, exact: true }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agents, exact: true }),
     ])
   }, [queryClient])
 

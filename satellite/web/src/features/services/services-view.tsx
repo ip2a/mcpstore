@@ -78,21 +78,12 @@ export function ServicesView(props: {
     scopeServices,
     scopeServicesError,
     scopeServicesErrorMessage,
-    scopeTools,
-  } = useAgentScope({ busy: props.busy, selectedScope, services: props.services })
+  } = useAgentScope({ selectedScope, services: props.services })
 
   const { applySort, filteredServices, query, setQuery, setStatusFilter, statusFilter } =
     useServicesList(scopeServices)
 
   const statusFilterCount = statusFilter.length
-
-  const scopeToolCountByInstance = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const { instance } of scopeTools) {
-      counts.set(instance.instance_id, (counts.get(instance.instance_id) || 0) + 1)
-    }
-    return counts
-  }, [scopeTools])
 
   function selectScopeTab(scopeId: ScopeCardId) {
     setSelectedScopeId(scopeId)
@@ -196,7 +187,6 @@ export function ServicesView(props: {
                     onRestart={props.onRestart}
                     scopeError={scopeServicesError}
                     scopeErrorMessage={scopeServicesErrorMessage}
-                    scopeToolCountByInstance={scopeToolCountByInstance}
                     services={props.services}
                   />
                 ) : null}
@@ -247,7 +237,6 @@ function ServicesScopeContent({
   onRestart,
   scopeError,
   scopeErrorMessage,
-  scopeToolCountByInstance,
   services,
 }: {
   busy: string | null
@@ -264,7 +253,6 @@ function ServicesScopeContent({
   onRestart: (service: ServiceInstance) => void
   scopeError: unknown
   scopeErrorMessage: string
-  scopeToolCountByInstance: Map<string, number>
   services: ServiceInstance[]
 }) {
   const { t } = useI18n()
@@ -326,19 +314,13 @@ function ServicesScopeContent({
           "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4",
         )}
       >
-        {paginatedServices.map((service) => {
-          const toolCount =
-            scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
-
-          return (
-            <ServiceListCard
-              key={service.instance_id}
-              service={service}
-              toolCount={toolCount}
-              onSelect={() => setCardServiceId(service.instance_id)}
-            />
-          )
-        })}
+        {paginatedServices.map((service) => (
+          <ServiceListCard
+            key={service.instance_id}
+            service={service}
+            onSelect={() => setCardServiceId(service.instance_id)}
+          />
+        ))}
         <AddServiceCard onSelect={onAdd} />
       </ScrollPane>
       <PaginationControls

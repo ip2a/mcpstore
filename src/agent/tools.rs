@@ -69,6 +69,61 @@ impl MCPStore {
         Ok(tools)
     }
 
+    /// Scope-view tool catalog in one page: a single batched read of every
+    /// instance's override rules, then one concurrent fetch per instance (each
+    /// on its own pooled connection). A failed instance (disconnected, auth
+    /// pending) is skipped — counted in `skipped_instances`, never blanks the
+    /// page; the per-instance route stays loud.
+    pub async fn list_tool_entries_viewed(
+        &self,
+        view: &ScopeView,
+        filter: crate::agent::tool_visibility::ToolVisibilityFilter,
+    ) -> Result<ScopedCatalogPage<ScopedToolEntry>> {
+        use crate::agent::tool_visibility::{EffectiveToolPolicy, ToolVisibilityFilter};
+        let instances = self.list_view_instances(view).await?;
+        let overrides_by_instance = self.enabled_tool_overrides_by_instance().await?;
+        let empty_overrides = HashMap::new();
+        let (overrides_by_instance, empty_overrides) = (&overrides_by_instance, &empty_overrides);
+        let results = futures::future::join_all(instances.iter().map(|instance| async move {
+            let overrides = overrides_by_instance
+                .get(&instance.instance_id)
+                .unwrap_or(&empty_overrides);
+            EffectiveToolPolicy::resolve_with_overrides(self, instance.instance_id, overrides)
+                .await
+                .map(|policy| match filter {
+                    ToolVisibilityFilter::All => policy.all,
+                    ToolVisibilityFilter::Available => policy.available,
+                    ToolVisibilityFilter::Removed => policy.removed,
+                })
+        }))
+        .await;
+        let mut entries = Vec::new();
+        let mut skipped_instances = 0usize;
+        for (index, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(part) => entries.extend(part),
+                Err(error) => {
+                    skipped_instances += 1;
+                    tracing::warn!(
+                        %error,
+                        service = %instances[index].service_name,
+                        "scope tool catalog skipped a failed instance"
+                    );
+                }
+            }
+        }
+        entries.sort_by(|left, right| {
+            left.service_name
+                .cmp(&right.service_name)
+                .then_with(|| left.tool_name.cmp(&right.tool_name))
+                .then_with(|| left.instance_id.cmp(&right.instance_id))
+        });
+        Ok(ScopedCatalogPage {
+            entries,
+            skipped_instances,
+        })
+    }
+
     pub async fn list_tools_for_instance_with_filter(
         &self,
         instance_id: InstanceId,

@@ -25,12 +25,12 @@ use tower_http::cors::CorsLayer;
 
 mod app;
 mod auth;
-mod kv;
 pub(crate) mod client;
 mod config_ops;
 mod envelope;
 mod filesystem;
 mod hosts;
+mod kv;
 mod openapi;
 pub(crate) mod panel_auth;
 mod panel_settings;
@@ -45,7 +45,7 @@ use envelope::{success, ApiError, ApiResult};
 
 use parse::{
     extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name,
-    parse_scope_ref, ScopeQuery,
+    parse_scope_ref, ScopeQuery, ServiceListQuery,
 };
 
 /// What a panel-local handler needs from its host process. The daemon's
@@ -304,7 +304,10 @@ fn app_routes<T: PanelCtx>() -> Router<Arc<T>> {
         .route("/v1/hosts/:name/status", get(hosts::host_status::<T>))
         .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list::<T>))
-        .route("/filesystem/directories", get(filesystem::directories_list::<T>))
+        .route(
+            "/filesystem/directories",
+            get(filesystem::directories_list::<T>),
+        )
         .route("/plugins", get(plugins::plugins_list::<T>))
         .route("/plugins/market", get(plugins::plugins_market::<T>))
         .route(
@@ -431,6 +434,9 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         )
         .route("/tools/list", get(service::tools_list))
         .route("/tools/call", post(service::tools_call))
+        // ===== scope-wide catalogs: one page per scope (entries carry instance identity) =====
+        .route("/prompts/list", get(service::prompts_list))
+        .route("/resources/list", get(service::resources_list))
         // ===== resources / prompts (service name + scope addressing) =====
         .route(
             "/services/:service_name/resources/list",

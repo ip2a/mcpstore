@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { useMcpRegistryEntries } from "@/features/mcp-registry/use-mcp-registry-entries"
-import { useInstanceToolsQueries } from "@/features/tools/queries"
+import { useScopeToolsQuery } from "@/features/tools/queries"
 import {
   clearInstanceToolPolicy,
   listInstanceTools,
@@ -30,11 +30,13 @@ export function useToolsRegistry({
   services: ServiceInstance[]
 }) {
   const [visibilityFilter, setVisibilityFilter] = useState<ToolVisibilityFilter>("available")
-  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<ToolInfo>({
+  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<
+    ToolInfo & { instance_id: string }
+  >({
     agents,
     services,
     // biome-ignore lint/correctness/useHookAtTopLevel: invoked unconditionally at the top of useMcpRegistryEntries during render
-    useEntryQueries: (instances) => useInstanceToolsQueries(instances, visibilityFilter),
+    useScopeQuery: (scope, agentId) => useScopeToolsQuery(scope, agentId, visibilityFilter),
     matchQuery: matchesToolQuery,
     noun: "tools",
   })

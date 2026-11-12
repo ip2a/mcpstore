@@ -10,6 +10,7 @@ import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
 import { OverviewView } from "@/features/overview/overview-view"
+import { TraceSessionDetailView } from "@/features/traces/trace-session-detail-view"
 import { TracesView } from "@/features/traces/traces-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
@@ -186,18 +187,38 @@ export function App() {
                     onBack={goBack}
                   />
                 ) : view.name === "scope" ? (
-                  <ScopeView
-                    services={services}
-                    onOpenService={(service) => setView({ name: "instance", addr: service })}
-                  />
+                  <ScopeView services={services} />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (
                   <PluginsView initialTab={view.tab} />
                 ) : view.name === "gateway" ? (
-                  <GatewayView />
+                  <GatewayView
+                    onOpenSession={(session) =>
+                      setView({
+                        name: "traceSession",
+                        sessionId: session.session_id,
+                        face: "gateway",
+                      })
+                    }
+                  />
                 ) : view.name === "traces" ? (
-                  <TracesView initialTab={view.tab} />
+                  <TracesView
+                    initialTab={view.tab}
+                    onOpenSession={(session) =>
+                      setView({
+                        name: "traceSession",
+                        sessionId: session.session_id,
+                        face: "upstream",
+                      })
+                    }
+                  />
+                ) : view.name === "traceSession" ? (
+                  <TraceSessionDetailView
+                    face={view.face}
+                    sessionId={view.sessionId}
+                    onBack={goBack}
+                  />
                 ) : view.name === "settings" ? (
                   <SettingsView />
                 ) : (

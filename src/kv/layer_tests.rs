@@ -1,4 +1,6 @@
 use super::layer::*;
+use crate::config::ScopeDeclarations;
+use crate::identity::{ScopeRef, ServiceInstanceKey};
 use crate::kv::memory_kv_store;
 use crate::kv::models::{
     ContextToolVisibilityState, OpenApiImportContextState, SessionContextState, SessionEntity,
@@ -6,8 +8,6 @@ use crate::kv::models::{
     SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
     ToolVisibilityMode,
 };
-use crate::config::ScopeDeclarations;
-use crate::identity::{ScopeRef, ServiceInstanceKey};
 use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
 use crate::state::{
     AuthState, DesiredState, HealthMetrics, HealthState, RuntimePhase, ServiceStateEvent,
@@ -122,10 +122,7 @@ async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() 
         Some(serde_json::json!({"service_name": "svc"}))
     );
     assert_eq!(
-        store
-            .get("current", "test:state:kv_schema")
-            .await
-            .unwrap(),
+        store.get("current", "test:state:kv_schema").await.unwrap(),
         None
     );
 }
@@ -165,10 +162,7 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
         Some(serde_json::json!({"service_name": "svc"}))
     );
     assert_eq!(
-        store
-            .get("current", "test:state:kv_schema")
-            .await
-            .unwrap(),
+        store.get("current", "test:state:kv_schema").await.unwrap(),
         Some(serde_json::json!({"version": 1}))
     );
 }

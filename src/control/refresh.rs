@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use crate::auth::AuthConfig;
+use crate::config::{ServerConfig, StartupPolicy};
 use crate::kv::models::{
     InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
 };
-use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::MCPStore;
@@ -406,6 +406,75 @@ impl MCPStore {
             .kv
             .get_all_entities_async("service_instances")
             .await?;
+        // Batched loads: one relation scan + one multi-get for every instance's
+        // tool entities, instead of two per-instance reads (N+1 KV amplification).
+        let relation_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_relations_async("instance_tools")
+            .await?;
+        let mut tool_names: HashMap<InstanceId, Vec<String>> =
+            HashMap::with_capacity(relation_values.len());
+        for (key, value) in relation_values {
+            let relation: InstanceToolRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
+                })?;
+            if key != relation.instance_id.to_string() {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Instance tool relation cache key '{key}' does not match instance '{}'",
+                        relation.instance_id
+                    ),
+                ));
+            }
+            tool_names.insert(relation.instance_id, relation.tools);
+        }
+        let mut all_keys: Vec<String> = Vec::new();
+        for (instance_id, names) in &tool_names {
+            for name in names {
+                all_keys.push(format!("{instance_id}:{name}"));
+            }
+        }
+        let tool_values = if all_keys.is_empty() {
+            Vec::new()
+        } else {
+            self.kernel
+                .persistence
+                .kv
+                .get_entities_many("tools", &all_keys)
+                .await?
+        };
+        let mut tools_by_key: HashMap<String, ToolInfo> = HashMap::with_capacity(all_keys.len());
+        for (key, tool_value) in all_keys.iter().zip(tool_values) {
+            let Some(tool_value) = tool_value else {
+                continue;
+            };
+            let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            tools_by_key.insert(
+                key.clone(),
+                ToolInfo {
+                    name: tool.tool_name,
+                    title: tool.title,
+                    description: tool.description,
+                    input_schema: tool.input_schema,
+                    output_schema: tool.output_schema,
+                    annotations: tool.annotations,
+                    icons: tool.icons,
+                    meta: tool.meta,
+                },
+            );
+        }
         let mut instances = Vec::with_capacity(values.len());
         for (_, value) in values {
             let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
@@ -414,7 +483,12 @@ impl MCPStore {
                     format!("Service instance entity deserialization failed: {error}"),
                 )
             })?;
-            let tools = self.tools_from_kv(entity.instance_id).await?;
+            let names = tool_names.remove(&entity.instance_id).unwrap_or_default();
+            let tools = names
+                .iter()
+                .filter_map(|name| tools_by_key.get(&format!("{}:{name}", entity.instance_id)))
+                .cloned()
+                .collect::<Vec<ToolInfo>>();
             instances.push(ServiceInstance {
                 instance_id: entity.instance_id,
                 service_name: entity.service_name,

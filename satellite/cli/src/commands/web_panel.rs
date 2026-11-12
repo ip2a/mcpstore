@@ -31,11 +31,8 @@ pub async fn run(
         .await
         .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
         .unwrap_or(false);
-    let auth_guard = api::panel_auth::PanelAuthGuard::for_bind(
-        resolves_loopback,
-        web.auth,
-        &config_manager,
-    )?;
+    let auth_guard =
+        api::panel_auth::PanelAuthGuard::for_bind(resolves_loopback, web.auth, &config_manager)?;
 
     // Same-origin /api (panel routes + forwarding) and the static frontend,
     // mirroring the daemon's web face layout.
@@ -43,11 +40,10 @@ pub async fn run(
     let router = axum::Router::new()
         .nest(
             "/api",
-            api::panel_router(state)
-                .layer(axum::middleware::from_fn_with_state(
-                    auth_guard.clone(),
-                    api::panel_auth::enforce,
-                )),
+            api::panel_router(state).layer(axum::middleware::from_fn_with_state(
+                auth_guard.clone(),
+                api::panel_auth::enforce,
+            )),
         )
         .fallback(web_assets::serve_react_app)
         .layer(axum::middleware::from_fn(

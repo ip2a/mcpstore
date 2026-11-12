@@ -137,9 +137,7 @@ impl MCPStore {
                 format!("OpenAPI import result serialization failed: {err}"),
             )
         })?;
-        self.kv()
-            .put_state("openapi_imports", name, value)
-            .await?;
+        self.kv().put_state("openapi_imports", name, value).await?;
         let context = OpenApiImportContextState {
             last_service_name: name.to_string(),
             updated_at: now,
@@ -549,16 +547,18 @@ async fn bundle_openapi_external_refs(
     options: &OpenApiBundleOptions,
 ) -> Result<serde_json::Value> {
     let root_metadata = document_metadata_from_value(&spec)?;
-    Ok(bundle_openapi_external_ref_artifact(
-        client,
-	            kv,
-        document_url,
-        spec,
-        root_metadata,
-        options,
+    Ok(
+        bundle_openapi_external_ref_artifact(
+            client,
+            kv,
+            document_url,
+            spec,
+            root_metadata,
+            options,
+        )
+        .await?
+        .bundle,
     )
-    .await?
-    .bundle)
 }
 
 async fn bundle_openapi_external_ref_artifact(
@@ -572,7 +572,7 @@ async fn bundle_openapi_external_ref_artifact(
     let root_document = document_label(document_url);
     let resolver = OpenApiExternalRefResolver::new(
         client,
-	            kv,
+        kv,
         root_document.clone(),
         root_metadata,
         options.ref_cache.clone(),
@@ -675,7 +675,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         document_metadata.insert(root_document.clone(), root_metadata);
         Self {
             client,
-	            kv,
+            kv,
             ref_cache,
             documents: Mutex::new(HashMap::new()),
             document_metadata: Mutex::new(document_metadata),

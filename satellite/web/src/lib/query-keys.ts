@@ -35,6 +35,14 @@ export const queryKeys = {
   instanceResourceTemplates: (addr: ServiceAddress) =>
     [...queryKeys.instance(addr), "resource-templates"] as const,
   instancePrompts: (addr: ServiceAddress) => [...queryKeys.instance(addr), "prompts"] as const,
+  // Scope-wide catalog pages (one request per scope). Nested under "scopes" so
+  // the existing invalidateQueries({ queryKey: ["scopes"] }) covers them.
+  scopeTools: (scope: "store" | "agent", agentId: string, filter: string) =>
+    ["scopes", ...hostSeg(), "tools", scope, agentId, filter] as const,
+  scopePrompts: (scope: "store" | "agent", agentId: string) =>
+    ["scopes", ...hostSeg(), "prompts", scope, agentId] as const,
+  scopeResources: (scope: "store" | "agent", agentId: string) =>
+    ["scopes", ...hostSeg(), "resources", scope, agentId] as const,
   get agents() {
     return ["agents", ...hostSeg()] as const
   },

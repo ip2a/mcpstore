@@ -1,16 +1,25 @@
-import { ClipboardIcon } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, ScrollTextIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  PromptDetailDocBody,
+  PromptDetailDocHeader,
+  PromptPlaygroundAside,
+} from "@/components/shared/prompt-detail-playground"
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { useInstancePromptsQueries } from "@/features/prompts/queries"
-import { ServicePromptDetailPane } from "@/features/services/service-panels"
+import { usePromptArgsForm } from "@/features/prompts/use-prompt-args-form"
+import { getInstancePrompt, type PromptInfo, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
-import type { PromptInfo, ServiceInstance } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export function PromptDetailView(props: {
   instanceId: string
@@ -28,11 +37,34 @@ export function PromptDetailView(props: {
   const errorMessage =
     error instanceof Error ? error.message : error ? String(error) : t("promptsFailedToLoad")
 
+  const { values: promptArgs, setField: setPromptArg } = usePromptArgsForm(prompt)
+  const [playgroundOpen, setPlaygroundOpen] = useState(true)
+  const [content, setContent] = useState<unknown>(null)
+  const [getting, setGetting] = useState(false)
+
+  useEffect(() => {
+    setContent(null)
+  }, [props.promptName, props.instanceId])
+
   async function loadPrompts() {
     const results = await Promise.all(promptQueries.map((query) => query.refetch()))
     const failed = results.find((result) => result.error)
     if (failed?.error) {
       toast.error(failed.error instanceof Error ? failed.error.message : String(failed.error))
+    }
+  }
+
+  async function onGetPrompt() {
+    if (!instance || !prompt) return
+    setGetting(true)
+    try {
+      const result = await getInstancePrompt(instance, prompt.name, promptArgs)
+      setContent(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("getPromptFailed")
+      toast.error(message)
+    } finally {
+      setGetting(false)
     }
   }
 
@@ -95,16 +127,44 @@ export function PromptDetailView(props: {
         className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
       >
         <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-          {prompt ? (
-            <Button size="sm" variant="outline" onClick={() => void copyPrompt(prompt)}>
-              <ClipboardIcon data-icon="inline-start" />
-              {t("copy")}
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {prompt ? (
+              <Button size="sm" onClick={() => void onGetPrompt()} disabled={getting}>
+                {getting ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <ScrollTextIcon data-icon="inline-start" />
+                )}
+                {getting ? t("executing") : t("get")}
+              </Button>
+            ) : null}
+            {prompt ? (
+              <Button size="sm" variant="outline" onClick={() => void copyPrompt(prompt)}>
+                <ClipboardIcon data-icon="inline-start" />
+                {t("copy")}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void loadPrompts()}
+              disabled={loading}
+            >
+              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+              {t("refresh")}
             </Button>
-          ) : null}
-          <Button size="sm" variant="outline" onClick={() => void loadPrompts()} disabled={loading}>
-            <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-            {t("refresh")}
-          </Button>
+            {prompt ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPlaygroundOpen((open) => !open)}
+                aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                title={playgroundOpen ? t("collapse") : t("expand")}
+              >
+                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {error ? (
@@ -116,10 +176,31 @@ export function PromptDetailView(props: {
         ) : loading && !prompt ? (
           <PageSkeleton />
         ) : prompt ? (
-          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <ScrollPane className="min-h-0 flex-1">
-              <ServicePromptDetailPane prompt={prompt} service={instance} />
-            </ScrollPane>
+          <div
+            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
+          >
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+              <ScrollPane className="min-h-0 flex-1">
+                <PromptDetailDocHeader prompt={prompt} serviceState={instance.state} />
+                <PromptDetailDocBody
+                  prompt={prompt}
+                  promptArgs={promptArgs}
+                  onPromptArgChange={setPromptArg}
+                  serviceName={instance.service_name}
+                  scope={instance.scope}
+                />
+              </ScrollPane>
+            </div>
+            {playgroundOpen ? (
+              <PromptPlaygroundAside
+                prompt={prompt}
+                service={instance}
+                promptArgs={promptArgs}
+                onGet={() => void onGetPrompt()}
+                getting={getting}
+                content={content}
+              />
+            ) : null}
           </div>
         ) : (
           <PageEmpty

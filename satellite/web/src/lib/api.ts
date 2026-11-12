@@ -184,6 +184,18 @@ export type ConfigRevision = {
 
 export type ToolVisibilityFilter = "all" | "available" | "removed"
 
+/** Catalog entry that carries its owning instance (scope-wide catalog routes). */
+type Scoped = { instance_id: string; service_name: string; scope: ScopeRef }
+export type ScopedToolInfo = ToolInfo & Scoped
+export type ScopedPromptInfo = PromptInfo & Scoped
+export type ScopedResourceInfo = ResourceInfo & Scoped
+
+/** Scope-wide catalog page: entries + how many instances the backend skipped (disconnected, auth pending…). */
+export type ScopeCatalogPage<T> = {
+  entries: T[]
+  skippedInstances: number
+}
+
 export type ToolInfo = {
   name: string
   original_name?: string
@@ -275,6 +287,14 @@ export type ServiceInstance = {
   applied_config_revision: ConfigRevision | null
   added_time: number
   mcp?: McpServerMetadata | null
+  /** List enrichment: override display_name, else service_name. */
+  display_name?: string
+  /** List enrichment: override description, else effective_config.description. */
+  description?: string
+  /** List enrichment: override icons when set (else use mcp.serverInfo.icons). */
+  icons?: unknown
+  /** List enrichment: tools.len() — prefer over re-fetching /tools/list for counts. */
+  tool_count?: number
 }
 
 export type AgentItem = {
@@ -431,6 +451,9 @@ export {
   logoutInstanceAuthorization,
   upgradeInstanceAuthorizationScope,
   listInstanceTools,
+  listScopeTools,
+  listScopePrompts,
+  listScopeResources,
   setInstanceToolPolicy,
   clearInstanceToolPolicy,
   listInstanceResources,
@@ -442,6 +465,7 @@ export {
   disconnectInstance,
   restartInstance,
   callInstanceTool,
+  getInstancePrompt,
 } from "./api/service"
 export {
   getMcpHubDescriptor,

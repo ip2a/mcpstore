@@ -147,7 +147,8 @@ pub(super) async fn service_override_map(
 ) -> Result<HashMap<InstanceId, mcpstore::ServiceOverrideRule>, mcpstore::Error> {
     Ok(store
         .list_service_overrides_lenient()
-        .await?        .into_iter()
+        .await?
+        .into_iter()
         .map(|rule| (rule.instance_id, rule))
         .collect())
 }
@@ -176,9 +177,7 @@ pub(super) fn apply_service_overrides(
                     if let Some(object) = payload.as_object_mut() {
                         object.insert(
                             "service_name".to_string(),
-                            Value::String(
-                                rule.common.display_name.clone().expect("checked above"),
-                            ),
+                            Value::String(rule.common.display_name.clone().expect("checked above")),
                         );
                         object.insert(
                             "real_service_name".to_string(),
@@ -220,7 +219,10 @@ pub(super) fn apply_tool_overrides(
         let Some(instance_id) = read_required_instance_id(payload, "instance_id").ok() else {
             continue;
         };
-        let Some(name) = payload.get("name").and_then(Value::as_str).map(str::to_string)
+        let Some(name) = payload
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
         else {
             continue;
         };
@@ -323,7 +325,11 @@ mod tests {
         })
     }
 
-    fn rule(instance: &str, tool: &str, common: ComponentOverrideCommon) -> mcpstore::ToolOverrideRule {
+    fn rule(
+        instance: &str,
+        tool: &str,
+        common: ComponentOverrideCommon,
+    ) -> mcpstore::ToolOverrideRule {
         mcpstore::ToolOverrideRule {
             instance_id: instance.parse().unwrap(),
             service_name: "filesystem".into(),
@@ -342,7 +348,10 @@ mod tests {
         let mut payloads = vec![payload()];
         let mut map = HashMap::new();
         map.insert(
-            ("11111111-1111-1111-1111-111111111111".parse().unwrap(), "write_file".to_string()),
+            (
+                "11111111-1111-1111-1111-111111111111".parse().unwrap(),
+                "write_file".to_string(),
+            ),
             rule("11111111-1111-1111-1111-111111111111", "write_file", {
                 let mut common = ComponentOverrideCommon::default();
                 common.display_name = Some("safe_write".into());
@@ -361,7 +370,10 @@ mod tests {
         let mut payloads = vec![payload()];
         let mut map = HashMap::new();
         map.insert(
-            ("11111111-1111-1111-1111-111111111111".parse().unwrap(), "write_file".to_string()),
+            (
+                "11111111-1111-1111-1111-111111111111".parse().unwrap(),
+                "write_file".to_string(),
+            ),
             rule("11111111-1111-1111-1111-111111111111", "write_file", {
                 let mut common = ComponentOverrideCommon::default();
                 common.display_name = Some("safe_write".into());

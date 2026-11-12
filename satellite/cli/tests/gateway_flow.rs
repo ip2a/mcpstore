@@ -36,7 +36,6 @@ fn repo_root() -> PathBuf {
         .expect("failed to resolve repo root")
 }
 
-
 fn fixture_script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/mock_mcp_server.py")
@@ -115,9 +114,7 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
 
@@ -352,9 +349,7 @@ async fn gateway_command_exposes_only_selected_instance_over_stdio_inner() -> Te
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
 
@@ -480,9 +475,7 @@ async fn gateway_command_exposes_session_scope_over_stdio_inner(redis_url: Strin
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
     let config_path_arg = config_path.display().to_string();
@@ -620,9 +613,7 @@ async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
 
@@ -731,9 +722,7 @@ async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
 
@@ -830,9 +819,7 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
     let port = reserve_local_port();

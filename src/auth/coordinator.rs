@@ -840,14 +840,11 @@ fn auth_state(status: AuthStatus) -> AuthState {
 
 #[cfg(test)]
 pub(crate) fn test_state_manager() -> Arc<ServiceStateManager> {
-    use crate::kv::{memory_kv_store, KvLayerManager};
     use crate::events::EventBus;
+    use crate::kv::{memory_kv_store, KvLayerManager};
 
     Arc::new(ServiceStateManager::new(
-        Arc::new(KvLayerManager::new(
-            memory_kv_store(),
-            "auth-test-state",
-        )),
+        Arc::new(KvLayerManager::new(memory_kv_store(), "auth-test-state")),
         EventBus::with_history(10),
         crate::state::CONTROL_NODE_ID.to_string(),
     ))

@@ -1,17 +1,17 @@
-import { useQuery } from "@tanstack/react-query"
 import { AlertCircleIcon, BadgeCheckIcon, Loader2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { McpIcon } from "@/components/shared/mcp-icon"
-import { Skeleton } from "@/components/ui/skeleton"
-import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
-import { useServiceOverrideQuery } from "@/features/overrides/queries"
+import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
-import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
-import { queryKeys } from "@/lib/query-keys"
+import type { ServiceInstance } from "@/lib/api"
 import { getServiceEndpointLabel, getServiceTransport } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
+
+function serviceToolCount(service: ServiceInstance) {
+  return service.tool_count ?? service.tools?.length ?? 0
+}
 
 export function ServiceListCard({
   className,
@@ -22,22 +22,21 @@ export function ServiceListCard({
   className?: string
   onSelect: () => void
   service: ServiceInstance
-  toolCount: number
+  toolCount?: number
 }) {
   const { t } = useI18n()
   const endpoint = getServiceEndpointLabel(service)
-  const description = String(service.effective_config?.description || "").trim() || endpoint
-  // Same override query/cache key the dialog uses — the grid shows the
-  // projected name everywhere the dialog does.
-  const overrideQuery = useServiceOverrideQuery(service.service_name, service.scope)
-  const projectedName = overrideQuery.data?.override?.display_name?.trim() || service.service_name
-  const scopeLabel =
-    service.scope.type === "store" ? "store" : service.scope.agent_id
+  const projectedName = service.display_name?.trim() || service.service_name
+  const description =
+    service.description?.trim() ||
+    String(service.effective_config?.description || "").trim() ||
+    endpoint
+  const scopeLabel = service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
   // Failure detail stays off the face (keeps card height stable); show on hover flip.
   const failureMessage =
-    status !== "connected" ? (service.state?.failure?.message?.trim() || null) : null
+    status !== "connected" ? service.state?.failure?.message?.trim() || null : null
   const statusColorClass =
     status === "connected"
       ? "text-emerald-500"
@@ -50,29 +49,12 @@ export function ServiceListCard({
   const transportLabel =
     transport === "stdio" ? "stdio" : transport.includes("http") ? "http" : null
 
-  const canListResources = isServiceConnected(service.state) && service.mcp?.capabilities?.resources !== false
-  const canListPrompts = isServiceConnected(service.state) && service.mcp?.capabilities?.prompts !== false
-
-  const resourcesQuery = useQuery({
-    enabled: canListResources,
-    queryKey: queryKeys.instanceResources(service),
-    queryFn: () => listInstanceResources(service).catch(() => []),
-    staleTime: 60_000,
-  })
-  const promptsQuery = useQuery({
-    enabled: canListPrompts,
-    queryKey: queryKeys.instancePrompts(service),
-    queryFn: () => listInstancePrompts(service).catch(() => []),
-    staleTime: 60_000,
-  })
-
-  const resourceCount = resourcesQuery.data?.length ?? 0
-  const promptCount = promptsQuery.data?.length ?? 0
+  const resolvedToolCount = toolCount ?? serviceToolCount(service)
   const metaParts = [
-    toolCount > 0 ? t("serviceRowToolCount", { count: toolCount }) : null,
-    resourceCount > 0 ? t("serviceRowResourceCount", { count: resourceCount }) : null,
-    promptCount > 0 ? t("serviceRowPromptCount", { count: promptCount }) : null,
+    resolvedToolCount > 0 ? t("serviceRowToolCount", { count: resolvedToolCount }) : null,
   ].filter((part): part is string => Boolean(part))
+
+  const icons = service.icons ?? service.mcp?.serverInfo?.icons
 
   return (
     <div
@@ -99,11 +81,7 @@ export function ServiceListCard({
             aria-hidden
             className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
           >
-            <McpIcon
-              icons={service.mcp?.serverInfo?.icons}
-              fallback={<DefaultServiceIcon />}
-              className="size-4"
-            />
+            <McpIcon icons={icons} fallback={<DefaultServiceIcon />} className="size-4" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
@@ -133,11 +111,14 @@ export function ServiceListCard({
         </div>
 
         {metaParts.length ? (
-          <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
+          <p
+            className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground"
+            title={metaParts.join(" · ")}
+          >
             {metaParts.join(" · ")}
           </p>
         ) : (
-          <Skeleton className="mt-3 h-4 w-1/2" aria-hidden />
+          <p className="mt-3 min-h-4 text-xs text-muted-foreground/60">&nbsp;</p>
         )}
       </div>
 

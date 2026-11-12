@@ -1,5 +1,5 @@
 import { useMcpRegistryEntries } from "@/features/mcp-registry/use-mcp-registry-entries"
-import { useInstancePromptsQueries } from "@/features/prompts/queries"
+import { useScopePromptsQuery } from "@/features/prompts/queries"
 import type { AgentItem, PromptInfo, ServiceInstance } from "@/lib/api"
 
 export function usePromptsRegistry({
@@ -9,10 +9,13 @@ export function usePromptsRegistry({
   agents: AgentItem[]
   services: ServiceInstance[]
 }) {
-  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<PromptInfo>({
+  const { reload, visibleEntries, ...registry } = useMcpRegistryEntries<
+    PromptInfo & { instance_id: string }
+  >({
     agents,
     services,
-    useEntryQueries: useInstancePromptsQueries,
+    // biome-ignore lint/correctness/useHookAtTopLevel: invoked unconditionally at the top of useMcpRegistryEntries during render
+    useScopeQuery: useScopePromptsQuery,
     matchQuery: matchesPromptQuery,
     noun: "prompts",
   })

@@ -130,10 +130,13 @@ function ServiceCardDialogBody({
 
   const connected = isServiceRunning(service.state)
   const status = deriveServiceDisplayStatus(service.state)
-  // Same cache key as ServiceOverridePane — no extra request.
+  // Dialog chrome uses list projection first; override query stays for the editor pane.
   const overrideQuery = useServiceOverrideQuery(service.service_name, service.scope)
   const serviceOverride = overrideQuery.data?.override
-  const projectedName = serviceOverride?.display_name || service.service_name
+  const projectedName =
+    serviceOverride?.display_name?.trim() ||
+    service.display_name?.trim() ||
+    service.service_name
   const scopeLabel =
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const isEditTab = EDIT_TABS.has(activeTab)

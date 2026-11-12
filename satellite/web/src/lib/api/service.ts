@@ -6,8 +6,12 @@ import type {
   PromptInfo,
   ResourceInfo,
   ResourceTemplateInfo,
+  ScopeCatalogPage,
   ScopeSummary,
   ScopeView,
+  ScopedPromptInfo,
+  ScopedResourceInfo,
+  ScopedToolInfo,
   ServiceAddress,
   ServiceInstance,
   ServiceState,
@@ -112,6 +116,46 @@ export async function listInstanceTools(
   return data.tools
 }
 
+function catalogScopeQuery(scope: "store" | "agent", agentId: string): string {
+  return scope === "agent"
+    ? buildQuery({ scope: "agent", agent_id: agentId })
+    : buildQuery({ scope: "store" })
+}
+
+/** One request for the whole scope's tool catalog (backend scope aggregation). */
+export async function listScopeTools(
+  scope: "store" | "agent",
+  agentId: string,
+  filter: ToolVisibilityFilter = "available",
+): Promise<ScopeCatalogPage<ScopedToolInfo>> {
+  const data = await api<{ tools: ScopedToolInfo[]; skipped_instances?: number }>(
+    `/tools/list${catalogScopeQuery(scope, agentId)}${buildQuery({ filter })}`,
+  )
+  return { entries: data.tools, skippedInstances: data.skipped_instances ?? 0 }
+}
+
+/** One request for the whole scope's prompt catalog (backend scope aggregation). */
+export async function listScopePrompts(
+  scope: "store" | "agent",
+  agentId: string,
+): Promise<ScopeCatalogPage<ScopedPromptInfo>> {
+  const data = await api<{ prompts: ScopedPromptInfo[]; skipped_instances?: number }>(
+    `/prompts/list${catalogScopeQuery(scope, agentId)}`,
+  )
+  return { entries: data.prompts, skippedInstances: data.skipped_instances ?? 0 }
+}
+
+/** One request for the whole scope's resource catalog (backend scope aggregation). */
+export async function listScopeResources(
+  scope: "store" | "agent",
+  agentId: string,
+): Promise<ScopeCatalogPage<ScopedResourceInfo>> {
+  const data = await api<{ resources: ScopedResourceInfo[]; skipped_instances?: number }>(
+    `/resources/list${catalogScopeQuery(scope, agentId)}`,
+  )
+  return { entries: data.resources, skippedInstances: data.skipped_instances ?? 0 }
+}
+
 export async function setInstanceToolPolicy(addr: ServiceAddress, availableTools: string[]) {
   return api(svcPath(addr, "/tool-policy"), {
     method: "PUT",
@@ -170,5 +214,16 @@ export async function callInstanceTool(
   return api(svcPath(addr, "/tools/call"), {
     method: "POST",
     body: JSON.stringify({ tool_name: toolName, args }),
+  })
+}
+
+export async function getInstancePrompt(
+  addr: ServiceAddress,
+  promptName: string,
+  args: Record<string, unknown> = {},
+) {
+  return api(svcPath(addr, "/prompts/get"), {
+    method: "POST",
+    body: JSON.stringify({ prompt_name: promptName, args }),
   })
 }

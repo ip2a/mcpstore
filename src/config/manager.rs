@@ -7,7 +7,7 @@ use super::app_validation::validate_app_config;
 use super::examples::example_services;
 use super::flatten::flatten_config_value;
 use super::resolver;
-use super::{AppConfig, KvConfig, ConfigError, McpConfig, Result};
+use super::{AppConfig, ConfigError, KvConfig, McpConfig, Result};
 
 pub struct ConfigManager {
     mcp_path: PathBuf,

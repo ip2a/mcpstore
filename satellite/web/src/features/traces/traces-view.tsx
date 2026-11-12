@@ -6,12 +6,18 @@ import { HistoryPanel } from "@/features/history/history-view"
 import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
-import { getFrameSessions } from "@/lib/api"
+import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
-type TracesTab = "table" | "graph" | "history" | "kv"
+type TracesTab = "table" | "history" | "kv"
 
 /** Insights → Traces: outbound MCP frames + request history + KV. */
-export function TracesView({ initialTab }: { initialTab?: TracesTab } = {}) {
+export function TracesView({
+  initialTab,
+  onOpenSession,
+}: {
+  initialTab?: TracesTab
+  onOpenSession?: (session: FrameSessionSummary) => void
+} = {}) {
   const { t } = useI18n()
   const sessions = useQuery({
     queryKey: queryKeys.gatewayFrameSessionsPage("upstream", 1, 0),
@@ -32,6 +38,7 @@ export function TracesView({ initialTab }: { initialTab?: TracesTab } = {}) {
         kvSlot={<KvPanel />}
         historySlot={<HistoryPanel />}
         initialView={initialTab}
+        onOpenSession={onOpenSession}
       />
     </>
   )

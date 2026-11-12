@@ -157,7 +157,8 @@ impl MCPStore {
                 .registry
                 .list_instance_tools(instance_id)
                 .await;
-            self.upsert_instance_tools_projection(instance_id, &tools).await?;
+            self.upsert_instance_tools_projection(instance_id, &tools)
+                .await?;
             self.kernel
                 .control
                 .state

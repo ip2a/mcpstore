@@ -32,8 +32,7 @@ impl GatewayServer {
             store.session_by_key(session_key).status().await?;
         }
         let (bindings, issues) =
-            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref(), &down)
-                .await?;
+            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref(), &down).await?;
         let management = Arc::new(GatewayManagementTools {
             session_state_tools: Arc::new(if options.expose_session_state_tools {
                 build_session_state_tools()
@@ -81,7 +80,8 @@ impl GatewayServer {
         });
         // A management tool colliding with a downstream name fails the mount
         // at build (the surface would be ambiguous from day one).
-        let tools = merged_tools(&bindings, &management).map_err(|error| -> BoxErr { error.into() })?;
+        let tools =
+            merged_tools(&bindings, &management).map_err(|error| -> BoxErr { error.into() })?;
         let catalog = GatewayCatalog::new(
             Arc::clone(&store),
             scope.clone(),
@@ -273,7 +273,12 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let resources = apply_service_overrides(resources, &service_override_map(&store).await.map_err(map_store_error)?)?;
+            let resources = apply_service_overrides(
+                resources,
+                &service_override_map(&store)
+                    .await
+                    .map_err(map_store_error)?,
+            )?;
             let resources = project_catalog_uris(resources, "uri", false)?;
             let resources = deserialize_items::<Resource>(resources, "resource")?;
             Ok(ListResourcesResult::with_all_items(resources))
@@ -301,8 +306,12 @@ impl ServerHandler for GatewayServer {
                 store.list_resource_templates_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let templates =
-                apply_service_overrides(templates, &service_override_map(&store).await.map_err(map_store_error)?)?;
+            let templates = apply_service_overrides(
+                templates,
+                &service_override_map(&store)
+                    .await
+                    .map_err(map_store_error)?,
+            )?;
             let templates = project_catalog_uris(templates, "uriTemplate", true)?;
             let templates = deserialize_items::<ResourceTemplate>(templates, "resource template")?;
             Ok(ListResourceTemplatesResult::with_all_items(templates))
@@ -330,12 +339,15 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let resources = apply_service_overrides(resources, &service_override_map(&store).await.map_err(map_store_error)?)?;
+            let resources = apply_service_overrides(
+                resources,
+                &service_override_map(&store)
+                    .await
+                    .map_err(map_store_error)?,
+            )?;
             let (instance_id, original_uri, service_name) =
                 resolve_projected_catalog_uri(&resources, "uri", false, &request.uri)?;
-            let result = store
-                .read_resource_scoped(instance_id, &original_uri)
-                .await;
+            let result = store.read_resource_scoped(instance_id, &original_uri).await;
             call_log.record(
                 caller.as_deref(),
                 GatewayCallKind::Resource,
@@ -345,7 +357,11 @@ impl ServerHandler for GatewayServer {
                 call_start.elapsed(),
                 result.is_ok(),
             );
-            deserialize_item::<ReadResourceResult>(result.map_err(map_store_error)?, "read resource result").map(Into::into)
+            deserialize_item::<ReadResourceResult>(
+                result.map_err(map_store_error)?,
+                "read resource result",
+            )
+            .map(Into::into)
         }
     }
 
@@ -367,7 +383,12 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let prompts = apply_service_overrides(prompts, &service_override_map(&store).await.map_err(map_store_error)?)?;
+            let prompts = apply_service_overrides(
+                prompts,
+                &service_override_map(&store)
+                    .await
+                    .map_err(map_store_error)?,
+            )?;
             let prompts = project_prompt_names(prompts)?;
             let prompts = deserialize_items::<Prompt>(prompts, "prompt")?;
             Ok(ListPromptsResult::with_all_items(prompts))
@@ -396,7 +417,12 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let prompts = apply_service_overrides(prompts, &service_override_map(&store).await.map_err(map_store_error)?)?;
+            let prompts = apply_service_overrides(
+                prompts,
+                &service_override_map(&store)
+                    .await
+                    .map_err(map_store_error)?,
+            )?;
             let (instance_id, original_name, service_name) =
                 resolve_projected_prompt(&prompts, &request.name)?;
             let result = store
@@ -411,7 +437,8 @@ impl ServerHandler for GatewayServer {
                 call_start.elapsed(),
                 result.is_ok(),
             );
-            deserialize_item::<GetPromptResult>(result.map_err(map_store_error)?, "prompt result").map(Into::into)
+            deserialize_item::<GetPromptResult>(result.map_err(map_store_error)?, "prompt result")
+                .map(Into::into)
         }
     }
 
@@ -437,10 +464,19 @@ impl ServerHandler for GatewayServer {
             .management
             .resource_override_tools
             .contains_key(tool_name.as_str());
-        let is_openapi_tool = self.management.openapi_tools.contains_key(tool_name.as_str());
-        let is_service_tool = self.management.service_tools.contains_key(tool_name.as_str());
+        let is_openapi_tool = self
+            .management
+            .openapi_tools
+            .contains_key(tool_name.as_str());
+        let is_service_tool = self
+            .management
+            .service_tools
+            .contains_key(tool_name.as_str());
         let is_cache_tool = self.management.kv_tools.contains_key(tool_name.as_str());
-        let is_search_tool = self.management.search_tools.contains_key(tool_name.as_str());
+        let is_search_tool = self
+            .management
+            .search_tools
+            .contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let instance_id = self.instance_id;
@@ -542,14 +578,9 @@ impl ServerHandler for GatewayServer {
             // waiting for an event).
             let binding = if session_key.as_deref() != self.session_key.as_deref() {
                 match self.catalog.fresh_bindings(session_key.as_deref()).await {
-                    Ok(mut bindings) => bindings
-                        .remove(tool_name.as_str())
-                        .ok_or_else(|| {
-                            super::tools::unknown_tool_error(
-                                &tool_name,
-                                self.instance_id.is_some(),
-                            )
-                        })?,
+                    Ok(mut bindings) => bindings.remove(tool_name.as_str()).ok_or_else(|| {
+                        super::tools::unknown_tool_error(&tool_name, self.instance_id.is_some())
+                    })?,
                     Err(error) => return Err(ErrorData::internal_error(error.to_string(), None)),
                 }
             } else {
@@ -583,88 +614,88 @@ impl ServerHandler for GatewayServer {
             }
             let response: Result<CallToolResponse, ErrorData> =
                 tokio::time::timeout(super::tools::GATEWAY_TOOL_CALL_BUDGET, async {
-                let execution = match store
-                    .start_tool_execution(
-                        binding.instance_id,
-                        &binding.tool_name,
-                        args,
-                        meta.clone(),
-                        execution_options,
-                    )
-                    .await
-                {
-                    Ok(execution) => execution,
-                    Err(error) => return Ok(llm_error_result(&error)),
-                };
-                let result = match execution.wait().await {
-                    Ok(McpToolExecution::Immediate { result }) => result,
-                    Ok(McpToolExecution::Task { .. }) => {
-                        return Ok(llm_error_result(&mcpstore::Error::new(
-                            mcpstore::error::FailureCode::ToolFailed,
-                            "gateway tool call unexpectedly returned a task",
-                        )));
-                    }
-                    Err(error) => return Ok(llm_error_result(&error)),
-                };
+                    let execution = match store
+                        .start_tool_execution(
+                            binding.instance_id,
+                            &binding.tool_name,
+                            args,
+                            meta.clone(),
+                            execution_options,
+                        )
+                        .await
+                    {
+                        Ok(execution) => execution,
+                        Err(error) => return Ok(llm_error_result(&error)),
+                    };
+                    let result = match execution.wait().await {
+                        Ok(McpToolExecution::Immediate { result }) => result,
+                        Ok(McpToolExecution::Task { .. }) => {
+                            return Ok(llm_error_result(&mcpstore::Error::new(
+                                mcpstore::error::FailureCode::ToolFailed,
+                                "gateway tool call unexpectedly returned a task",
+                            )));
+                        }
+                        Err(error) => return Ok(llm_error_result(&error)),
+                    };
 
-                let mut content = Vec::with_capacity(result.content.len());
-                for item in result.content {
-                    match item {
-                        ContentItem::Text { text, .. } => {
-                            content.push(ContentBlock::text(text));
-                        }
-                        ContentItem::Image {
-                            data, mime_type, ..
-                        } => {
-                            content.push(ContentBlock::image(data, mime_type));
-                        }
-                        ContentItem::Audio {
-                            data, mime_type, ..
-                        } => {
-                            content.push(ContentBlock::audio(data, mime_type));
-                        }
-                        ContentItem::Resource { resource, .. } => {
-                            content.push(
-                                match serde_json::from_value::<ResourceContents>(resource) {
-                                    Ok(resource) => ContentBlock::resource(resource),
+                    let mut content = Vec::with_capacity(result.content.len());
+                    for item in result.content {
+                        match item {
+                            ContentItem::Text { text, .. } => {
+                                content.push(ContentBlock::text(text));
+                            }
+                            ContentItem::Image {
+                                data, mime_type, ..
+                            } => {
+                                content.push(ContentBlock::image(data, mime_type));
+                            }
+                            ContentItem::Audio {
+                                data, mime_type, ..
+                            } => {
+                                content.push(ContentBlock::audio(data, mime_type));
+                            }
+                            ContentItem::Resource { resource, .. } => {
+                                content.push(
+                                    match serde_json::from_value::<ResourceContents>(resource) {
+                                        Ok(resource) => ContentBlock::resource(resource),
+                                        Err(error) => ContentBlock::text(format!(
+                                            "Failed to decode resource content: {error}"
+                                        )),
+                                    },
+                                );
+                            }
+                            ContentItem::ResourceLink { resource, .. } => {
+                                content.push(match serde_json::from_value::<Resource>(resource) {
+                                    Ok(resource) => ContentBlock::resource_link(resource),
                                     Err(error) => ContentBlock::text(format!(
-                                        "Failed to decode resource content: {error}"
+                                        "Failed to decode resource link: {error}"
                                     )),
-                                },
-                            );
-                        }
-                        ContentItem::ResourceLink { resource, .. } => {
-                            content.push(match serde_json::from_value::<Resource>(resource) {
-                                Ok(resource) => ContentBlock::resource_link(resource),
-                                Err(error) => ContentBlock::text(format!(
-                                    "Failed to decode resource link: {error}"
-                                )),
-                            });
+                                });
+                            }
                         }
                     }
-                }
 
-                let mut call_result = if result.is_error {
-                    CallToolResult::error(content)
-                } else {
-                    CallToolResult::success(content)
-                };
-                call_result.structured_content = result.structured_content;
+                    let mut call_result = if result.is_error {
+                        CallToolResult::error(content)
+                    } else {
+                        CallToolResult::success(content)
+                    };
+                    call_result.structured_content = result.structured_content;
 
-                Ok(CallToolResponse::Complete(call_result))
-            })
-            .await
-            .unwrap_or_else(|_| {
-                // the ladder's outer belt: the store deadline should have
-                // fired already; if the gateway budget expires instead, the
-                // store layer itself hung — answer with the translated
-                // timeout rather than letting the agent's client time out
-                // blind
-                Ok(llm_error_result(&mcpstore::Error::new(
-                    mcpstore::error::FailureCode::CallTimedOut,
-                    "gateway tool-call budget expired while the upstream call was pending",
-                )))
-            });
+                    Ok(CallToolResponse::Complete(call_result))
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    // the ladder's outer belt: the store deadline should have
+                    // fired already; if the gateway budget expires instead, the
+                    // store layer itself hung — answer with the translated
+                    // timeout rather than letting the agent's client time out
+                    // blind
+                    Ok(llm_error_result(&mcpstore::Error::new(
+                        mcpstore::error::FailureCode::CallTimedOut,
+                        "gateway tool-call budget expired while the upstream call was pending",
+                    )))
+                });
             let success = match &response {
                 Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
                 _ => false,
