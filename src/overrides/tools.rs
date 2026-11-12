@@ -140,7 +140,11 @@ pub(crate) fn applied_override(
         };
     };
     AppliedToolOverride {
-        display_name: rule.common.display_name.clone().unwrap_or(fallback_display_name),
+        display_name: rule
+            .common
+            .display_name
+            .clone()
+            .unwrap_or(fallback_display_name),
         description: rule.common.description.clone().unwrap_or(description),
         input_schema: MCPStore::override_input_schema(input_schema, &rule.arguments),
         icons: rule.common.icons.clone().or(fallback_icons),
@@ -266,7 +270,13 @@ impl MCPStore {
 
         // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
         if let Err(error) = self
-            .writeback_tool_override(&rule.service_name, &rule.tool_name, &rule.scope, &rule.arguments, &rule.common)
+            .writeback_tool_override(
+                &rule.service_name,
+                &rule.tool_name,
+                &rule.scope,
+                &rule.arguments,
+                &rule.common,
+            )
             .await
         {
             tracing::warn!("Failed to write back tool override to scopes.toml: {error}");
@@ -314,7 +324,13 @@ impl MCPStore {
         // the deleted rule from its writeback (same contract as the service
         // override delete).
         let mut service_name = None;
-        if let Some(instance) = self.kernel.control.registry.find_instance(instance_id).await {
+        if let Some(instance) = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+        {
             service_name = Some(instance.service_name.clone());
             if let Err(error) = self
                 .writeback_tool_override_removal(
@@ -328,7 +344,8 @@ impl MCPStore {
             }
         }
         if let Some(service_name) = service_name.as_deref() {
-            self.publish_override_changed(instance_id, service_name).await;
+            self.publish_override_changed(instance_id, service_name)
+                .await;
         }
         Ok(())
     }

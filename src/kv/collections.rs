@@ -32,10 +32,7 @@ impl KvLayerManager {
         )))
     }
 
-    pub(in crate::kv) fn invalid_entity_type_message(
-        entity_type: &str,
-        allowed: &str,
-    ) -> String {
+    pub(in crate::kv) fn invalid_entity_type_message(entity_type: &str, allowed: &str) -> String {
         format!("Unknown entity_type '{entity_type}'. Allowed entity types: {allowed}")
     }
 
@@ -54,10 +51,7 @@ impl KvLayerManager {
         Self::state_collection_with_namespace(&self.namespace(), state_type)
     }
 
-    pub(crate) fn state_collection_with_namespace(
-        namespace: &str,
-        state_type: &str,
-    ) -> String {
+    pub(crate) fn state_collection_with_namespace(namespace: &str, state_type: &str) -> String {
         format!("{namespace}:state:{state_type}")
     }
 

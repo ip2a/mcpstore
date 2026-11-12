@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::kv_schema::KvConfig;
 use super::defaults::*;
 use super::health_schema::HealthCheckConfig;
+use super::kv_schema::KvConfig;
 use super::service_schema::ServiceLifecycleDefaults;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

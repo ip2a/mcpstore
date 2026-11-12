@@ -144,19 +144,17 @@ pub(crate) async fn enforce(
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "));
-        let matches = supplied.is_some_and(|supplied| {
-            supplied.as_bytes().ct_eq(token.as_bytes()).into()
-        });
+        let matches =
+            supplied.is_some_and(|supplied| supplied.as_bytes().ct_eq(token.as_bytes()).into());
         if !matches {
             let mut response = ApiError::from_store(Error::new(
                 FailureCode::PanelAuthRequired,
                 "panel authentication required; supply the token from panel/auth-token as a Bearer credential",
             ))
             .into_response();
-            response.headers_mut().insert(
-                header::WWW_AUTHENTICATE,
-                HeaderValue::from_static("Bearer"),
-            );
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
             return response;
         }
     }
@@ -200,10 +198,25 @@ mod tests {
 
     #[test]
     fn loopback_host_values_are_recognized() {
-        for host in ["127.0.0.1", "127.0.0.1:2828", "localhost", "localhost:2828", "[::1]:2828", "[::1]", "LOCALHOST:80"] {
+        for host in [
+            "127.0.0.1",
+            "127.0.0.1:2828",
+            "localhost",
+            "localhost:2828",
+            "[::1]:2828",
+            "[::1]",
+            "LOCALHOST:80",
+        ] {
             assert!(is_loopback_host(host), "{host}");
         }
-        for host in ["10.0.0.5", "10.0.0.5:2828", "evil.example.com", "evil.example.com:2828", "[fe80::1]:2828", "127.0.0.1.evil.com"] {
+        for host in [
+            "10.0.0.5",
+            "10.0.0.5:2828",
+            "evil.example.com",
+            "evil.example.com:2828",
+            "[fe80::1]:2828",
+            "127.0.0.1.evil.com",
+        ] {
             assert!(!is_loopback_host(host), "{host}");
         }
     }

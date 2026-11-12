@@ -29,7 +29,6 @@ fn repo_root() -> PathBuf {
         .expect("failed to resolve repo root")
 }
 
-
 fn fixture_script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/mock_mcp_server.py")
@@ -127,9 +126,7 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
-        repo_root()
-            .join("satellite/cli/tests/fixtures")
-            .display()
+        repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
     let port = reserve_local_port();

@@ -1,12 +1,12 @@
 use std::hash::{Hash, Hasher};
 
+use crate::identity::{InstanceId, ScopeRef};
 use crate::kv::models::{
     ContextToolVisibilityState, InstanceToolRelation, ServiceDefinitionEntity,
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
     ToolPreferenceState,
 };
 use crate::kv::KvError;
-use crate::identity::{InstanceId, ScopeRef};
 use crate::overrides::ToolOverrideRule;
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
@@ -280,7 +280,10 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn upsert_definition_projection(&self, definition: &ServiceDefinition) -> Result<()> {
+    pub(crate) async fn upsert_definition_projection(
+        &self,
+        definition: &ServiceDefinition,
+    ) -> Result<()> {
         let entity = ServiceDefinitionEntity::from(definition);
         self.kernel
             .persistence

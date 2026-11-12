@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, Query},
     Json,
 };
-use mcpstore::{ScopeRef, store::StoreSpec};
+use mcpstore::{store::StoreSpec, ScopeRef};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -102,8 +102,9 @@ pub(super) async fn gateway_start(
 
     // The gateway runs as its own `mcpstore gateway` child process; this daemon
     // supervises it (pid, stop) and forwards the call stream to its /calls route.
-    let exe = std::env::current_exe()
-        .map_err(|error| ApiError::internal(format!("Failed to locate the mcpstore executable: {error}")))?;
+    let exe = std::env::current_exe().map_err(|error| {
+        ApiError::internal(format!("Failed to locate the mcpstore executable: {error}"))
+    })?;
     let mut command = tokio::process::Command::new(exe);
     command
         .arg("gateway")
@@ -160,10 +161,9 @@ pub(super) async fn gateway_start(
             command.arg(flag);
         }
     }
-    let mut child = command
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| ApiError::invalid_request(format!("Failed to start gateway child process: {error}")))?;
+    let mut child = command.kill_on_drop(true).spawn().map_err(|error| {
+        ApiError::invalid_request(format!("Failed to start gateway child process: {error}"))
+    })?;
     let pid = child.id().unwrap_or_default();
     if let Err(error) = wait_for_gateway_ready(&options.host, options.port).await {
         let _ = child.kill().await;
@@ -214,7 +214,10 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
         gateway.take()
     };
     let Some(mut process) = process else {
-        return Ok(success("Gateway is not running", json!({ "running": false })));
+        return Ok(success(
+            "Gateway is not running",
+            json!({ "running": false }),
+        ));
     };
     let pid = process.pid;
     if let Err(error) = process.child.kill().await {
@@ -262,7 +265,9 @@ pub(super) async fn ensure_gateway_store_shared(
 /// created fresh on first migration. After the swap the stored config carries
 /// `mode=open`, so restarts and gateway children only ever attach.
 #[cfg(unix)]
-fn default_gateway_shm_config(state: &ApiState) -> Result<mcpstore::store::JsonStoreConfig, ApiError> {
+fn default_gateway_shm_config(
+    state: &ApiState,
+) -> Result<mcpstore::store::JsonStoreConfig, ApiError> {
     let namespace = state.store.namespace();
     let mcp_parent = state
         .store
@@ -472,7 +477,10 @@ pub(super) async fn gateway_requests(
         .json()
         .await
         .map_err(|_| ApiError::invalid_request("Failed to parse gateway response"))?;
-    Ok(success("Gateway request records fetched successfully", payload["data"].clone()))
+    Ok(success(
+        "Gateway request records fetched successfully",
+        payload["data"].clone(),
+    ))
 }
 
 /// GET /gateway/projection — per-mount projection issues (down/skipped/
@@ -509,7 +517,10 @@ pub(super) async fn gateway_projection(State(state): State<Arc<ApiState>>) -> Ap
         .json()
         .await
         .map_err(|_| ApiError::invalid_request("Failed to parse gateway response"))?;
-    Ok(success("Gateway projection fetched successfully", payload["data"].clone()))
+    Ok(success(
+        "Gateway projection fetched successfully",
+        payload["data"].clone(),
+    ))
 }
 
 pub(super) fn wired_state_path<T: PanelCtx>(state: &T) -> std::path::PathBuf {
@@ -943,7 +954,9 @@ async fn import_into_selected<T: PanelCtx>(
         let url = super::hosts::join_url(&base, &format!("/services/{name}"))
             .map_err(|(_, message)| ApiError::invalid_request(message))?;
         let response = client.get(url).send().await.map_err(|error| {
-            ApiError::invalid_request(format!("host {host_name} preflight for {name} failed: {error}"))
+            ApiError::invalid_request(format!(
+                "host {host_name} preflight for {name} failed: {error}"
+            ))
         })?;
         match response.status() {
             status if status.as_u16() == 404 => {}
@@ -1095,7 +1108,10 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
             })
         })
         .collect::<Vec<_>>();
-    Ok(success("Client inventory fetched successfully", json!({ "clients": clients })))
+    Ok(success(
+        "Client inventory fetched successfully",
+        json!({ "clients": clients }),
+    ))
 }
 
 #[cfg(test)]
@@ -1114,7 +1130,10 @@ mod tests {
         assert!(!parsed.is_loopback());
         // explicit host passes through untouched
         assert_eq!(gateway_entry_host("192.168.1.10"), "192.168.1.10");
-        assert_eq!(gateway_entry_host("gateway.example.com"), "gateway.example.com");
+        assert_eq!(
+            gateway_entry_host("gateway.example.com"),
+            "gateway.example.com"
+        );
     }
 
     #[test]

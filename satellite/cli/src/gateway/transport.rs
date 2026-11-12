@@ -1,8 +1,11 @@
-use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use std::collections::HashMap;
 
-use super::catalog::{apply_service_overrides, apply_tool_overrides, exposed_tool_name, service_override_map, tool_override_map};
+use super::catalog::{
+    apply_service_overrides, apply_tool_overrides, exposed_tool_name, service_override_map,
+    tool_override_map,
+};
 use super::tools::{read_required_instance_id, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
@@ -27,9 +30,7 @@ pub(super) async fn connect_target_instances(
         let matched = instances
             .iter()
             .find(|instance| instance.instance_id == instance_id)
-            .ok_or_else(|| {
-                format!("Instance {instance_id} is not declared in scope {scope:?}")
-            })?;
+            .ok_or_else(|| format!("Instance {instance_id} is not declared in scope {scope:?}"))?;
         vec![matched.clone()]
     } else {
         instances
@@ -58,9 +59,9 @@ pub(super) async fn connect_target_instances(
         let reason = match outcome {
             Ok(Ok(())) => continue,
             Ok(Err(error)) => error.to_string(),
-            Err(_) => format!(
-                "gateway boot connect guard timed out after {BOOT_CONNECT_GUARD_SECS}s"
-            ),
+            Err(_) => {
+                format!("gateway boot connect guard timed out after {BOOT_CONNECT_GUARD_SECS}s")
+            }
         };
         down.insert(
             instance.instance_id,
@@ -134,7 +135,11 @@ pub(super) async fn build_tool_bindings(
     let mut taken: HashMap<String, usize> = HashMap::new();
     for (payload, original_name, canonical_tool_name, instance_id, service_name, schema) in parsed {
         let exposed_name = if namespace_tools
-            || names.get(original_name.as_str()).copied().unwrap_or_default() > 1
+            || names
+                .get(original_name.as_str())
+                .copied()
+                .unwrap_or_default()
+                > 1
         {
             // ponytail: magpie-style tool naming — <server>__<tool>, unsafe chars → '-',
             // 64-byte rune-safe truncation, collision suffix (_2, _3, …) budget within 64.
@@ -158,7 +163,10 @@ pub(super) async fn build_tool_bindings(
             description.clone().map(Into::into),
             Arc::new(schema),
         );
-        tool.title = payload.get("title").and_then(Value::as_str).map(str::to_string);
+        tool.title = payload
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         tool.icons = payload
             .get("icons")
             .cloned()
@@ -428,7 +436,10 @@ fn inject_stateless_meta(
         Some(serde_json::Value::Object(meta)) => meta,
         Some(_) => return None, // non-object _meta: caller's payload, untouched
         None => {
-            params.insert("_meta".to_string(), serde_json::Value::Object(Default::default()));
+            params.insert(
+                "_meta".to_string(),
+                serde_json::Value::Object(Default::default()),
+            );
             params
                 .get_mut("_meta")
                 .and_then(serde_json::Value::as_object_mut)
@@ -445,7 +456,10 @@ fn inject_stateless_meta(
     };
     let mut added = false;
     if meta_version.is_none() {
-        meta.insert(META_VERSION_KEY.to_string(), serde_json::Value::String(effective_version.clone()));
+        meta.insert(
+            META_VERSION_KEY.to_string(),
+            serde_json::Value::String(effective_version.clone()),
+        );
         added = true;
     }
     if !meta.contains_key(META_CAPABILITIES_KEY) {

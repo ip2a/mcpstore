@@ -51,7 +51,10 @@ pub(super) async fn service_auth_status(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Auth status fetched successfully", json!({ "auth": auth })))
+    Ok(success(
+        "Auth status fetched successfully",
+        json!({ "auth": auth }),
+    ))
 }
 
 pub(super) async fn service_auth_start(
@@ -146,7 +149,10 @@ pub(super) async fn service_auth_callback_get(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Authorization callback processed successfully", json!({ "auth": auth })))
+    Ok(success(
+        "Authorization callback processed successfully",
+        json!({ "auth": auth }),
+    ))
 }
 
 pub(super) async fn service_auth_callback_post(
@@ -174,7 +180,10 @@ pub(super) async fn service_auth_callback_post(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Authorization callback processed successfully", json!({ "auth": auth })))
+    Ok(success(
+        "Authorization callback processed successfully",
+        json!({ "auth": auth }),
+    ))
 }
 
 pub(super) async fn service_auth_refresh(
@@ -195,7 +204,10 @@ pub(super) async fn service_auth_refresh(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Authorization refreshed successfully", json!({ "auth": auth })))
+    Ok(success(
+        "Authorization refreshed successfully",
+        json!({ "auth": auth }),
+    ))
 }
 
 pub(super) async fn service_auth_logout(
@@ -231,7 +243,10 @@ pub(super) async fn service_auth_save_client_secret(
         .save_oauth_client_secret(instance_id, payload.client_secret)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Client secret saved securely", json!({ "stored": true })))
+    Ok(success(
+        "Client secret saved securely",
+        json!({ "stored": true }),
+    ))
 }
 
 pub(super) async fn service_auth_save_private_key(
@@ -247,7 +262,10 @@ pub(super) async fn service_auth_save_private_key(
         .save_oauth_private_key(instance_id, payload.private_key_pem.into_bytes())
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Private key saved securely", json!({ "stored": true })))
+    Ok(success(
+        "Private key saved securely",
+        json!({ "stored": true }),
+    ))
 }
 
 pub(super) async fn service_auth_scope_upgrade(

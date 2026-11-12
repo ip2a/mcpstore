@@ -92,9 +92,7 @@ impl KvLayerManager {
     /// `route` guard across the whole operation so an online migration's
     /// exclusive barrier can fence every in-flight write and CAS while it
     /// drains, verifies and swaps; reads stay lock-free.
-    pub(crate) async fn write_store(
-        &self,
-    ) -> (tokio::sync::RwLockReadGuard<'_, ()>, Arc<KvStore>) {
+    pub(crate) async fn write_store(&self) -> (tokio::sync::RwLockReadGuard<'_, ()>, Arc<KvStore>) {
         let guard = self.route.read().await;
         let store = self.active_store();
         (guard, store)

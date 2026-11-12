@@ -1,8 +1,8 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::kv::redis::LazyRedisStore;
-use crate::kv::valkey::LazyValkeyStore;
 use crate::kv::store::KvStore;
+use crate::kv::valkey::LazyValkeyStore;
 #[cfg(unix)]
 use crate::kv::{KvError, Result};
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
@@ -27,15 +27,12 @@ pub(crate) fn memory_kv_store_with_handle() -> (Arc<KvStore>, OpenKeyvMemoryStor
 
 /// `memory-test-shared` used to get a fresh store per setup, so two in-process panels couldn't meet on a ChangeFeed.
 /// ponytail: one store per process. Only for this test name; the real memory() still creates a new one each time.
-pub(crate) fn shared_memory_kv_store_with_handle() -> (Arc<KvStore>, OpenKeyvMemoryStore)
-{
+pub(crate) fn shared_memory_kv_store_with_handle() -> (Arc<KvStore>, OpenKeyvMemoryStore) {
     static SHARED: OnceLock<OpenKeyvMemoryStore> = OnceLock::new();
     kv_store_from_memory(SHARED.get_or_init(OpenKeyvMemoryStore::new).clone())
 }
 
-fn kv_store_from_memory(
-    inner: OpenKeyvMemoryStore,
-) -> (Arc<KvStore>, OpenKeyvMemoryStore) {
+fn kv_store_from_memory(inner: OpenKeyvMemoryStore) -> (Arc<KvStore>, OpenKeyvMemoryStore) {
     let store = Arc::new(inner.clone());
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),
@@ -44,10 +41,7 @@ fn kv_store_from_memory(
         Some(store.clone()),
         Some(store),
     );
-    (
-        Arc::new(KvStore::from_handle(handle)),
-        inner,
-    )
+    (Arc::new(KvStore::from_handle(handle)), inner)
 }
 
 pub(crate) fn redis_kv_store(redis_address: &str, keyspace: &str) -> Arc<KvStore> {
@@ -135,12 +129,7 @@ pub(crate) fn shm_kv_store_with_handle(
         Some(store.clone()),
         feed,
     );
-    Ok((
-        Arc::new(KvStore::from_handle(
-            handle.clone(),
-        )),
-        handle,
-    ))
+    Ok((Arc::new(KvStore::from_handle(handle.clone())), handle))
 }
 
 #[cfg(all(test, unix))]
@@ -177,10 +166,7 @@ mod shm_tests {
 
         let (store, handle) =
             shm_kv_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
-        store
-            .put("k1", json!({"v": 1}), "col")
-            .await
-            .expect("put");
+        store.put("k1", json!({"v": 1}), "col").await.expect("put");
         drop(store);
         drop(handle);
 
@@ -212,8 +198,7 @@ mod shm_tests {
 
         let mut config = shm_config(&path, "create");
         config["capacity_bytes"] = json!(16 * 1024 * 1024); // openkeyv minimum arena
-        let (store, _handle) =
-            shm_kv_store_with_handle(&config).expect("create shm store");
+        let (store, _handle) = shm_kv_store_with_handle(&config).expect("create shm store");
 
         let oversized = json!({"blob": "x".repeat(32 * 1024 * 1024)});
         let error = store

@@ -69,12 +69,10 @@ impl RateLimiter {
     fn try_reserve(&self, key: &str, cost: f64) -> bool {
         let mut buckets = self.buckets.lock().expect("rate limiter poisoned");
         let now = Instant::now();
-        let bucket = buckets
-            .entry(key.to_string())
-            .or_insert(Bucket {
-                tokens: RATE_BURST_BYTES,
-                last: now,
-            });
+        let bucket = buckets.entry(key.to_string()).or_insert(Bucket {
+            tokens: RATE_BURST_BYTES,
+            last: now,
+        });
         let elapsed = now.duration_since(bucket.last).as_secs_f64();
         bucket.tokens = (bucket.tokens + elapsed * RATE_REFILL_PER_SEC).min(RATE_BURST_BYTES);
         bucket.last = now;
@@ -289,7 +287,12 @@ mod tests {
             .route("/mcp", post(|| async { "mcp" }))
             .route("/projection", get(|| async { "proj" }))
             .layer(axum::middleware::from_fn(move |request, next| {
-                guard_chain("/mcp".to_string(), Arc::new(RateLimiter::new()), request, next)
+                guard_chain(
+                    "/mcp".to_string(),
+                    Arc::new(RateLimiter::new()),
+                    request,
+                    next,
+                )
             }))
     }
 
@@ -327,10 +330,9 @@ mod tests {
     #[tokio::test]
     async fn rebinding_host_refused() {
         let mut request = request(Method::POST, "/mcp/agent1");
-        request.headers_mut().insert(
-            HOST,
-            "attacker.example.com".parse().expect("static header"),
-        );
+        request
+            .headers_mut()
+            .insert(HOST, "attacker.example.com".parse().expect("static header"));
         let (status, _) = status_of(request).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
@@ -383,10 +385,9 @@ mod tests {
         // desktop webviews/extensions are not CORS-bound; a web page cannot
         // send these schemes
         let mut request = request(Method::POST, "/mcp/agent1");
-        request.headers_mut().insert(
-            ORIGIN,
-            "tauri://localhost".parse().expect("static header"),
-        );
+        request
+            .headers_mut()
+            .insert(ORIGIN, "tauri://localhost".parse().expect("static header"));
         let (status, _) = status_of(request).await;
         assert_eq!(status, StatusCode::OK);
     }
@@ -419,10 +420,9 @@ mod tests {
     #[tokio::test]
     async fn management_route_still_guards_host() {
         let mut request = request(Method::GET, "/projection");
-        request.headers_mut().insert(
-            HOST,
-            "attacker.example.com".parse().expect("static header"),
-        );
+        request
+            .headers_mut()
+            .insert(HOST, "attacker.example.com".parse().expect("static header"));
         let (status, _) = status_of(request).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
@@ -434,7 +434,12 @@ mod tests {
         let router = axum::Router::new()
             .route("/mcp/agent1", post(|| async { "mcp" }))
             .layer(axum::middleware::from_fn(move |request, next| {
-                guard_chain("/mcp".to_string(), Arc::clone(&layer_limiter), request, next)
+                guard_chain(
+                    "/mcp".to_string(),
+                    Arc::clone(&layer_limiter),
+                    request,
+                    next,
+                )
             }));
         // drain the 8 MiB bucket with 2 MiB posts, then expect the JSON-RPC
         // rate_limited refusal

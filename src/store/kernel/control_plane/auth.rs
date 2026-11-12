@@ -502,7 +502,8 @@ impl ControlPlane {
             return Ok(());
         };
 
-        if !crate::auth::discovery::http_endpoint_requires_oauth(url, &server_config.headers).await {
+        if !crate::auth::discovery::http_endpoint_requires_oauth(url, &server_config.headers).await
+        {
             return Ok(());
         }
 

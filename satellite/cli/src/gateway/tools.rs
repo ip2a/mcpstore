@@ -1873,10 +1873,10 @@ pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
 /// gets an actionable error instead of a raw client drop; the agent SDK's
 /// own timeout (typically 60s) comes last. tools/list carries no budget by
 /// construction: it reads store payloads and never calls upstream.
-pub(crate) const GATEWAY_TOOL_CALL_BUDGET: std::time::Duration =
-    std::time::Duration::from_secs(45);
+pub(crate) const GATEWAY_TOOL_CALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
 
-pub(super) fn agent_hint(code: mcpstore::error::FailureCode) -> Option<&'static str> {    use mcpstore::error::FailureCode as F;
+pub(super) fn agent_hint(code: mcpstore::error::FailureCode) -> Option<&'static str> {
+    use mcpstore::error::FailureCode as F;
     Some(match code {
         F::ServiceNotFound => {
             "no such service on this mount; call list_services to see what is available"

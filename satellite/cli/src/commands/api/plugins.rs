@@ -70,7 +70,10 @@ pub(super) async fn plugins_detect<T: PanelCtx>(State(state): State<Arc<T>>) -> 
     let hits = mcpstore::agents::market::detect_from_market(&urls)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Client detection completed", json!({ "detected": hits })))
+    Ok(success(
+        "Client detection completed",
+        json!({ "detected": hits }),
+    ))
 }
 
 pub(super) async fn plugin_install<T: PanelCtx>(
@@ -94,7 +97,10 @@ pub(super) async fn plugin_uninstall<T: PanelCtx>(
     mcpstore::agents::market::uninstall(&id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success(&format!("Plugin {id} uninstalled"), json!({ "id": id })))
+    Ok(success(
+        &format!("Plugin {id} uninstalled"),
+        json!({ "id": id }),
+    ))
 }
 
 pub(super) async fn plugin_enable<T: PanelCtx>(

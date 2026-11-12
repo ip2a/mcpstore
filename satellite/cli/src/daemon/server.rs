@@ -32,7 +32,11 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let store = load_kernel(&args).await?.store().clone();
 
     // Initialize daemon identity (学 Paseo server-id)
-    let data_dir = store.config_manager().mcp_path().parent().unwrap_or_else(|| std::path::Path::new("."));
+    let data_dir = store
+        .config_manager()
+        .mcp_path()
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     let daemon_id = crate::daemon::identity::get_or_create_daemon_id(data_dir)
         .map_err(|e| format!("Failed to initialize daemon ID: {}", e))?;
     tracing::info!("[DAEMON] ID: {}", daemon_id);

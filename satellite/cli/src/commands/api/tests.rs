@@ -1,9 +1,9 @@
 use super::*;
 use mcpstore::{
+    config::{McpStoreExtension, ScopeDeclarations},
     kv::models::{
         InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
     },
-    config::{McpStoreExtension, ScopeDeclarations},
     registry::ConfigRevision,
     JsonStoreConfig, ServiceInstanceKey, StoreOptions,
 };
@@ -343,9 +343,7 @@ async fn first_gateway_start_promotes_memory_to_shm_once() {
         "exactly one shm backing file derived from the namespace"
     );
 
-    let second = client::ensure_gateway_store_shared(&state)
-        .await
-        .unwrap();
+    let second = client::ensure_gateway_store_shared(&state).await.unwrap();
     assert!(second.is_none(), "already shared: no repeated migration");
 
     drop(state);
@@ -1088,6 +1086,47 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(store_services["data"]["total"], 1);
 
+    // fields=summary strips the heavy per-row fields; include= adds them back one by one.
+    let full_row = &root_services["data"]["services"][0];
+    assert!(full_row.get("tools").is_some());
+    assert!(full_row.get("effective_config").is_some());
+
+    let summary = client
+        .get(format!("{base_url}/services/list?scope=all&fields=summary"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let summary_row = &summary["data"]["services"][0];
+    assert!(summary_row.get("tools").is_none());
+    assert!(summary_row.get("effective_config").is_none());
+    assert!(summary_row["tool_count"].is_u64());
+    assert!(summary_row["state"].is_object());
+    assert!(summary_row["display_name"].is_string());
+
+    let summary_with_tools = client
+        .get(format!(
+            "{base_url}/services/list?scope=all&fields=summary&include=tools"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let tools_row = &summary_with_tools["data"]["services"][0];
+    assert!(tools_row.get("tools").is_some());
+    assert!(tools_row.get("effective_config").is_none());
+
+    let bad_fields = client
+        .get(format!("{base_url}/services/list?scope=all&fields=oops"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_fields.status(), axum::http::StatusCode::BAD_REQUEST);
+
     // scope detail: all / store / agent
     let root_info = client
         .get(format!("{base_url}/scopes/all"))
@@ -1357,7 +1396,8 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 async fn store_routes_manage_rust_core_tool_overrides() {
     // Override writes write back to scopes.toml beside the config — point the
     // store at a temp config so the run never touches the real user file.
-    let dir = std::env::temp_dir().join(format!("mcpstore-api-override-test-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("mcpstore-api-override-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("mcp.json");
     std::fs::write(&config_path, b"{\"mcpServers\":{}}").unwrap();
