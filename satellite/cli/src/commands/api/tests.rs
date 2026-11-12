@@ -1,10 +1,7 @@
 use super::*;
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations},
-    kv::models::{
-        InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
-    },
-    registry::ConfigRevision,
+    kv::models::{InstanceToolRelation, ToolEntity},
     JsonStoreConfig, ServiceInstanceKey, StoreOptions,
 };
 use std::{
@@ -72,60 +69,15 @@ async fn seed_db_service(store: &MCPStore) {
 }
 
 async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
-    let cache = store.kv();
+    // The registry is an eventually-consistent read view owned by hydration +
+    // reconcile; raw KV writes only converge after the feed debounce, so API
+    // reads right after a raw seed see ServiceNotFound. Register through the
+    // management path for immediate visibility, then keep the tool projection
+    // as raw KV — KV is the documented source of truth for tools.
+    store.add_service("demo", config).await.unwrap();
     let scope = ScopeRef::Store;
     let instance_id = ServiceInstanceKey::new("demo", scope.clone()).instance_id();
-    let base_config = config.base_config();
-    let lifecycle = config
-        .mcpstore
-        .as_ref()
-        .and_then(|extension| extension.lifecycle.clone());
-    let metadata = config
-        .mcpstore
-        .as_ref()
-        .map(|extension| extension.extra.clone())
-        .unwrap_or_default();
-    cache
-        .put_entity(
-            "service_definitions",
-            "demo",
-            serde_json::to_value(ServiceDefinitionEntity {
-                service_name: "demo".to_string(),
-                base_config: base_config.clone(),
-                scopes: ScopeDeclarations::store_only(),
-                lifecycle,
-                handshake_mode: None,
-                metadata,
-                base_revision: 1,
-                added_time: 111,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    cache
-        .put_entity(
-            "service_instances",
-            &instance_id.to_string(),
-            serde_json::to_value(ServiceInstanceEntity {
-                instance_id,
-                service_name: "demo".to_string(),
-                scope: scope.clone(),
-                transport: "stdio".to_string(),
-                url: None,
-                command: Some("echo".to_string()),
-                effective_config: base_config,
-                config_revision: ConfigRevision {
-                    base_revision: 1,
-                    scope_revision: 1,
-                },
-                applied_config_revision: None,
-                added_time: 111,
-            })
-            .unwrap(),
-        )
-        .await
-        .unwrap();
+    let cache = store.kv();
     cache
         .put_entity(
             "tools",
