@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
+use openkeyv::{AsyncChangeFeed, ChangeCause, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
 use serde_json::Value;
 
 use crate::kv::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
@@ -71,6 +71,26 @@ impl MCPStore {
                         // call's response landing; this subscription is fine,
                         // keep it.
                         Ok(Some(change)) if change.key != response_key => continue,
+                        // The response entity vanished before delivery: shm
+                        // evicts under capacity pressure (cause=Expired),
+                        // operators can delete it mid-call (Explicit). Fail now
+                        // instead of burning the deadline. Backend note:
+                        // valkey/redis expire lazily and emit no event, so an
+                        // expiring response there still hits the deadline
+                        // branch.
+                        Ok(Some(change)) if change.operation == ChangeOperation::Delete => {
+                            let why = if change.cause == ChangeCause::Expired {
+                                "TTL-evicted"
+                            } else {
+                                "deleted"
+                            };
+                            return Err(Error::new(
+                                FailureCode::ToolFailed,
+                                format!(
+                                    "tool call response '{tool_name}' was {why} before delivery"
+                                ),
+                            ));
+                        }
                         // Our response landed — read it. A miss (consumed
                         // mid-read) also keeps this subscription.
                         Ok(Some(_)) => {
@@ -96,7 +116,9 @@ impl MCPStore {
                     })?;
                 }
                 _ = tokio::time::sleep_until(deadline) => {
-                    // On timeout delete the request; if the control panel already claimed it, the TTL cleans up the response.
+                    // On timeout delete the request; the response is cleaned up by
+                    // the control panel's TTL task or the Delete branch below when
+                    // the store evicts it first.
                     self.kv().delete_entity(REQUESTS, &request_id).await.ok();
                     return Err(Error::new(
                         FailureCode::CallTimedOut,
@@ -128,7 +150,7 @@ impl MCPStore {
                 start: ChangeStart::Latest,
                 filter: ChangeFilter {
                     collections: vec![collection],
-                    operations: vec![ChangeOperation::Put],
+                    operations: vec![ChangeOperation::Put, ChangeOperation::Delete],
                 },
             })
             .await
@@ -368,4 +390,61 @@ impl MCPStore {
 
 fn remote_error(error: &ToolCallResponseError) -> Error {
     Error::new(error.code, error.message.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{JsonStoreConfig, StoreOptions};
+
+    /// The response feed must deliver Delete events with their cause: the
+    /// wait loop fails fast on them instead of burning the deadline. Before
+    /// the Put+Delete filter, deletes were silently dropped by the
+    /// subscription and the waiter always hit `CallTimedOut`.
+    #[tokio::test]
+    async fn response_feed_delivers_deletes_with_cause() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(format!("remote-call-feed-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
+        })
+        .expect("setup store");
+        let snapshot = store.event_log_snapshot().await.expect("snapshot");
+        let mut subscription = store
+            .subscribe_response_feed(&snapshot)
+            .await
+            .expect("subscribe");
+
+        let collection =
+            KvLayerManager::entity_collection_with_namespace(&store.namespace(), RESPONSES);
+
+        // A response write arrives as Put.
+        store
+            .kv()
+            .put_entity(RESPONSES, "resp-a", serde_json::json!({"x": 1}))
+            .await
+            .expect("put");
+        let put = subscription.recv().await.expect("put event").expect("some");
+        assert_eq!(put.key, "resp-a");
+        assert_eq!(put.collection, collection);
+        assert_eq!(put.operation, ChangeOperation::Put);
+
+        // A delete of a response arrives as Delete — this is the event the
+        // wait loop fails fast on. (Explicit cause here; the Expired variant
+        // is produced by engine culls and asserted upstream in openkeyv.)
+        store
+            .kv()
+            .delete_entity(RESPONSES, "resp-a")
+            .await
+            .expect("delete");
+        let delete = subscription
+            .recv()
+            .await
+            .expect("delete event")
+            .expect("some");
+        assert_eq!(delete.key, "resp-a");
+        assert_eq!(delete.operation, ChangeOperation::Delete);
+        assert_eq!(delete.cause, ChangeCause::Explicit);
+    }
 }
