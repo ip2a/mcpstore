@@ -153,7 +153,7 @@ fn instance_from_segment(segment: Option<&str>) -> Option<InstanceId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openkeyv::{ChangeCursor, ChangeOperation};
+    use openkeyv::{ChangeCause, ChangeCursor, ChangeOperation};
 
     fn change(collection: &str, key: &str) -> StoreChange {
         StoreChange {
@@ -162,6 +162,7 @@ mod tests {
             collection: collection.to_string(),
             key: key.to_string(),
             operation: ChangeOperation::Put,
+            cause: ChangeCause::Explicit,
             occurred_at: chrono::Utc::now(),
         }
     }
