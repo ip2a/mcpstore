@@ -118,6 +118,13 @@ pub(crate) fn spawn_projection_bridge(
 /// - `context_tool_visibility`: keys are `store:<instance>` — the last segment.
 /// - `service_definitions` / `session_tools` / `session_services`: instance
 ///   unknown → broadcast.
+///
+/// Decision note: `StoreChange.cause` is deliberately not read here. For a
+/// projection refresh, delete semantics do not depend on the cause — an
+/// `Expired` removal invalidates exactly like an `Explicit` one (the data is
+/// really gone either way), and the resubscribe-heal broadcast above already
+/// covers any gap a missed event could leave. Not reading the cause here is a
+/// decision, not an omission.
 fn projection_event_payload(change: &StoreChange) -> Value {
     let type_name = change
         .collection
