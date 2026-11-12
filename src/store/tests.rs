@@ -1182,6 +1182,35 @@ async fn db_source_hydrates_definition_instance_tools_and_status() {
 }
 
 #[tokio::test]
+async fn registry_change_feed_converges_remote_kv_write() {
+    // Dual-panel scenario in one process: two registries over the same shared
+    // KV. A write by one (as the control panel does) must reach the other's
+    // read view via the change feed, not the 30s floor — well within 2s.
+    let _shared_store = super::shared_store_test_guard().lock().await;
+    let namespace = format!("feed-{}", uuid::Uuid::new_v4());
+    let observer = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    // Startup contract: hydration + reconcile loop + registry change feed.
+    observer.load_from_config().await.unwrap();
+
+    let writer = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    writer.add_service("svc", stdio_config()).await.unwrap();
+
+    wait_for_instance(&observer, store_instance_id("svc"), true).await;
+}
+
+#[tokio::test]
 async fn local_reset_preserves_kv_schema_marker() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
