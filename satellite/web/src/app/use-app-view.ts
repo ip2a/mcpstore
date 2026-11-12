@@ -79,7 +79,10 @@ export function useAppView(services: ServiceInstance[]) {
 function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/" || pathname === "/home") return { name: "home" }
   if (pathname === "/services") return { name: "services" }
-  if (pathname === "/scope") return { name: "scope" }
+  if (pathname === "/scope") {
+    const scopeId = new URLSearchParams(search).get("id")?.trim()
+    return scopeId ? { name: "scope", scopeId } : { name: "scope" }
+  }
   if (pathname === "/tools") return { name: "tools" }
   if (pathname === "/resources") return { name: "resources" }
   if (pathname === "/prompts") return { name: "prompts" }
@@ -187,5 +190,8 @@ function pathForView(view: AppView): string {
   }
   if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
   if (view.name === "traces" && view.tab) return `/traces?tab=${encodeURIComponent(view.tab)}`
+  if (view.name === "scope" && view.scopeId) {
+    return `/scope?id=${encodeURIComponent(view.scopeId)}`
+  }
   return `/${view.name}`
 }

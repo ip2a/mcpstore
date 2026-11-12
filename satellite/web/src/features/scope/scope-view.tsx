@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react"
-import { BotIcon, ChevronRightIcon, ListChecksIcon, StoreIcon } from "lucide-react"
+import { ChevronRightIcon, ListChecksIcon } from "lucide-react"
 
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import {
   WORKSPACE_LIST_INSET_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
@@ -21,9 +22,27 @@ import { useScopesQuery } from "@/features/agents/queries"
 import { useToolOverridesQuery } from "@/features/overrides/queries"
 import { ToolConfigRow } from "@/features/scope/tool-config-row"
 import { ToolPolicyDialog } from "@/features/scope/tool-policy-dialog"
+import {
+  deriveServiceDisplayStatus,
+  type ServiceDisplayStatus,
+} from "@/features/services/service-display-status"
 import type { ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
+
+const SCOPE_STATUS_ORDER: ServiceDisplayStatus[] = [
+  "connected",
+  "disconnected",
+  "error",
+  "connecting",
+]
+
+const SCOPE_STATUS_COLOR: Record<ServiceDisplayStatus, string> = {
+  connected: "text-emerald-500",
+  connecting: "text-amber-500",
+  disconnected: "text-muted-foreground",
+  error: "text-destructive",
+}
 
 const SCOPE_LIST_GRID_CLASSNAME =
   "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
@@ -69,6 +88,8 @@ function servicesForScope(
 
 export function ScopeView(props: {
   services: ServiceInstance[]
+  scopeId?: string
+  onScopeIdChange?: (scopeId: string | null) => void
 }) {
   const { t } = useI18n()
   const scopesQuery = useScopesQuery()
@@ -76,7 +97,9 @@ export function ScopeView(props: {
     () => (scopesQuery.data || []).filter((summary) => summary.scope.type !== "all"),
     [scopesQuery.data],
   )
-  const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null)
+  const [localScopeId, setLocalScopeId] = useState<string | null>(props.scopeId ?? null)
+  const selectedScopeId = props.onScopeIdChange ? (props.scopeId ?? null) : localScopeId
+  const setSelectedScopeId = props.onScopeIdChange ?? setLocalScopeId
   const [searchQuery, setSearchQuery] = useState("")
   const toolOverridesQuery = useToolOverridesQuery()
   const toolOverrides = toolOverridesQuery.data?.overrides || []
@@ -227,8 +250,7 @@ export function ScopeView(props: {
                     <ScopeListCard
                       key={scopeId}
                       title={title}
-                      scope={summary.scope}
-                      serviceCount={scoped.length}
+                      services={scoped}
                       onSelect={() => setSelectedScopeId(scopeId)}
                     />
                   )
@@ -263,25 +285,37 @@ export function ScopeView(props: {
 
 function ScopeListCard({
   title,
-  scope,
-  serviceCount,
+  services,
   onSelect,
 }: {
   title: string
-  scope: ScopeView
-  serviceCount: number
+  services: ServiceInstance[]
   onSelect: () => void
 }) {
   const { t } = useI18n()
-  const scopeKind = scope.type === "store" ? t("store") : "agent"
-  const Icon = scope.type === "store" ? StoreIcon : BotIcon
+  const statusCounts = useMemo(() => {
+    const counts: Record<ServiceDisplayStatus, number> = {
+      connected: 0,
+      connecting: 0,
+      disconnected: 0,
+      error: 0,
+    }
+    for (const service of services) {
+      counts[deriveServiceDisplayStatus(service.state)] += 1
+    }
+    return SCOPE_STATUS_ORDER.flatMap((status) => {
+      const count = counts[status]
+      if (count <= 0) return []
+      return [{ status, count }]
+    })
+  }, [services])
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
+        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-center",
         "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
         "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
         "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
@@ -294,46 +328,26 @@ function ScopeListCard({
         }
       }}
     >
-      <div className="flex min-h-0 flex-1 flex-col transition-all duration-[400ms] group-hover:pointer-events-none group-hover:opacity-0">
-        <div className="flex min-w-0 items-start gap-2">
-          <span
-            aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
-          >
-            <Icon className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{title}</span>
-            <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-              <span className="truncate">{scopeKind}</span>
-            </span>
-          </span>
-        </div>
-
-        <div className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground">
-          <p className="truncate">
-            {serviceCount} {t("services")}
-          </p>
-          <p className="truncate">
-            by <span className="text-[#0077c2]">{scopeKind}</span>
-          </p>
-        </div>
-      </div>
-
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-5",
-          "opacity-0 transition-all duration-[400ms] [transform:rotate(90deg)_scaleX(-1)]",
-          "group-hover:opacity-100 group-hover:[transform:rotate(0deg)_scaleX(1)]",
-        )}
-      >
-        <span className="line-clamp-3 text-center font-mono text-xl font-bold leading-snug tracking-tight text-foreground">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-1">
+        <span className="line-clamp-3 font-mono text-xl font-bold leading-snug tracking-tight text-foreground">
           {title}
         </span>
-        <span className="text-xs text-muted-foreground">
-          by <span className="text-[#0077c2]">{scopeKind}</span>
-        </span>
+        {statusCounts.length ? (
+          <p className="line-clamp-2 text-xs lowercase leading-5">
+            {statusCounts.map(({ status, count }, index) => (
+              <span key={status}>
+                {index > 0 ? <span className="text-muted-foreground"> · </span> : null}
+                <span className={SCOPE_STATUS_COLOR[status]}>
+                  {count} {t(SERVICE_STATUS_LABEL_KEYS[status])}
+                </span>
+              </span>
+            ))}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {services.length} {t("services")}
+          </p>
+        )}
       </div>
     </div>
   )

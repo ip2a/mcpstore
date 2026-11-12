@@ -34,9 +34,6 @@ export function ServiceListCard({
   const scopeLabel = service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
-  // Failure detail stays off the face (keeps card height stable); show on hover flip.
-  const failureMessage =
-    status !== "connected" ? service.state?.failure?.message?.trim() || null : null
   const statusColorClass =
     status === "connected"
       ? "text-emerald-500"
@@ -75,7 +72,7 @@ export function ServiceListCard({
         }
       }}
     >
-      <div className="flex min-h-0 flex-1 flex-col transition-all duration-[400ms] group-hover:pointer-events-none group-hover:opacity-0">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-w-0 items-start gap-2">
           <span
             aria-hidden
@@ -105,48 +102,18 @@ export function ServiceListCard({
 
         <div className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground">
           <p className="truncate">{description || t("noDescription")}</p>
-          <p className="truncate">
-            by <span className="text-[#0077c2]">{scopeLabel}</span>
-          </p>
+          {metaParts.length ? (
+            <p className="truncate lowercase" title={metaParts.join(" · ")}>
+              {metaParts.join(" · ")}
+            </p>
+          ) : (
+            <p className="truncate text-muted-foreground/60">&nbsp;</p>
+          )}
         </div>
 
-        {metaParts.length ? (
-          <p
-            className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground"
-            title={metaParts.join(" · ")}
-          >
-            {metaParts.join(" · ")}
-          </p>
-        ) : (
-          <p className="mt-3 min-h-4 text-xs text-muted-foreground/60">&nbsp;</p>
-        )}
-      </div>
-
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-5",
-          "opacity-0 transition-all duration-[400ms] [transform:rotate(90deg)_scaleX(-1)]",
-          "group-hover:opacity-100 group-hover:[transform:rotate(0deg)_scaleX(1)]",
-        )}
-      >
-        <span className="line-clamp-3 text-center font-mono text-xl font-bold leading-snug tracking-tight text-foreground">
-          {projectedName}
-        </span>
-        <span className="text-xs text-muted-foreground">
+        <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
           by <span className="text-[#0077c2]">{scopeLabel}</span>
-        </span>
-        {failureMessage ? (
-          <span
-            className={cn(
-              "mt-1 line-clamp-4 max-w-full text-center text-xs leading-5",
-              status === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400",
-            )}
-            title={failureMessage}
-          >
-            {failureMessage}
-          </span>
-        ) : null}
+        </p>
       </div>
     </div>
   )

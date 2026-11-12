@@ -116,10 +116,13 @@ export async function listInstanceTools(
   return data.tools
 }
 
-function catalogScopeQuery(scope: "store" | "agent", agentId: string): string {
-  return scope === "agent"
-    ? buildQuery({ scope: "agent", agent_id: agentId })
-    : buildQuery({ scope: "store" })
+function catalogScopeQuery(
+  scope: "store" | "agent",
+  agentId: string,
+  extra?: Record<string, string | number | boolean | null | undefined>,
+): string {
+  const base = scope === "agent" ? { scope: "agent", agent_id: agentId } : { scope: "store" }
+  return buildQuery({ ...base, ...extra })
 }
 
 /** One request for the whole scope's tool catalog (backend scope aggregation). */
@@ -129,7 +132,7 @@ export async function listScopeTools(
   filter: ToolVisibilityFilter = "available",
 ): Promise<ScopeCatalogPage<ScopedToolInfo>> {
   const data = await api<{ tools: ScopedToolInfo[]; skipped_instances?: number }>(
-    `/tools/list${catalogScopeQuery(scope, agentId)}${buildQuery({ filter })}`,
+    `/tools/list${catalogScopeQuery(scope, agentId, { filter })}`,
   )
   return { entries: data.tools, skippedInstances: data.skipped_instances ?? 0 }
 }

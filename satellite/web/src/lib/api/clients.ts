@@ -120,7 +120,7 @@ export function wireClient(
 }
 
 export function unwireClient(client: string): Promise<WiredEntry> {
-  return appApi(`/gateway/unwire?client=${client}`, { method: "POST" })
+  return appApi(`/gateway/unwire${buildQuery({ client })}`, { method: "POST" })
 }
 
 export function getGatewayStatus(): Promise<GatewayStatus> {

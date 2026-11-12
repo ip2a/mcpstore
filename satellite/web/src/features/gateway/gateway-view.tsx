@@ -71,8 +71,10 @@ type GatewayPanelTab = "calls" | "projection" | "table"
 
 export function GatewayView({
   onOpenSession,
+  onOpenScope,
 }: {
   onOpenSession?: (session: FrameSessionSummary) => void
+  onOpenScope?: (scopeId: string) => void
 } = {}) {
   const { t } = useI18n()
   const status = useGatewayStatusQuery()
@@ -213,6 +215,7 @@ export function GatewayView({
               <CallFlowDiagram
                 labelById={labelById}
                 latest={records.length > 0 ? records[records.length - 1]! : null}
+                onOpenScope={onOpenScope}
                 status={status.data ?? null}
                 wired={wired.data ?? []}
               />
@@ -551,15 +554,21 @@ function FlowRow({ record }: { record: GatewayRequestRecord }) {
   )
 }
 
+function scopeIdFromWired(entry: WiredEntry): string {
+  return entry.scope.type === "store" ? "store" : entry.scope.agent_id
+}
+
 /** Agent → mcpstore → MCP three-column call topology. */
 function CallFlowDiagram({
   labelById,
   latest,
+  onOpenScope,
   status,
   wired,
 }: {
   labelById: Map<string, string>
   latest: GatewayRequestRecord | null
+  onOpenScope?: (scopeId: string) => void
   status: GatewayStatus | null
   wired: WiredEntry[]
 }) {
@@ -583,6 +592,7 @@ function CallFlowDiagram({
               active={activeCaller === entry.client_id}
               entry={entry}
               label={labelById.get(entry.client_id) ?? entry.client_id}
+              onOpen={onOpenScope ? () => onOpenScope(scopeIdFromWired(entry)) : undefined}
             />
           ))
         )}
@@ -656,11 +666,30 @@ function FlowNodeCard({
   children,
   className,
   emphasized,
+  onClick,
 }: {
   children: ReactNode
   className?: string
   emphasized?: boolean
+  onClick?: () => void
 }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "relative flex w-full flex-col gap-1.5 rounded-xl border bg-card p-3 text-left shadow-xs outline-none",
+          "focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          emphasized ? "border-foreground/80" : "border-border/70",
+          className,
+        )}
+      >
+        {children}
+      </button>
+    )
+  }
+
   return (
     <div
       className={cn(
@@ -678,15 +707,24 @@ function AgentFlowCard({
   active,
   entry,
   label,
+  onOpen,
 }: {
   active: boolean
   entry: WiredEntry
   label: string
+  onOpen?: () => void
 }) {
   const iconUrl = clientIconUrls[entry.client_id]
 
   return (
-    <FlowNodeCard className={cn("items-center", active && "ring-1 ring-orange-400/70")}>
+    <FlowNodeCard
+      className={cn(
+        "items-center",
+        active && "ring-1 ring-orange-400/70",
+        onOpen && "cursor-pointer transition-colors hover:bg-muted/40",
+      )}
+      onClick={onOpen}
+    >
       {iconUrl ? (
         <img src={iconUrl} alt="" className="size-7 object-contain" aria-hidden />
       ) : (
@@ -713,9 +751,9 @@ function AgentFlowCard({
 function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean }) {
   const { t } = useI18n()
   return (
-    <FlowNodeCard emphasized>
+    <FlowNodeCard emphasized className="items-center text-center">
       <MarkIcon className="size-8" />
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 max-w-full items-center justify-center gap-1.5">
         <span
           className={cn(
             "size-1.5 shrink-0 rounded-full",
@@ -724,7 +762,7 @@ function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean
         />
         <strong className="truncate font-mono text-sm font-semibold">mcpstore</strong>
       </div>
-      <span className="truncate font-mono text-[11px] text-muted-foreground">
+      <span className="max-w-full truncate font-mono text-[11px] text-muted-foreground">
         {running ? endpoint : t("gatewayStopped")}
       </span>
     </FlowNodeCard>

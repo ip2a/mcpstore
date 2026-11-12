@@ -19,7 +19,7 @@ import { useI18n } from "@/lib/i18n-context"
 export type AppView =
   | { name: "home" }
   | { name: "services" }
-  | { name: "scope" }
+  | { name: "scope"; scopeId?: string }
   | { name: "clients" }
   | { name: "plugins"; tab?: "installed" | "services" | "agents" }
   | { name: "tools" }

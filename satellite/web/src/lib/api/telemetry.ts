@@ -138,6 +138,10 @@ export type FrameSessionSummary = {
   first_ts_unix_ms: number
   last_ts_unix_ms: number
   frame_count: number
+  /** Sum of up-direction frame sizes (client → server). */
+  request_bytes: number
+  /** Sum of down-direction frame sizes (server → client). */
+  response_bytes: number
 }
 
 /** Server-paginated frame session list. */

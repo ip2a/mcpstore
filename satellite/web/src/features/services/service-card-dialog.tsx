@@ -171,7 +171,7 @@ function ServiceCardDialogBody({
             <QuietScroll className="flex min-h-0 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
               <button
                 type="button"
-                className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 aria-label={t("detail")}
                 onClick={() => closeThen(() => onOpen(service))}
               >

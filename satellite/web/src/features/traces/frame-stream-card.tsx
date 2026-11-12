@@ -7,7 +7,6 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { WORKSPACE_TOOLBAR_CLASSNAME } from "@/components/shared/workspace-toolbar"
 import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -35,6 +34,68 @@ type FrameFace = FrameSessionSummary["face"]
 type FrameViewMode = "table" | "history" | "kv"
 
 const PAGE_SIZES = [10, 20, 50] as const
+
+const CELL_TEXT = "text-xs tabular-nums"
+
+function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+function formatClock(date: Date): string {
+  return date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
+
+function formatDay(date: Date): string {
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+}
+
+/** One date shown once; cross-day end timestamp renders in red. */
+function SessionActiveRange({
+  firstMs,
+  lastMs,
+}: {
+  firstMs: number
+  lastMs: number
+}) {
+  const first = new Date(firstMs)
+  const last = new Date(lastMs)
+  const start = `${formatDay(first)} ${formatClock(first)}`
+  if (sameLocalDay(first, last)) {
+    return (
+      <span title={`${first.toLocaleString()} – ${last.toLocaleString()}`}>
+        {start} – {formatClock(last)}
+      </span>
+    )
+  }
+  return (
+    <span title={`${first.toLocaleString()} – ${last.toLocaleString()}`}>
+      {start} –{" "}
+      <span className="text-destructive">
+        {formatDay(last)} {formatClock(last)}
+      </span>
+    </span>
+  )
+}
 
 /** MCP message stream for one face (gateway inbound or upstream outbound). */
 export function FrameStreamCard(props: {
@@ -182,34 +243,69 @@ export function FrameStreamCard(props: {
               "min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
           )}
         >
-          <Table>
+          <Table className="w-full table-fixed">
+            <colgroup>
+              <col className="w-[5.5rem]" />
+              <col className="w-[19rem]" />
+              <col className="w-[4.5rem]" />
+              <col className="w-[4.5rem]" />
+              <col className="w-[3.5rem]" />
+              {props.onOpenSession ? <col className="w-[3.25rem]" /> : null}
+              <col />
+            </colgroup>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("gatewayFramesColPeer")}</TableHead>
-                <TableHead>{t("gatewayFramesColInstance")}</TableHead>
-                <TableHead>{t("gatewayFramesColLastSeen")}</TableHead>
+                <TableHead>{t("gatewayFramesColSession")}</TableHead>
+                <TableHead>{t("gatewayFramesColTime")}</TableHead>
+                <TableHead className="text-right">{t("gatewayFramesColRequest")}</TableHead>
+                <TableHead className="text-right">{t("gatewayFramesColResponse")}</TableHead>
                 <TableHead className="text-right">{t("gatewayFramesColCount")}</TableHead>
+                {props.onOpenSession ? (
+                  <TableHead className="text-right">{t("gatewayFramesColActions")}</TableHead>
+                ) : null}
+                <TableHead aria-hidden className="p-0" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((session) => (
-                <TableRow
-                  key={session.session_id}
-                  className={props.onOpenSession ? "cursor-pointer" : undefined}
-                  onClick={() => props.onOpenSession?.(session)}
-                >
-                  <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                    {session.peer ?? session.caller ?? session.session_id.slice(0, 12)}
+                <TableRow key={session.session_id}>
+                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap")} title={session.session_id}>
+                    {session.session_id.slice(0, 8)}
                   </TableCell>
-                  <TableCell className="max-w-[280px] truncate font-mono text-xs text-muted-foreground">
-                    {session.instance_id ?? session.caller ?? "—"}
+                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap")}>
+                    <SessionActiveRange
+                      firstMs={session.first_ts_unix_ms}
+                      lastMs={session.last_ts_unix_ms}
+                    />
                   </TableCell>
-                  <TableCell className="tabular-nums text-xs text-muted-foreground">
-                    {new Date(session.last_ts_unix_ms).toLocaleString()}
+                  <TableCell
+                    className={cn(CELL_TEXT, "whitespace-nowrap text-right")}
+                    title={`${session.request_bytes} B`}
+                  >
+                    {formatByteSize(session.request_bytes)}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Badge variant="secondary">{session.frame_count}</Badge>
+                  <TableCell
+                    className={cn(CELL_TEXT, "whitespace-nowrap text-right")}
+                    title={`${session.response_bytes} B`}
+                  >
+                    {formatByteSize(session.response_bytes)}
                   </TableCell>
+                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap text-right")}>
+                    {session.frame_count}
+                  </TableCell>
+                  {props.onOpenSession ? (
+                    <TableCell className="whitespace-nowrap text-right">
+                      <Button
+                        size="sm"
+                        variant="link"
+                        className="h-auto px-0 text-xs underline"
+                        onClick={() => props.onOpenSession?.(session)}
+                      >
+                        {t("detail")}
+                      </Button>
+                    </TableCell>
+                  ) : null}
+                  <TableCell aria-hidden className="p-0" />
                 </TableRow>
               ))}
             </TableBody>

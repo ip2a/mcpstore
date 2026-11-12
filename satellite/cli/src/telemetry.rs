@@ -126,6 +126,10 @@ pub struct FrameSessionSummary {
     pub first_ts_unix_ms: i64,
     pub last_ts_unix_ms: i64,
     pub frame_count: i64,
+    /// Sum of `size_bytes` for client→server frames (`direction = up`).
+    pub request_bytes: i64,
+    /// Sum of `size_bytes` for server→client frames (`direction = down`).
+    pub response_bytes: i64,
 }
 
 /// Paginated frame-session listing (server-side filter + LIMIT/OFFSET).
@@ -583,6 +587,8 @@ impl TelemetryLog {
                 first_ts_unix_ms: row.get(5)?,
                 last_ts_unix_ms: row.get(6)?,
                 frame_count: row.get(7)?,
+                request_bytes: row.get(8)?,
+                response_bytes: row.get(9)?,
             })
         };
         let (total, sessions) = match face {
@@ -598,7 +604,10 @@ impl TelemetryLog {
                 )?;
                 let mut stmt = conn.prepare(
                     "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
-                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames \
+                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*), \
+                     COALESCE(SUM(CASE WHEN direction = 'up' THEN size_bytes ELSE 0 END), 0), \
+                     COALESCE(SUM(CASE WHEN direction = 'down' THEN size_bytes ELSE 0 END), 0) \
+                     FROM frames \
                      WHERE ts_unix_ms >= ?1 AND face = ?2 \
                      GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT ?3 OFFSET ?4",
                 )?;
@@ -620,7 +629,10 @@ impl TelemetryLog {
                 )?;
                 let mut stmt = conn.prepare(
                     "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
-                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames \
+                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*), \
+                     COALESCE(SUM(CASE WHEN direction = 'up' THEN size_bytes ELSE 0 END), 0), \
+                     COALESCE(SUM(CASE WHEN direction = 'down' THEN size_bytes ELSE 0 END), 0) \
+                     FROM frames \
                      WHERE ts_unix_ms >= ?1 \
                      GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT ?2 OFFSET ?3",
                 )?;
@@ -1186,10 +1198,14 @@ mod tests {
             assert_eq!(gw.session_id, "s-gw");
             assert_eq!(gw.frame_count, 2);
             assert_eq!(gw.caller.as_deref(), Some("claude"));
+            assert!(gw.request_bytes > 0, "up frames should contribute request_bytes");
+            assert!(gw.response_bytes > 0, "down frames should contribute response_bytes");
             let up = log.frame_sessions(Some("upstream"), 24, 50, 0).unwrap();
             assert_eq!(up.total, 1);
             assert_eq!(up.sessions.len(), 1);
             assert_eq!(up.sessions[0].instance_id.as_deref(), Some("inst-1"));
+            assert!(up.sessions[0].request_bytes > 0);
+            assert!(up.sessions[0].response_bytes > 0);
             let page = log.frame_sessions(None, 24, 1, 0).unwrap();
             assert_eq!(page.total, 2);
             assert_eq!(page.sessions.len(), 1);

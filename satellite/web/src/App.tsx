@@ -187,7 +187,13 @@ export function App() {
                     onBack={goBack}
                   />
                 ) : view.name === "scope" ? (
-                  <ScopeView services={services} />
+                  <ScopeView
+                    services={services}
+                    scopeId={view.scopeId}
+                    onScopeIdChange={(scopeId) =>
+                      setView(scopeId ? { name: "scope", scopeId } : { name: "scope" })
+                    }
+                  />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (
@@ -201,6 +207,7 @@ export function App() {
                         face: "gateway",
                       })
                     }
+                    onOpenScope={(scopeId) => setView({ name: "scope", scopeId })}
                   />
                 ) : view.name === "traces" ? (
                   <TracesView
