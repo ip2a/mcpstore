@@ -19,12 +19,13 @@ impl MCPStore {
             let overrides = overrides_by_instance
                 .get(&instance.instance_id)
                 .unwrap_or(&empty_overrides);
-            let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve_with_overrides(
-                self,
-                instance.instance_id,
-                overrides,
-            )
-            .await?;
+            let policy =
+                crate::agent::tool_visibility::EffectiveToolPolicy::resolve_with_overrides(
+                    self,
+                    instance.instance_id,
+                    overrides,
+                )
+                .await?;
             policy
                 .available
                 .into_iter()

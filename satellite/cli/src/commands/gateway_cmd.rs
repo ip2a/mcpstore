@@ -86,10 +86,12 @@ fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs
     let shared = matches!(store_name.as_str(), "shm" | "redis" | "valkey");
     if store_args.control_panel {
         if shared {
-            return Err("the gateway cannot run as a control panel on a shared store \
+            return Err(
+                "the gateway cannot run as a control panel on a shared store \
                 (shm/redis/valkey): the daemon owns the @control column and supervision; \
                 attach with --data-panel instead"
-                .into());
+                    .into(),
+            );
         }
         return Ok(store_args);
     }
@@ -159,19 +161,12 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         Err(error) => {
             // Memory store (or any store without a feed): keep the 1s
             // scopes replay; cross-process projection simply doesn't apply.
-            eprintln!(
-                "[GATEWAY] no shared change feed ({error}); keeping scopes replay"
-            );
+            eprintln!("[GATEWAY] no shared change feed ({error}); keeping scopes replay");
             true
         }
     };
-    let (generic_router, mount_set) = build_mounts(
-        &store,
-        &options,
-        Arc::clone(&call_log),
-        &wired_path,
-    )
-    .await?;
+    let (generic_router, mount_set) =
+        build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
     // Wired mounts live behind a shared registry so the reconciliation loop
     // can add/rebuild/remove them while the listener keeps running.
     let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
@@ -347,10 +342,7 @@ async fn build_mounts(
                 set.routers.insert(path, mount);
             }
             Err(error) => {
-                eprintln!(
-                    "[GATEWAY] skipping mount for {}: {error}",
-                    entry.client_id
-                );
+                eprintln!("[GATEWAY] skipping mount for {}: {error}", entry.client_id);
             }
         }
     }
@@ -450,7 +442,12 @@ async fn health_route(State(health): State<HealthState>) -> Response {
     let mut rebuilds: u64 = health
         .mounts
         .read()
-        .map(|mounts| mounts.values().map(|mount| mount.catalog.rebuild_count()).sum())
+        .map(|mounts| {
+            mounts
+                .values()
+                .map(|mount| mount.catalog.rebuild_count())
+                .sum()
+        })
         .unwrap_or(0);
     if let Some(catalog) = &health.generic_catalog {
         rebuilds += catalog.rebuild_count();
@@ -470,20 +467,17 @@ async fn mount_dispatch(
     request: axum::extract::Request,
 ) -> Response {
     let path = request.uri().path().to_string();
-    let router = mounts
-        .read()
-        .ok()
-        .and_then(|map| {
-            map.get(&path)
-                // nest semantics: the longest mount path that prefixes the request
-                .or_else(|| {
-                    map.iter()
-                        .filter(|(mount_path, _)| path.starts_with(mount_path.as_str()))
-                        .max_by_key(|(mount_path, _)| mount_path.len())
-                        .map(|(_, mount)| mount)
-                })
-                .map(|mount| mount.router.clone())
-        });
+    let router = mounts.read().ok().and_then(|map| {
+        map.get(&path)
+            // nest semantics: the longest mount path that prefixes the request
+            .or_else(|| {
+                map.iter()
+                    .filter(|(mount_path, _)| path.starts_with(mount_path.as_str()))
+                    .max_by_key(|(mount_path, _)| mount_path.len())
+                    .map(|(_, mount)| mount)
+            })
+            .map(|mount| mount.router.clone())
+    });
     match router {
         Some(router) => router
             .oneshot(request)
@@ -557,7 +551,9 @@ async fn refresh_scopes_projection(
     for catalog in catalogs.into_iter().chain(generic_catalog.cloned()) {
         catalog.invalidate();
         let catalog = Arc::clone(&catalog);
-        tokio::spawn(async move { let _ = catalog.ensure().await; });
+        tokio::spawn(async move {
+            let _ = catalog.ensure().await;
+        });
     }
 }
 
@@ -619,9 +615,7 @@ async fn reconcile_loop(
                     _ => "missing while mounts are live".to_string(),
                 };
                 if !quiet {
-                    eprintln!(
-                        "[GATEWAY] wired ledger {reason}; keeping all mounts unchanged"
-                    );
+                    eprintln!("[GATEWAY] wired ledger {reason}; keeping all mounts unchanged");
                 }
                 quiet = true;
             }
@@ -874,9 +868,9 @@ mod tests {
         }
     }
 
-    fn running_with(entries: &[client_wire::WiredEntry]) -> std::sync::Arc<
-        std::sync::RwLock<std::collections::HashMap<String, LiveMount>>,
-    > {
+    fn running_with(
+        entries: &[client_wire::WiredEntry],
+    ) -> std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>> {
         let store = Arc::new(
             mcpstore::MCPStore::setup_with_options(mcpstore::StoreOptions {
                 store: Some(mcpstore::JsonStoreConfig::memory()),
@@ -912,25 +906,25 @@ mod tests {
     }
 
     fn plan_of(
-        mounts: &std::sync::Arc<
-            std::sync::RwLock<std::collections::HashMap<String, LiveMount>>,
-        >,
+        mounts: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
         entries: Vec<client_wire::WiredEntry>,
     ) -> MountPlan {
-        plan_mount_changes(
-            mounts,
-            &WiredState {
-                entries,
-            },
-        )
+        plan_mount_changes(mounts, &WiredState { entries })
     }
 
     #[test]
     fn plan_adds_new_and_removes_gone() {
         let mounts = running_with(&[entry("agent-a", false)]);
-        let (adds, rebuilds, removes, warnings) =
-            plan_of(&mounts, vec![entry("agent-a", false), entry("agent-b", false)]);
-        assert_eq!(adds.iter().map(|e| e.client_id.as_str()).collect::<Vec<_>>(), ["agent-b"]);
+        let (adds, rebuilds, removes, warnings) = plan_of(
+            &mounts,
+            vec![entry("agent-a", false), entry("agent-b", false)],
+        );
+        assert_eq!(
+            adds.iter()
+                .map(|e| e.client_id.as_str())
+                .collect::<Vec<_>>(),
+            ["agent-b"]
+        );
         assert!(rebuilds.is_empty());
         assert_eq!(removes, Vec::<String>::new());
         assert!(warnings.is_empty());
@@ -944,8 +938,7 @@ mod tests {
     fn plan_rebuilds_on_fingerprint_drift() {
         let mounts = running_with(&[entry("agent-a", false)]);
         // same client, exposure flipped → rebuild, not keep
-        let (adds, rebuilds, removes, warnings) =
-            plan_of(&mounts, vec![entry("agent-a", true)]);
+        let (adds, rebuilds, removes, warnings) = plan_of(&mounts, vec![entry("agent-a", true)]);
         assert!(adds.is_empty() && removes.is_empty() && warnings.is_empty());
         assert_eq!(rebuilds.len(), 1);
         assert_eq!(rebuilds[0].client_id, "agent-a");
@@ -968,7 +961,8 @@ mod tests {
 
     #[test]
     fn ledger_read_states() {
-        let dir = std::env::temp_dir().join(format!("gateway-reconcile-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("gateway-reconcile-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("gateway-wired.json");
 
@@ -981,7 +975,10 @@ mod tests {
 
         // corrupt ledger reads as Unreadable
         std::fs::write(&path, b"{not json").expect("write corrupt ledger");
-        assert!(matches!(read_wired_ledger(&path), LedgerRead::Unreadable(_)));
+        assert!(matches!(
+            read_wired_ledger(&path),
+            LedgerRead::Unreadable(_)
+        ));
 
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }

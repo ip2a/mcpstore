@@ -162,7 +162,13 @@ fn local(
     }
 }
 
-fn header_input(key: &str, label: &str, description: &str, placeholder: &str, format: &str) -> MarketInput {
+fn header_input(
+    key: &str,
+    label: &str,
+    description: &str,
+    placeholder: &str,
+    format: &str,
+) -> MarketInput {
     MarketInput {
         key: key.into(),
         r#where: "header".into(),
@@ -267,27 +273,85 @@ static FEATURED: LazyLock<Vec<MarketService>> = LazyLock::new(|| {
     ];
     // Inputs are attached after construction so each entry stays one line.
     let mut inputs: HashMap<&str, Vec<MarketInput>> = HashMap::new();
-    inputs.insert("context7", vec![MarketInput {
-        key: "CONTEXT7_API_KEY".into(), r#where: "header".into(), label: "API key".into(),
-        description: "Optional — raises the rate limit. From context7.com/dashboard".into(),
-        placeholder: String::new(), secret: true, required: false, format: "{}".into(),
-    }]);
-    inputs.insert("github", vec![header_input("Authorization", "Personal access token",
-        "github.com/settings/personal-access-tokens", "github_pat_…", "Bearer {}")]);
-    inputs.insert("filesystem", vec![arg_input("Folder", "The folder it may read and write", "~/code")]);
-    inputs.insert("brave-search", vec![secret_env("BRAVE_API_KEY", "API key", "brave.com/search/api")]);
-    inputs.insert("firecrawl", vec![secret_env("FIRECRAWL_API_KEY", "API key", "firecrawl.dev/app/api-keys")]);
-    inputs.insert("tavily", vec![secret_env("TAVILY_API_KEY", "API key", "app.tavily.com")]);
+    inputs.insert(
+        "context7",
+        vec![MarketInput {
+            key: "CONTEXT7_API_KEY".into(),
+            r#where: "header".into(),
+            label: "API key".into(),
+            description: "Optional — raises the rate limit. From context7.com/dashboard".into(),
+            placeholder: String::new(),
+            secret: true,
+            required: false,
+            format: "{}".into(),
+        }],
+    );
+    inputs.insert(
+        "github",
+        vec![header_input(
+            "Authorization",
+            "Personal access token",
+            "github.com/settings/personal-access-tokens",
+            "github_pat_…",
+            "Bearer {}",
+        )],
+    );
+    inputs.insert(
+        "filesystem",
+        vec![arg_input(
+            "Folder",
+            "The folder it may read and write",
+            "~/code",
+        )],
+    );
+    inputs.insert(
+        "brave-search",
+        vec![secret_env(
+            "BRAVE_API_KEY",
+            "API key",
+            "brave.com/search/api",
+        )],
+    );
+    inputs.insert(
+        "firecrawl",
+        vec![secret_env(
+            "FIRECRAWL_API_KEY",
+            "API key",
+            "firecrawl.dev/app/api-keys",
+        )],
+    );
+    inputs.insert(
+        "tavily",
+        vec![secret_env("TAVILY_API_KEY", "API key", "app.tavily.com")],
+    );
     let mut titles: HashMap<&str, &str> = HashMap::new();
     for (id, title) in [
-        ("context7", "Context7"), ("playwright", "Playwright"), ("chrome-devtools", "Chrome DevTools"),
-        ("github", "GitHub"), ("deepwiki", "DeepWiki"), ("exa", "Exa"), ("filesystem", "Filesystem"),
-        ("fetch", "Fetch"), ("memory", "Memory"), ("sequential-thinking", "Sequential Thinking"),
-        ("git", "Git"), ("time", "Time"), ("sentry", "Sentry"), ("linear", "Linear"),
-        ("notion", "Notion"), ("atlassian", "Atlassian"), ("supabase", "Supabase"),
-        ("stripe", "Stripe"), ("vercel", "Vercel"), ("neon", "Neon"), ("cloudflare-docs", "Cloudflare Docs"),
-        ("microsoft-learn", "Microsoft Learn"), ("huggingface", "Hugging Face"),
-        ("brave-search", "Brave Search"), ("firecrawl", "Firecrawl"), ("tavily", "Tavily"),
+        ("context7", "Context7"),
+        ("playwright", "Playwright"),
+        ("chrome-devtools", "Chrome DevTools"),
+        ("github", "GitHub"),
+        ("deepwiki", "DeepWiki"),
+        ("exa", "Exa"),
+        ("filesystem", "Filesystem"),
+        ("fetch", "Fetch"),
+        ("memory", "Memory"),
+        ("sequential-thinking", "Sequential Thinking"),
+        ("git", "Git"),
+        ("time", "Time"),
+        ("sentry", "Sentry"),
+        ("linear", "Linear"),
+        ("notion", "Notion"),
+        ("atlassian", "Atlassian"),
+        ("supabase", "Supabase"),
+        ("stripe", "Stripe"),
+        ("vercel", "Vercel"),
+        ("neon", "Neon"),
+        ("cloudflare-docs", "Cloudflare Docs"),
+        ("microsoft-learn", "Microsoft Learn"),
+        ("huggingface", "Hugging Face"),
+        ("brave-search", "Brave Search"),
+        ("firecrawl", "Firecrawl"),
+        ("tavily", "Tavily"),
     ] {
         titles.insert(id, title);
     }
@@ -306,8 +370,12 @@ static FEATURED: LazyLock<Vec<MarketService>> = LazyLock::new(|| {
 /// its URL, or the command and the package it starts. Registry entries whose
 /// key matches a featured one are dropped, so the catalogue never shows a
 /// service twice.
-static FEATURED_KEYS: LazyLock<HashSet<String>> =
-    LazyLock::new(|| FEATURED.iter().map(|service| service.server_key()).collect());
+static FEATURED_KEYS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    FEATURED
+        .iter()
+        .map(|service| service.server_key())
+        .collect()
+});
 
 /// What the registry listed for a query, kept briefly: one fetch answers
 /// every page of that query's endless scroll.
@@ -326,8 +394,14 @@ const CACHE_CAP: usize = 32;
 
 /// Hosts that keep repositories and images under owner/name.
 const CODE_HOSTS: [&str; 8] = [
-    "github.com", "gitlab.com", "bitbucket.org", "codeberg.org", "gitee.com",
-    "ghcr.io", "docker.io", "quay.io",
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "codeberg.org",
+    "gitee.com",
+    "ghcr.io",
+    "docker.io",
+    "quay.io",
 ];
 
 /// Where `://` starts in `s`, when its scheme reads as one.
@@ -370,12 +444,21 @@ fn norm_addr(s: &str) -> String {
     if let Some(i) = a.find(['?', '#']) {
         a.truncate(i);
     }
-    a = a.strip_prefix("www.").unwrap_or(&a).trim_end_matches('/').to_string();
+    a = a
+        .strip_prefix("www.")
+        .unwrap_or(&a)
+        .trim_end_matches('/')
+        .to_string();
     a = a.strip_suffix(".git").unwrap_or(&a).to_string();
     for prefix in [
-        "npmjs.com/package/", "npmjs.org/package/", "pypi.org/project/",
-        "hub.docker.com/r/", "hub.docker.com/_/", "docker.io/library/",
-        "docker.io/", "registry.hub.docker.com/r/",
+        "npmjs.com/package/",
+        "npmjs.org/package/",
+        "pypi.org/project/",
+        "hub.docker.com/r/",
+        "hub.docker.com/_/",
+        "docker.io/library/",
+        "docker.io/",
+        "registry.hub.docker.com/r/",
     ] {
         if let Some(rest) = a.strip_prefix(prefix) {
             a = rest.to_string();
@@ -411,9 +494,11 @@ fn is_host(s: &str) -> bool {
     let s = s.split_once(':').map_or(s, |(h, _)| h);
     let labels: Vec<&str> = s.split('.').collect();
     labels.len() >= 2
-        && labels
-            .iter()
-            .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+        && labels.iter().all(|l| {
+            !l.is_empty()
+                && l.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
 }
 
 /// `owner/repo` or `@scope/pkg`.
@@ -424,7 +509,9 @@ fn is_owner_repo(s: &str) -> bool {
     };
     let ok = |part: &str| {
         !part.is_empty()
-            && part.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' || c == '-')
+            && part.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' || c == '-'
+            })
     };
     let first_ok = owner
         .chars()
@@ -533,7 +620,10 @@ fn site_name(host: &str) -> String {
         labels.pop(); // the top-level domain
     }
     for label in labels.iter().rev() {
-        if matches!(*label, "www" | "mcp" | "api" | "app" | "docs" | "server" | "co" | "com") {
+        if matches!(
+            *label,
+            "www" | "mcp" | "api" | "app" | "docs" | "server" | "co" | "com"
+        ) {
             continue;
         }
         return (*label).to_string();
@@ -591,13 +681,24 @@ fn short_name(name: &str) -> String {
     }
     let mut cleaned: String = n
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     cleaned = cleaned.trim_matches(|c| c == '-' || c == '_').to_string();
     if cleaned.len() > 64 {
         cleaned = cleaned[..64].to_string();
     }
-    if cleaned.is_empty() || !cleaned.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+    if cleaned.is_empty()
+        || !cleaned
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
         "server".to_string()
     } else {
         cleaned
@@ -746,21 +847,36 @@ fn has_placeholder(s: &str) -> bool {
 fn rank(r: &RegistryServer, m: &MarketService, q: &str) -> i32 {
     let mut s = 0;
     let short = r.name.rsplit('/').next().unwrap_or("").to_lowercase();
-    if m.name == q || r.title.as_deref().map(|t| t.to_lowercase()) == Some(q.to_string()) || short == q {
+    if m.name == q
+        || r.title.as_deref().map(|t| t.to_lowercase()) == Some(q.to_string())
+        || short == q
+    {
         s += 100;
     } else if short.contains(q) {
         s += 40;
     }
-    if r.title.as_deref().map(|t| t.to_lowercase()).is_some_and(|t| t.contains(q)) {
+    if r.title
+        .as_deref()
+        .map(|t| t.to_lowercase())
+        .is_some_and(|t| t.contains(q))
+    {
         s += 20;
     }
-    if r.description.as_deref().map(|d| d.to_lowercase()).is_some_and(|d| d.contains(q)) {
+    if r.description
+        .as_deref()
+        .map(|d| d.to_lowercase())
+        .is_some_and(|d| d.contains(q))
+    {
         s += 10;
     }
     if !r.icons.is_empty() {
         s += 8;
     }
-    if r.repository.as_ref().and_then(|repo| repo.url.as_deref()).is_some_and(|u| !u.is_empty()) {
+    if r.repository
+        .as_ref()
+        .and_then(|repo| repo.url.as_deref())
+        .is_some_and(|u| !u.is_empty())
+    {
         s += 5;
     }
     if r.name.starts_with("ai.smithery/") {
@@ -815,7 +931,11 @@ fn from_registry(r: &RegistryServer) -> Option<MarketService> {
     service.icon = r
         .icons
         .iter()
-        .find_map(|icon| icon.src.as_deref().filter(|src| src.starts_with("https://")))
+        .find_map(|icon| {
+            icon.src
+                .as_deref()
+                .filter(|src| src.starts_with("https://"))
+        })
         .map(str::to_string)
         .unwrap_or_else(|| {
             service
@@ -938,7 +1058,11 @@ fn from_registry(r: &RegistryServer) -> Option<MarketService> {
             // positional ones become inputs; a required named one the market
             // can't fill drops the entry.
             for (i, a) in p.package_arguments.iter().enumerate() {
-                let mut value = a.value.clone().or_else(|| a.default.clone()).unwrap_or_default();
+                let mut value = a
+                    .value
+                    .clone()
+                    .or_else(|| a.default.clone())
+                    .unwrap_or_default();
                 if has_placeholder(&value) {
                     value = String::new();
                 }
@@ -1000,7 +1124,10 @@ fn registry_addrs(r: &RegistryServer) -> Vec<String> {
     let mut addrs = Vec::new();
     push_addr(&mut addrs, Some(&r.name));
     push_addr(&mut addrs, r.website_url.as_deref());
-    push_addr(&mut addrs, r.repository.as_ref().and_then(|repo| repo.url.as_deref()));
+    push_addr(
+        &mut addrs,
+        r.repository.as_ref().and_then(|repo| repo.url.as_deref()),
+    );
     for rm in &r.remotes {
         push_addr(&mut addrs, rm.url.as_deref());
     }
@@ -1135,7 +1262,13 @@ async fn registry_cached(q: &str) -> Result<std::sync::Arc<Vec<MarketService>>, 
         if cache.len() >= CACHE_CAP {
             cache.clear();
         }
-        cache.insert(key, CacheEntry { at: Instant::now(), items: Arc::clone(&items) });
+        cache.insert(
+            key,
+            CacheEntry {
+                at: Instant::now(),
+                items: Arc::clone(&items),
+            },
+        );
     }
     Ok(items)
 }
@@ -1170,8 +1303,7 @@ pub(super) async fn services_market_registry(
     match registry_cached(q).await {
         Ok(items) => {
             let total = items.len();
-            let page: Vec<&MarketService> =
-                items.iter().skip(offset).take(limit).collect();
+            let page: Vec<&MarketService> = items.iter().skip(offset).take(limit).collect();
             Ok(success(
                 "Registry services fetched successfully",
                 json!({ "items": page, "offset": offset, "total": total }),
@@ -1195,9 +1327,21 @@ mod tests {
         for service in FEATURED.iter() {
             let has_url = service.config.get("url").is_some();
             let has_command = service.config.get("command").is_some();
-            assert!(has_url ^ has_command, "{} has neither or both of url/command", service.id);
-            let transport = service.config.get("transport").and_then(Value::as_str).unwrap();
-            assert!(matches!(transport, "streamable-http" | "stdio"), "{}", service.id);
+            assert!(
+                has_url ^ has_command,
+                "{} has neither or both of url/command",
+                service.id
+            );
+            let transport = service
+                .config
+                .get("transport")
+                .and_then(Value::as_str)
+                .unwrap();
+            assert!(
+                matches!(transport, "streamable-http" | "stdio"),
+                "{}",
+                service.id
+            );
             assert!(!service.title.is_empty(), "{}", service.id);
             for input in &service.inputs {
                 assert!(
@@ -1221,8 +1365,14 @@ mod tests {
         assert_eq!(norm_addr("https://GitHub.com/o/r.git/"), "github.com/o/r");
         assert_eq!(norm_addr("git@github.com:o/r.git"), "github.com/o/r");
         assert_eq!(norm_addr("https://user@ghcr.io/o/img:1.2"), "ghcr.io/o/img");
-        assert_eq!(norm_addr("https://www.npmjs.com/package/@scope/pkg"), "@scope/pkg");
-        assert_eq!(norm_addr("https://pypi.org/project/mcp-server-fetch"), "mcp-server-fetch");
+        assert_eq!(
+            norm_addr("https://www.npmjs.com/package/@scope/pkg"),
+            "@scope/pkg"
+        );
+        assert_eq!(
+            norm_addr("https://pypi.org/project/mcp-server-fetch"),
+            "mcp-server-fetch"
+        );
         assert_eq!(norm_addr("mcp.context7.com/mcp"), "mcp.context7.com/mcp");
     }
 
@@ -1231,19 +1381,28 @@ mod tests {
         assert_eq!(address("github.com/o/r"), Some("github.com/o/r".into()));
         assert_eq!(address("o/r"), Some("o/r".into()));
         assert_eq!(address("@scope/pkg"), Some("@scope/pkg".into()));
-        assert_eq!(address("https://mcp.notion.com/mcp"), Some("mcp.notion.com/mcp".into()));
+        assert_eq!(
+            address("https://mcp.notion.com/mcp"),
+            Some("mcp.notion.com/mcp".into())
+        );
         assert_eq!(address("context7"), None);
         assert_eq!(address("two words"), None);
     }
 
     #[test]
     fn addr_terms_picks_two_names() {
-        assert_eq!(addr_terms("github.com/crystaldba/postgres-mcp"), vec!["postgres-mcp", "crystaldba"]);
+        assert_eq!(
+            addr_terms("github.com/crystaldba/postgres-mcp"),
+            vec!["postgres-mcp", "crystaldba"]
+        );
         // magpie skips names shorter than two characters.
         assert_eq!(addr_terms("github.com/o/r"), Vec::<String>::new());
         assert_eq!(addr_terms("@scope/pkg"), vec!["pkg", "scope"]);
         assert_eq!(addr_terms("mcp.context7.com/mcp"), vec!["context7", "mcp"]);
-        assert_eq!(addr_terms("docs.mcp.cloudflare.com/mcp"), vec!["cloudflare", "mcp"]);
+        assert_eq!(
+            addr_terms("docs.mcp.cloudflare.com/mcp"),
+            vec!["cloudflare", "mcp"]
+        );
     }
 
     #[test]
@@ -1251,7 +1410,7 @@ mod tests {
         let addrs = vec!["github.com/o/repo".to_string()];
         assert_eq!(addr_score("github.com/o/repo", &addrs), 3);
         assert_eq!(addr_score("o/repo", &addrs), 3); // host-less query matches any host
-        // A repository (or owner) scores 2 for a server inside it.
+                                                     // A repository (or owner) scores 2 for a server inside it.
         assert_eq!(addr_score("github.com/o/repo/sub", &addrs), 1);
         assert_eq!(addr_score("github.com/o", &addrs), 2);
         assert_eq!(addr_score("github.com/other/repo", &addrs), 0);
@@ -1260,7 +1419,10 @@ mod tests {
     #[test]
     fn short_name_strips_the_mcp_noise() {
         assert_eq!(short_name("io.github.upstash/context7-mcp"), "context7");
-        assert_eq!(short_name("io.github.modelcontextprotocol/server-filesystem"), "filesystem");
+        assert_eq!(
+            short_name("io.github.modelcontextprotocol/server-filesystem"),
+            "filesystem"
+        );
         assert_eq!(short_name("com.example/mcp-server-git"), "git");
         assert_eq!(short_name("io.github.x/__"), "server");
     }
@@ -1275,7 +1437,10 @@ mod tests {
 
     #[test]
     fn replace_placeholder_keeps_the_words() {
-        assert_eq!(replace_placeholder("Bearer {smithery_api_key}"), "Bearer {}");
+        assert_eq!(
+            replace_placeholder("Bearer {smithery_api_key}"),
+            "Bearer {}"
+        );
         assert_eq!(replace_placeholder("{}"), "{}");
         assert_eq!(replace_placeholder("no hole"), "{}");
     }
@@ -1299,7 +1464,10 @@ mod tests {
         let service = from_registry(&body.servers[0].server).expect("converts");
         assert_eq!(service.name, "context7");
         assert_eq!(service.transport, "streamable-http");
-        assert_eq!(service.config.get("url").and_then(Value::as_str), Some("https://mcp.context7.com/mcp"));
+        assert_eq!(
+            service.config.get("url").and_then(Value::as_str),
+            Some("https://mcp.context7.com/mcp")
+        );
         assert_eq!(service.publisher, "upstash");
         // Its key collides with the featured context7: it would be dropped.
         assert!(FEATURED_KEYS.contains(&service.server_key()));
@@ -1327,9 +1495,16 @@ mod tests {
         .expect("fixture parses");
         let service = from_registry(&r).expect("converts");
         assert_eq!(service.transport, "stdio");
-        assert_eq!(service.config.get("command").and_then(Value::as_str), Some("npx"));
         assert_eq!(
-            service.config.get("args").and_then(Value::as_array).map(|a| a.len()),
+            service.config.get("command").and_then(Value::as_str),
+            Some("npx")
+        );
+        assert_eq!(
+            service
+                .config
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|a| a.len()),
             Some(2)
         );
         assert_eq!(service.inputs.len(), 1);

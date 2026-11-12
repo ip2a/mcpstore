@@ -1,8 +1,8 @@
 use crate::config::{ComponentOverride as ConfigComponentOverride, ScopesConfig};
+use crate::kv::models::ToolArgumentOverride;
 use crate::overrides::{
     PromptOverridePatch, ResourceOverridePatch, ServiceOverridePatch, ToolOverridePatch,
 };
-use crate::kv::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
 const APPLIED_JOURNAL_STATE_TYPE: &str = "scopes_loader";
@@ -72,14 +72,21 @@ impl MCPStore {
         let mut applied: Vec<(String, String)> = Vec::new();
         // Load store scope
         for (service_name, service_cfg) in &config.store.services {
-            self.apply_service_scope_config(service_name, &ScopeRef::Store, service_cfg, &mut applied)
-                .await?;
+            self.apply_service_scope_config(
+                service_name,
+                &ScopeRef::Store,
+                service_cfg,
+                &mut applied,
+            )
+            .await?;
         }
 
         // Load agent scopes
         for (agent_id, agent_cfg) in &config.agents {
             for (service_name, service_cfg) in &agent_cfg.services {
-                let scope = ScopeRef::Agent { agent_id: agent_id.clone() };
+                let scope = ScopeRef::Agent {
+                    agent_id: agent_id.clone(),
+                };
                 self.apply_service_scope_config(service_name, &scope, service_cfg, &mut applied)
                     .await?;
             }
@@ -94,7 +101,9 @@ impl MCPStore {
                     .delete_state(&entry.0, &entry.1)
                     .await
                 {
-                    tracing::warn!("failed to delete stale scopes.toml override {entry:?}: {error}");
+                    tracing::warn!(
+                        "failed to delete stale scopes.toml override {entry:?}: {error}"
+                    );
                 }
             }
         }
@@ -163,7 +172,10 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await;
-        if instance.as_ref().is_some_and(|instance| instance.tools.is_empty()) {
+        if instance
+            .as_ref()
+            .is_some_and(|instance| instance.tools.is_empty())
+        {
             tracing::info!(
                 "Service '{}' in scope {:?} has no synced tools yet (not connected); \
                  skipping scopes.toml entries until connect + /config/reload",
@@ -188,7 +200,9 @@ impl MCPStore {
         // Apply tool overrides
         for (tool_name, override_cfg) in &cfg.tools.overrides {
             let patch = self.config_override_to_tool_patch(override_cfg);
-            let rule = self.set_tool_override(instance_id, tool_name, patch).await?;
+            let rule = self
+                .set_tool_override(instance_id, tool_name, patch)
+                .await?;
             applied.push((
                 crate::overrides::tools::TOOL_OVERRIDES_STATE_TYPE.to_string(),
                 Self::component_override_key(rule.instance_id, &rule.tool_name),
@@ -267,7 +281,10 @@ impl MCPStore {
         patch
     }
 
-    fn config_override_to_prompt_patch(&self, cfg: &ConfigComponentOverride) -> PromptOverridePatch {
+    fn config_override_to_prompt_patch(
+        &self,
+        cfg: &ConfigComponentOverride,
+    ) -> PromptOverridePatch {
         let mut patch = PromptOverridePatch::default();
 
         if let Some(ref name) = cfg.display_name {
@@ -292,7 +309,10 @@ impl MCPStore {
         patch
     }
 
-    fn config_override_to_resource_patch(&self, cfg: &ConfigComponentOverride) -> ResourceOverridePatch {
+    fn config_override_to_resource_patch(
+        &self,
+        cfg: &ConfigComponentOverride,
+    ) -> ResourceOverridePatch {
         let mut patch = ResourceOverridePatch::default();
 
         if let Some(ref name) = cfg.display_name {
@@ -324,7 +344,10 @@ fn service_icons_json(icons: Option<&crate::config::IconsOverride>) -> Option<se
     let icons = icons?;
     let mut map = serde_json::Map::new();
     if let Some(light) = &icons.light {
-        map.insert("light".to_string(), serde_json::Value::String(light.clone()));
+        map.insert(
+            "light".to_string(),
+            serde_json::Value::String(light.clone()),
+        );
     }
     if let Some(dark) = &icons.dark {
         map.insert("dark".to_string(), serde_json::Value::String(dark.clone()));

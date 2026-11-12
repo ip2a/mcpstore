@@ -3,8 +3,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::kv::KvLayerManager;
 use crate::identity::InstanceId;
+use crate::kv::KvLayerManager;
 use crate::transport::tasks::{McpTask, McpTaskStatus};
 
 pub(crate) const TASK_ENTITY_TYPE: &str = "tasks";
@@ -149,8 +149,8 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::kv::{memory_kv_store, KvLayerManager};
     use crate::identity::{ScopeRef, ServiceInstanceKey};
+    use crate::kv::{memory_kv_store, KvLayerManager};
 
     fn instance(service_name: &str) -> InstanceId {
         ServiceInstanceKey::new(service_name, ScopeRef::Store).instance_id()
@@ -172,10 +172,7 @@ mod tests {
     #[tokio::test]
     async fn persists_task_records_and_rehydrates_them() {
         let store = memory_kv_store();
-        let first = TaskStateStore::new(Arc::new(KvLayerManager::new(
-            store.clone(),
-            "task-state",
-        )));
+        let first = TaskStateStore::new(Arc::new(KvLayerManager::new(store.clone(), "task-state")));
         let instance_id = instance("alpha");
         let observed = first
             .observe(

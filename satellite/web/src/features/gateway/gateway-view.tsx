@@ -9,6 +9,12 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
+import {
+  WORKSPACE_LIST_INSET_CLASSNAME,
+  WORKSPACE_PANEL_CLASSNAME,
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
@@ -45,6 +51,7 @@ import {
   getGatewayRequests,
   startMcpHub,
   stopMcpHub,
+  type FrameSessionSummary,
   type GatewayProjectionIssue,
   type GatewayRequestRecord,
   type GatewayStatus,
@@ -60,9 +67,13 @@ const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
   path: "/mcp",
 }
 
-type GatewayPanelTab = "calls" | "projection" | "table" | "graph"
+type GatewayPanelTab = "calls" | "projection" | "table"
 
-export function GatewayView() {
+export function GatewayView({
+  onOpenSession,
+}: {
+  onOpenSession?: (session: FrameSessionSummary) => void
+} = {}) {
   const { t } = useI18n()
   const status = useGatewayStatusQuery()
   const clients = useClientsQuery()
@@ -119,6 +130,8 @@ export function GatewayView() {
     }
   }
 
+  const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+
   return (
     <>
       <WorkspacePageHeader
@@ -126,94 +139,100 @@ export function GatewayView() {
         subtitle={t("gatewayWorkspaceDescription", { count: wiredLabels.length })}
       />
 
-      <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
-        <LaunchSettingsDialog
-          busy={busy}
-          onOpenChange={setSettingsOpen}
-          onStart={handleStart}
-          open={settingsOpen}
-          options={launchOptions}
-          setOptions={setLaunchOptions}
-        />
+      <LaunchSettingsDialog
+        busy={busy}
+        onOpenChange={setSettingsOpen}
+        onStart={handleStart}
+        open={settingsOpen}
+        options={launchOptions}
+        setOptions={setLaunchOptions}
+      />
 
-        <PanelCard variant="plain" className="flex flex-col gap-3 overflow-x-auto">
-          <Tabs
-            value={panelTab}
-            onValueChange={(value) => setPanelTab(value as GatewayPanelTab)}
-            className="flex flex-col gap-3"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-              <WorkspaceTabsList value={panelTab} className="min-w-0 flex-1">
-                <TabsTrigger value="calls" className="flex-none">
-                  {t("gatewayRequestsTitle")}
-                </TabsTrigger>
-                <TabsTrigger value="projection" className="flex-none">
-                  {t("gatewayProjectionTitle")}
-                </TabsTrigger>
-                <TabsTrigger value="table" className="flex-none">
-                  {t("gatewayFramesTabTable")}
-                </TabsTrigger>
-                <TabsTrigger value="graph" className="flex-none">
-                  {t("gatewayFramesTabGraph")}
-                </TabsTrigger>
-              </WorkspaceTabsList>
-              <div className="ml-auto flex shrink-0 items-center gap-2">
-                {status.data?.running ? (
-                  <Badge variant="default">{t("homeRunning")}</Badge>
-                ) : (
-                  <Badge variant="destructive">{t("gatewayStopped")}</Badge>
-                )}
+      <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
+        <Tabs
+          value={panelTab}
+          onValueChange={(value) => setPanelTab(value as GatewayPanelTab)}
+          className={WORKSPACE_TABS_CLASSNAME}
+        >
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <WorkspaceTabsList value={panelTab}>
+              <TabsTrigger value="calls" className="flex-none">
+                {t("gatewayRequestsTitle")}
+              </TabsTrigger>
+              <TabsTrigger value="projection" className="flex-none">
+                {t("gatewayProjectionTitle")}
+              </TabsTrigger>
+              <TabsTrigger value="table" className="flex-none">
+                {t("gatewayFramesTabTable")}
+              </TabsTrigger>
+            </WorkspaceTabsList>
+            <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {status.data?.running ? (
+                <Badge variant="default">{t("homeRunning")}</Badge>
+              ) : (
+                <Badge variant="destructive">{t("gatewayStopped")}</Badge>
+              )}
+              <Button
+                disabled={busy}
+                size="sm"
+                variant="outline"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <SettingsIcon data-icon="inline-start" />
+                {t("gatewaySettings")}
+              </Button>
+              {status.data?.running ? (
+                <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
+                  {t("gatewayStop")}
+                </Button>
+              ) : (
                 <Button
                   disabled={busy}
                   size="sm"
-                  variant="outline"
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => handleStart(launchOptions, false)}
                 >
-                  <SettingsIcon data-icon="inline-start" />
-                  {t("gatewaySettings")}
+                  {t("gatewayStart")}
                 </Button>
-                {status.data?.running ? (
-                  <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
-                    {t("gatewayStop")}
-                  </Button>
-                ) : (
-                  <Button
-                    disabled={busy}
-                    size="sm"
-                    onClick={() => handleStart(launchOptions, false)}
-                  >
-                    {t("gatewayStart")}
-                  </Button>
-                )}
+              )}
+            </div>
+          </div>
+
+          <TabsContent value="calls" className={tabContentClassName}>
+            <ScrollPane
+              className="min-h-0 flex-1"
+              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex flex-col gap-3 overflow-x-auto")}
+            >
+              <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
+                <span className="truncate">
+                  {t("gatewayUrl")}: {status.data?.url ?? "—"}
+                </span>
+                <span className="truncate">
+                  {t("clientsWired")}: {wiredLabels.length > 0 ? wiredLabels.join(", ") : "—"}
+                </span>
               </div>
-            </div>
-
-            <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
-              <span className="truncate">
-                {t("gatewayUrl")}: {status.data?.url ?? "—"}
-              </span>
-              <span className="truncate">
-                {t("clientsWired")}: {wiredLabels.length > 0 ? wiredLabels.join(", ") : "—"}
-              </span>
-            </div>
-            <CallFlowDiagram
-              labelById={labelById}
-              latest={records.length > 0 ? records[records.length - 1]! : null}
-              status={status.data ?? null}
-              wired={wired.data ?? []}
-            />
-
-            <TabsContent value="calls" className="mt-0 flex flex-col gap-2">
+              <CallFlowDiagram
+                labelById={labelById}
+                latest={records.length > 0 ? records[records.length - 1]! : null}
+                status={status.data ?? null}
+                wired={wired.data ?? []}
+              />
               {records.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
               ) : (
-                [...records].reverse().map((record) => (
-                  <FlowRow key={record.seq} record={record} />
-                ))
+                <div className="flex flex-col gap-2">
+                  {[...records].reverse().map((record) => (
+                    <FlowRow key={record.seq} record={record} />
+                  ))}
+                </div>
               )}
-            </TabsContent>
+            </ScrollPane>
+          </TabsContent>
 
-            <TabsContent value="projection" className="mt-0 flex flex-col gap-2">
+          <TabsContent value="projection" className={tabContentClassName}>
+            <ScrollPane
+              className="min-h-0 flex-1"
+              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex flex-col gap-2")}
+            >
               {!projection.data ||
               projection.data.mounts.every((mount) => mount.issues.length === 0) ? (
                 <p className="text-sm text-muted-foreground">{t("gatewayProjectionEmpty")}</p>
@@ -231,18 +250,21 @@ export function GatewayView() {
                     </div>
                   ))
               )}
-            </TabsContent>
+            </ScrollPane>
+          </TabsContent>
 
-            <TabsContent value="table" className="mt-0">
-              {panelTab === "table" ? <FrameStreamCard face="gateway" embedView="table" /> : null}
-            </TabsContent>
-
-            <TabsContent value="graph" className="mt-0">
-              {panelTab === "graph" ? <FrameStreamCard face="gateway" embedView="graph" /> : null}
-            </TabsContent>
-          </Tabs>
-        </PanelCard>
-      </ScrollPane>
+          <TabsContent value="table" className={tabContentClassName}>
+            {panelTab === "table" ? (
+              <FrameStreamCard
+                face="gateway"
+                embedView="table"
+                fill
+                onOpenSession={onOpenSession}
+              />
+            ) : null}
+          </TabsContent>
+        </Tabs>
+      </PanelCard>
     </>
   )
 }

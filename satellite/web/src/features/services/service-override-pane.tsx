@@ -52,6 +52,9 @@ export function ServiceOverridePane({
     await client.invalidateQueries({
       queryKey: queryKeys.instance({ service_name: serviceName, scope }),
     })
+    // List cards read display_name from /services/list enrichment — refresh those too.
+    await client.invalidateQueries({ queryKey: queryKeys.instances, exact: true })
+    await client.invalidateQueries({ queryKey: ["scopes"] })
   }
 
   async function save() {

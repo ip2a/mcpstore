@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::sync::RwLock as SyncRwLock;
 
-pub(crate) use crate::kv::models::OpenApiImportContextState;
-pub(crate) use crate::kv::KvLayerManager;
 pub(crate) use crate::config::{ConfigManager, ServerConfig, StartupPolicy};
 pub(crate) use crate::events::{Event, EventBus};
+pub(crate) use crate::kv::models::OpenApiImportContextState;
+pub(crate) use crate::kv::KvLayerManager;
 pub(crate) use crate::registry::{
     ConfigRevision, ServiceDefinition, ServiceInstance, ServiceRegistry,
 };
@@ -26,25 +26,25 @@ pub mod store_config;
 pub mod swap;
 mod tool_changes;
 pub(crate) use kernel::{
-    ControlPlane, EventLog, EventLogSnapshot, ExecutionEngine, PersistenceRouter,
-    RuntimeState, StoreKernel,
+    ControlPlane, EventLog, EventLogSnapshot, ExecutionEngine, PersistenceRouter, RuntimeState,
+    StoreKernel,
 };
 use runtime::StoreRuntimeConfig;
 
-pub use crate::agent::models::{ScopedServiceEntry, ScopedToolEntry};
+pub use crate::agent::models::{ScopedCatalogPage, ScopedServiceEntry, ScopedToolEntry};
 pub use crate::agent::tool_visibility::ToolVisibilityFilter;
-pub use crate::kv::models::KvHealthReport;
 pub use crate::events::EventCapabilityReport;
+pub use crate::kv::models::KvHealthReport;
 pub use crate::openapi::{
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{PanelRole, StoreOptions};
-pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreSpec};
-pub use store_config::ValkeyStoreConfig;
 #[cfg(unix)]
 pub use store_config::ShmStoreConfig;
+pub use store_config::ValkeyStoreConfig;
+pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreSpec};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
 pub(crate) mod prelude {
@@ -53,9 +53,9 @@ pub(crate) mod prelude {
     pub(crate) use crate::registry::{AgentInfo, ScopeSummary};
     pub(crate) use crate::store::payload::wrap_kv_item;
     pub(crate) use crate::store::{
-        KvHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
-        DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
-        OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
+        ConfigRevision, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, Error,
+        ErrorContext, Event, FailureCode, KvHealthReport, MCPStore, OpenApiImportContextState,
+        Result, ScopedCatalogPage, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
         ServiceDefinition, ServiceInstance, StartupPolicy, ToolChangeServiceResult,
         ToolChangeSummary,
     };
@@ -86,10 +86,7 @@ impl MCPStore {
             .clone()
             .unwrap_or_else(|| app_config.kv.namespace.clone());
         let mut store_config = options.store.clone().unwrap_or_else(|| {
-            JsonStoreConfig::new(
-                app_config.kv.store.as_str(),
-                app_config.kv.config.clone(),
-            )
+            JsonStoreConfig::new(app_config.kv.store.as_str(), app_config.kv.config.clone())
         });
         #[cfg(test)]
         let store_name = if store_config.store_name() == "memory-test-shared" {
@@ -433,7 +430,9 @@ impl MCPStore {
                 unsupported => {
                     return Err(Error::new(
                         FailureCode::Internal,
-                        format!("OpenKeyv store '{unsupported}' does not provide ChangeFeed support"),
+                        format!(
+                            "OpenKeyv store '{unsupported}' does not provide ChangeFeed support"
+                        ),
                     ));
                 }
             }

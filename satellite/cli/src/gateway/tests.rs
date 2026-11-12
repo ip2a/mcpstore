@@ -46,7 +46,12 @@ mod tests {
             instance_id: Some(instance_id),
             session_key: None,
             scope_label: "store".to_string(),
-            catalog: GatewayCatalog::blank(Arc::clone(&store), ScopeRef::Store, Some(instance_id), None),
+            catalog: GatewayCatalog::blank(
+                Arc::clone(&store),
+                ScopeRef::Store,
+                Some(instance_id),
+                None,
+            ),
             management: Arc::new(GatewayManagementTools::default()),
             caller: None,
             call_log: GatewayCallLog::new(),
@@ -166,7 +171,11 @@ mod tests {
         assert_eq!(
             resolve_projected_catalog_uri(&[resource], "uri", false, projected_resource_uri)
                 .unwrap(),
-            (instance_id, "fixture://docs/readme".to_string(), "docs service".to_string())
+            (
+                instance_id,
+                "fixture://docs/readme".to_string(),
+                "docs service".to_string()
+            )
         );
 
         let projected_template =
@@ -181,7 +190,11 @@ mod tests {
                 projected_template_uri,
             )
             .unwrap(),
-            (instance_id, "fixture://docs/{name}".to_string(), "docs service".to_string())
+            (
+                instance_id,
+                "fixture://docs/{name}".to_string(),
+                "docs service".to_string()
+            )
         );
     }
 
@@ -334,7 +347,10 @@ mod tests {
         assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo");
         assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo_2");
         assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo_3");
-        assert_eq!(exposed_tool_name("other", "echo", &mut taken), "other__echo");
+        assert_eq!(
+            exposed_tool_name("other", "echo", &mut taken),
+            "other__echo"
+        );
     }
 
     #[test]
@@ -378,8 +394,7 @@ mod tests {
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let router =
-            super::super::transport::streamable_http_router(server, "/mcp");
+        let router = super::super::transport::streamable_http_router(server, "/mcp");
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let client = reqwest::Client::new();
         let url = format!("http://{addr}/mcp");
@@ -418,7 +433,10 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), 200);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert!(body["result"]["tools"].is_array(), "bare tools/list failed: {body}");
+        assert!(
+            body["result"]["tools"].is_array(),
+            "bare tools/list failed: {body}"
+        );
 
         // Per-request inline version naming the negotiated revision (P0-1).
         let versioned = serde_json::json!({
@@ -533,10 +551,9 @@ mod tests {
             issues.first(),
             Some(ProjectionIssue::Down { service, .. }) if service == "dead"
         ));
-        assert!(issues.iter().any(|issue| matches!(
-            issue,
-            ProjectionIssue::SkippedTool { tool: None, .. }
-        )));
+        assert!(issues
+            .iter()
+            .any(|issue| matches!(issue, ProjectionIssue::SkippedTool { tool: None, .. })));
         assert!(issues.iter().any(|issue| matches!(
             issue,
             ProjectionIssue::SkippedTool { tool: Some(name), .. } if name == "no-canonical"
@@ -579,14 +596,10 @@ mod tests {
             scope: ScopeRef::Store,
             ..Default::default()
         };
-        let server = GatewayServer::from_store(
-            Arc::clone(&store),
-            &options,
-            None,
-            GatewayCallLog::new(),
-        )
-        .await
-        .expect("mount must build even when a service cannot connect");
+        let server =
+            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
+                .await
+                .expect("mount must build even when a service cannot connect");
 
         let projection = server.projection_handle();
         let projection = projection.lock().unwrap();
@@ -602,7 +615,10 @@ mod tests {
         use mcpstore::error::FailureCode;
 
         let error = mcpstore::Error::new(FailureCode::ServiceNotFound, "missing");
-        let mapped = map_store_error(mcpstore::Error::new(FailureCode::ServiceNotFound, "missing"));
+        let mapped = map_store_error(mcpstore::Error::new(
+            FailureCode::ServiceNotFound,
+            "missing",
+        ));
         let data = mapped
             .data
             .as_ref()
@@ -672,19 +688,14 @@ mod tests {
             instance_id: Some(instance_id),
             ..Default::default()
         };
-        let server = GatewayServer::from_store(
-            Arc::clone(&store),
-            &options,
-            None,
-            GatewayCallLog::new(),
-        )
-        .await
-        .expect("per-instance mount must build on a down service");
+        let server =
+            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
+                .await
+                .expect("per-instance mount must build on a down service");
         let catalog = server.catalog_handle();
         assert_eq!(catalog.rebuild_count(), 0);
 
-        let unrelated =
-            mcpstore::ServiceInstanceKey::new("other", ScopeRef::Store).instance_id();
+        let unrelated = mcpstore::ServiceInstanceKey::new("other", ScopeRef::Store).instance_id();
         store
             .event_bus()
             .publish(

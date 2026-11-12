@@ -57,9 +57,7 @@ impl MCPStore {
             deadline_unix_ms: (chrono::Utc::now() + CALL_DEADLINE).timestamp_millis(),
         })
         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        self.kv()
-            .put_entity(REQUESTS, &request_id, request)
-            .await?;
+        self.kv().put_entity(REQUESTS, &request_id, request).await?;
         // Total deadline, measured from the first request. Rebuilt subscriptions
         // must not reset it — a cutover would otherwise give the call 30 more
         // seconds every time it lands.
@@ -219,10 +217,8 @@ impl MCPStore {
         // to the 1s retry sleep.
         loop {
             let mut snapshot = self.event_log_snapshot().await?;
-            let collection = KvLayerManager::entity_collection_with_namespace(
-                &self.namespace(),
-                REQUESTS,
-            );
+            let collection =
+                KvLayerManager::entity_collection_with_namespace(&self.namespace(), REQUESTS);
             let mut subscription = snapshot
                 .log
                 .subscribe(ChangeFeedRequest {

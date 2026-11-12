@@ -50,6 +50,26 @@ impl MCPStore {
             })
     }
 
+    /// Instances of a read view: `All` = every registered instance (store ∪ all
+    /// agents, it is not an instance scope), store/agent delegate to the scope
+    /// listing. Sorted like `list_scope_instances`.
+    pub(crate) async fn list_view_instances(
+        &self,
+        view: &ScopeView,
+    ) -> Result<Vec<ServiceInstance>> {
+        self.refresh_from_db_if_needed().await?;
+        let mut instances = match view.as_scope_ref() {
+            Some(scope) => self.list_scope_instances(&scope).await?,
+            None => self.kernel.control.registry.list_instances().await,
+        };
+        instances.sort_by(|left, right| {
+            left.service_name
+                .cmp(&right.service_name)
+                .then_with(|| left.instance_id.cmp(&right.instance_id))
+        });
+        Ok(instances)
+    }
+
     /// Scope registry: root + store + each agent, each entry carrying its runtime service count (from the registry).
     /// Also includes agents from client-agent bindings even if they have no services yet.
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {

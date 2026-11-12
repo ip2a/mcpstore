@@ -197,7 +197,8 @@ impl MCPStore {
                             .await
                             .map(|instance| instance.service_name);
                         if let Some(service_name) = service_name.as_deref() {
-                            self.publish_override_changed(instance_id, service_name).await;
+                            self.publish_override_changed(instance_id, service_name)
+                                .await;
                         }
                     }
                     return Ok(());

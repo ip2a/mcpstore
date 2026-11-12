@@ -69,6 +69,27 @@ impl ServiceInstance {
     }
 }
 
+/// Payload-width selector for service list responses (`GET /services/list`).
+///
+/// Absent parameters always mean the legacy full payload. `summary` strips the
+/// two heavy fields (`tools`, `effective_config`) from each row; the include
+/// flags add individual heavy fields back for callers that need one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServiceListProjection {
+    pub summary: bool,
+    pub include_tools: bool,
+    pub include_config: bool,
+}
+
+impl ServiceListProjection {
+    /// Legacy full payload — the default and the wire contract.
+    pub const FULL: Self = Self {
+        summary: false,
+        include_tools: false,
+        include_config: false,
+    };
+}
+
 /// Scope registry entry (returned by `list_scopes` / `scope_info`).
 ///
 /// Scopes as first-class citizens: one entry per scope (root / store / agent),

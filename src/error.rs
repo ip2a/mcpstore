@@ -164,9 +164,10 @@ impl FailureCode {
 
     pub const fn category(self) -> FailureCategory {
         match self {
-            Self::InvalidInput | Self::ServiceNotFound | Self::RouteNotFound | Self::ConfigInvalid => {
-                FailureCategory::Config
-            }
+            Self::InvalidInput
+            | Self::ServiceNotFound
+            | Self::RouteNotFound
+            | Self::ConfigInvalid => FailureCategory::Config,
             Self::ConnectionUnsupported
             | Self::ConnectionSpawnFailed
             | Self::ConnectionRefused

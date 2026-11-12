@@ -3,64 +3,68 @@ import { toast } from "sonner"
 import type { UseQueryResult } from "@tanstack/react-query"
 
 import { useMcpRegistryScope } from "@/features/mcp-registry/use-mcp-registry-scope"
-import type { AgentItem, ServiceInstance } from "@/lib/api"
+import type { AgentItem, ScopeCatalogPage, ServiceInstance } from "@/lib/api"
 
 /**
- * Shared list engine for the tools/resources/prompts registries:
- * scope selection + per-instance queries + query filtering + reload.
+ * Shared list engine for the tools/resources/prompts registries: scope
+ * selection + ONE scope-catalog query (backend aggregation; entries carry
+ * their instance identity) + query filtering + reload. Per-instance tabs are
+ * filtered client-side — switching tabs never refetches.
  */
-export function useMcpRegistryEntries<T>({
+export function useMcpRegistryEntries<T extends { instance_id: string }>({
   agents,
   services,
-  useEntryQueries,
+  useScopeQuery,
   matchQuery,
   noun,
 }: {
   agents: AgentItem[]
   services: ServiceInstance[]
-  useEntryQueries: (instances: ServiceInstance[]) => UseQueryResult<T[], Error>[]
+  useScopeQuery: (
+    scope: "store" | "agent",
+    agentId: string,
+  ) => UseQueryResult<ScopeCatalogPage<T>, Error>
   matchQuery: (instance: ServiceInstance, entry: T, query: string) => boolean
   noun: string
 }) {
   const scopeState = useMcpRegistryScope({ agents, services })
-  const entryQueries = useEntryQueries(scopeState.selectedInstances)
+  const entryQuery = useScopeQuery(scopeState.scope, scopeState.agentId)
+  const instanceById = useMemo(
+    () => new Map(scopeState.scopeInstances.map((instance) => [instance.instance_id, instance])),
+    [scopeState.scopeInstances],
+  )
   const entries = useMemo(
     () =>
-      entryQueries.flatMap((result, index) =>
-        (result.data || []).map((entry) => ({
-          instance: scopeState.selectedInstances[index],
-          entry,
-        })),
-      ),
-    [entryQueries, scopeState.selectedInstances],
+      (entryQuery.data?.entries || []).flatMap((entry) => {
+        const instance = instanceById.get(entry.instance_id)
+        return instance ? [{ instance, entry }] : []
+      }),
+    [entryQuery.data, instanceById],
   )
 
-  // Only show error if the service list query itself failed.
-  // Individual instance failures surface as a count (their listings can fail
-  // for good reasons — disconnected service, OAuth pending) so a silent
-  // partial catalog is at least visible.
-  const queryError = scopeState.agentServicesQuery.error
-  const failedInstanceCount = entryQueries.filter((result) => result.error).length
-
-  const errorMessage =
-    queryError instanceof Error
+  // Only show error if the catalog query or the service list itself failed.
+  // Instances the backend skipped surface as a count (their listings can fail
+  // for good reasons — disconnected service, OAuth pending) so a partial
+  // catalog is at least visible.
+  const queryError = entryQuery.error ?? scopeState.agentServicesQuery.error
+  const failedInstanceCount = entryQuery.data?.skippedInstances ?? 0
+  const errorMessage = queryError
+    ? queryError instanceof Error
       ? queryError.message
-      : queryError
-        ? String(queryError)
-        : failedInstanceCount > 0
-          ? `${failedInstanceCount} instance(s) failed to list ${noun}`
-          : `Failed to load ${noun}`
-  const loading =
-    scopeState.agentServicesQuery.isFetching || entryQueries.some((result) => result.isFetching)
+      : String(queryError)
+    : `Failed to load ${noun}`
+  const loading = entryQuery.isFetching || scopeState.agentServicesQuery.isFetching
 
   async function reload() {
     try {
-      if (scopeState.scope === "agent") {
-        const result = await scopeState.agentServicesQuery.refetch()
-        if (result.error) throw result.error
-      }
-      // Refetch all entry queries, catching individual errors
-      await Promise.allSettled(entryQueries.map((result) => result.refetch()))
+      const results = await Promise.allSettled([
+        scopeState.agentServicesQuery.refetch(),
+        entryQuery.refetch(),
+      ])
+      const rejected = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      )
+      if (rejected) throw rejected.reason
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Failed to load ${noun}`)
     }

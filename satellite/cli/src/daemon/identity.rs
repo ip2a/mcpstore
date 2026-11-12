@@ -6,7 +6,7 @@ use rand::RngCore;
 const DAEMON_ID_FILENAME: &str = "daemon-id";
 
 /// Generate a unique daemon identifier (学 Paseo server-id).
-/// Format: `d_` + 9 bytes base64url = 12 chars total
+/// Format: `d_` + 9 bytes base64url (12 chars) = 14 chars total
 fn generate_daemon_id() -> String {
     let mut bytes = [0u8; 9];
     rand::thread_rng().fill_bytes(&mut bytes);
@@ -116,20 +116,32 @@ mod tests {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        env::temp_dir().join(format!("daemon-id-{}-{}-{}", tag, std::process::id(), nanos))
+        env::temp_dir().join(format!(
+            "daemon-id-{}-{}-{}",
+            tag,
+            std::process::id(),
+            nanos
+        ))
     }
 
+    /// `get_or_create_daemon_id` reads the process env; sibling tests that mutate
+    /// `MCPSTORE_DAEMON_ID` race with these tests under parallel execution.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
-    fn generates_12_char_id() {
+    fn generates_14_char_id() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = temp_dir("generate");
         let id = get_or_create_daemon_id(&dir).unwrap();
-        assert_eq!(id.len(), 12);
+        // `d_` + 9 bytes base64url = 2 + 12 = 14 chars total
+        assert_eq!(id.len(), 14);
         assert!(id.starts_with("d_"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn persists_and_reuses_id() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = temp_dir("persist");
         let id1 = get_or_create_daemon_id(&dir).unwrap();
         let id2 = get_or_create_daemon_id(&dir).unwrap();
@@ -139,6 +151,7 @@ mod tests {
 
     #[test]
     fn env_override_is_persisted() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = temp_dir("env");
         env::set_var("MCPSTORE_DAEMON_ID", "d_test123456");
         let id = get_or_create_daemon_id(&dir).unwrap();

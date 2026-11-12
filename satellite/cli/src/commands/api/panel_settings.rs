@@ -117,7 +117,12 @@ fn is_loopback_http_url(url: &str) -> bool {
     let host = rest
         .split(['/', '?', '#'])
         .next()
-        .and_then(|authority| authority.rsplit_once(':').map(|(host, _)| host).or(Some(authority)))
+        .and_then(|authority| {
+            authority
+                .rsplit_once(':')
+                .map(|(host, _)| host)
+                .or(Some(authority))
+        })
         .unwrap_or("")
         .trim_start_matches('[')
         .trim_end_matches(']')
@@ -143,10 +148,9 @@ fn align_local_entry(manager: &ConfigManager, mut hosts: HostsConfig) -> HostsCo
     if is_default {
         let url = aligned_local_url(manager);
         if url != generated_default {
-            hosts.entries.insert(
-                "local".to_string(),
-                HostEntry { urls: vec![url] },
-            );
+            hosts
+                .entries
+                .insert("local".to_string(), HostEntry { urls: vec![url] });
         }
     }
     hosts
@@ -424,4 +428,3 @@ mod tests {
         assert!(normalize_language("fr").is_err());
     }
 }
-

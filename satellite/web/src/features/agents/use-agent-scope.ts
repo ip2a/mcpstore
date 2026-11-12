@@ -2,21 +2,27 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { useScopeServicesQuery } from "@/features/agents/queries"
-import { useInstanceToolsQueries } from "@/features/tools/queries"
 import type { ServiceInstance, ScopeView } from "@/lib/api"
 
 export type SelectedScope = ScopeView
 
 export function useAgentScope({
-  busy,
   selectedScope,
   services,
 }: {
-  busy: string | null
   selectedScope: ScopeView
   services: ServiceInstance[]
 }) {
-  const scopeServicesQuery = useScopeServicesQuery(selectedScope)
+  // Single authority for the grid: one list?scope=… query, with light status polling.
+  const scopeServicesQuery = useScopeServicesQuery(selectedScope, {
+    refetchInterval: (query) => {
+      const rows = query.state.data || []
+      const transitioning = rows.some(
+        (service) => service.state?.phase === "starting" || service.state?.phase === "stopping",
+      )
+      return transitioning ? 3_000 : 15_000
+    },
+  })
   const scopeServices = scopeServicesQuery.data || []
 
   // Services that can join an agent scope = declared in the store but not yet present under that agent.
@@ -38,31 +44,14 @@ export function useAgentScope({
   }, [scopeServices, selectedScope, storeServiceNames])
   const [scopeServiceName, setScopeServiceName] = useState("")
 
-  const scopeToolQueries = useInstanceToolsQueries(scopeServices, "available")
-  const scopeTools = useMemo(
-    () =>
-      scopeToolQueries.flatMap((result, index) =>
-        (result.data || []).map((tool) => ({ instance: scopeServices[index], tool })),
-      ),
-    [scopeServices, scopeToolQueries],
-  )
-
   const scopeServicesError = scopeServicesQuery.error
-  const scopeToolsError = scopeToolQueries.find((result) => result.error)?.error || null
   const scopeServicesErrorMessage =
     scopeServicesError instanceof Error
       ? scopeServicesError.message
       : scopeServicesError
         ? String(scopeServicesError)
         : "Failed to load scope services"
-  const scopeToolsErrorMessage =
-    scopeToolsError instanceof Error
-      ? scopeToolsError.message
-      : scopeToolsError
-        ? String(scopeToolsError)
-        : "Failed to load scope tools"
   const loadingScopeServices = scopeServicesQuery.isFetching
-  const loadingScopeTools = scopeToolQueries.some((result) => result.isFetching)
 
   useEffect(() => {
     if (!scopeServiceName || !addableServiceNames.includes(scopeServiceName)) {
@@ -74,32 +63,20 @@ export function useAgentScope({
     try {
       const servicesResult = await scopeServicesQuery.refetch()
       if (servicesResult.error) throw servicesResult.error
-      const toolResults = await Promise.all(scopeToolQueries.map((result) => result.refetch()))
-      const failed = toolResults.find((result) => result.error)
-      if (failed?.error) throw failed.error
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load scope")
     }
   }
-
-  useEffect(() => {
-    void loadAgentScope()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedScope, busy])
 
   return {
     activeAgentId: selectedScope.type === "agent" ? selectedScope.agent_id : "",
     addableServiceNames,
     loadAgentScope,
     loadingScopeServices,
-    loadingScopeTools,
     scopeServiceName,
     scopeServices,
     scopeServicesError,
     scopeServicesErrorMessage,
-    scopeTools,
-    scopeToolsError,
-    scopeToolsErrorMessage,
     setScopeServiceName,
   }
 }

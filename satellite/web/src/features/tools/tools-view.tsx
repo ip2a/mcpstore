@@ -19,10 +19,7 @@ import {
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import {
-  ToolsFilterDialog,
-  type ToolSortBy,
-} from "@/features/tools/tools-filter-dialog"
+import { ToolsFilterDialog, type ToolSortBy } from "@/features/tools/tools-filter-dialog"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, ServiceInstance, ToolInfo } from "@/lib/api"
@@ -123,11 +120,7 @@ export function ToolsView(props: {
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
-        <Tabs
-          value={instanceId}
-          onValueChange={setInstanceId}
-          className={WORKSPACE_TABS_CLASSNAME}
-        >
+        <Tabs value={instanceId} onValueChange={setInstanceId} className={WORKSPACE_TABS_CLASSNAME}>
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
             <WorkspaceTabsList value={instanceId}>
               {serviceTabs.map((tab) => (
