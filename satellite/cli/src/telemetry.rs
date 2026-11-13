@@ -123,6 +123,12 @@ pub struct FrameSessionSummary {
     pub caller: Option<String>,
     pub peer: Option<String>,
     pub instance_id: Option<String>,
+    /// Filled by the API from the live service catalog (`instance_id` lookup).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    /// Filled by the API: `"store"` or the agent id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     pub first_ts_unix_ms: i64,
     pub last_ts_unix_ms: i64,
     pub frame_count: i64,
@@ -584,6 +590,8 @@ impl TelemetryLog {
                 caller: row.get(2)?,
                 peer: row.get(3)?,
                 instance_id: row.get(4)?,
+                service_name: None,
+                scope: None,
                 first_ts_unix_ms: row.get(5)?,
                 last_ts_unix_ms: row.get(6)?,
                 frame_count: row.get(7)?,

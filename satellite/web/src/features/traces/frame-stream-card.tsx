@@ -1,12 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { WORKSPACE_TOOLBAR_CLASSNAME } from "@/components/shared/workspace-toolbar"
 import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
@@ -25,6 +27,15 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  FramesFilterDialog,
+  type FrameSessionSortBy,
+} from "@/features/traces/frames-filter-dialog"
 import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -34,8 +45,6 @@ type FrameFace = FrameSessionSummary["face"]
 type FrameViewMode = "table" | "history" | "kv"
 
 const PAGE_SIZES = [10, 20, 50] as const
-
-const CELL_TEXT = "text-xs tabular-nums"
 
 function formatByteSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
@@ -61,15 +70,57 @@ function formatClock(date: Date): string {
   })
 }
 
-function formatDay(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
+function collectScopes(sessions: FrameSessionSummary[]): string[] {
+  const seen = new Set<string>()
+  for (const session of sessions) {
+    if (session.scope) seen.add(session.scope)
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b))
 }
 
-/** One date shown once; cross-day end timestamp renders in red. */
+function filterAndSortSessions(
+  sessions: FrameSessionSummary[],
+  query: string,
+  scopeFilter: string,
+  sortBy: FrameSessionSortBy | null,
+): FrameSessionSummary[] {
+  const needle = query.trim().toLowerCase()
+  let next = sessions.filter((session) => {
+    if (scopeFilter !== "all" && session.scope !== scopeFilter) return false
+    if (!needle) return true
+    const haystack = [
+      session.session_id,
+      session.service_name,
+      session.scope,
+      session.peer,
+      session.caller,
+      session.instance_id,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+    return haystack.includes(needle)
+  })
+  if (sortBy) {
+    next = [...next].sort((a, b) => {
+      switch (sortBy) {
+        case "time":
+          return b.last_ts_unix_ms - a.last_ts_unix_ms
+        case "frames":
+          return b.frame_count - a.frame_count
+        case "request":
+          return b.request_bytes - a.request_bytes
+        case "response":
+          return b.response_bytes - a.response_bytes
+        case "service":
+          return (a.service_name ?? "").localeCompare(b.service_name ?? "")
+      }
+    })
+  }
+  return next
+}
+
+/** Clock times in cell; full date+time in tooltip. Cross-day end renders in red. */
 function SessionActiveRange({
   firstMs,
   lastMs,
@@ -79,21 +130,25 @@ function SessionActiveRange({
 }) {
   const first = new Date(firstMs)
   const last = new Date(lastMs)
-  const start = `${formatDay(first)} ${formatClock(first)}`
-  if (sameLocalDay(first, last)) {
-    return (
-      <span title={`${first.toLocaleString()} – ${last.toLocaleString()}`}>
-        {start} – {formatClock(last)}
-      </span>
-    )
-  }
+  const fullRange = `${first.toLocaleString()} – ${last.toLocaleString()}`
+  const crossDay = !sameLocalDay(first, last)
+
   return (
-    <span title={`${first.toLocaleString()} – ${last.toLocaleString()}`}>
-      {start} –{" "}
-      <span className="text-destructive">
-        {formatDay(last)} {formatClock(last)}
-      </span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-default">
+          {formatClock(first)} –{" "}
+          {crossDay ? (
+            <span className="text-destructive">{formatClock(last)}</span>
+          ) : (
+            formatClock(last)
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6}>
+        {fullRange}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -124,6 +179,9 @@ export function FrameStreamCard(props: {
   )
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
+  const [query, setQuery] = useState("")
+  const [scopeFilter, setScopeFilter] = useState("all")
+  const [sortBy, setSortBy] = useState<FrameSessionSortBy | null>(null)
 
   useEffect(() => {
     if (props.embedView) {
@@ -150,8 +208,14 @@ export function FrameStreamCard(props: {
   const kvFetching = kvHealthFetching + kvInspectFetching > 0
 
   const items = sessions.data?.sessions ?? []
+  const scopes = useMemo(() => collectScopes(items), [items])
+  const visibleItems = useMemo(
+    () => filterAndSortSessions(items, query, scopeFilter, sortBy),
+    [items, query, scopeFilter, sortBy],
+  )
   const total = sessions.data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const activeFilterCount = scopeFilter !== "all" ? 1 : 0
   const emptyKey: I18nKey =
     props.face === "gateway" ? "gatewayFramesEmptyGateway" : "gatewayFramesEmptyUpstream"
 
@@ -175,6 +239,16 @@ export function FrameStreamCard(props: {
 
   function changePageSize(value: string) {
     setPageSize(Number(value) as (typeof PAGE_SIZES)[number])
+    setPage(0)
+  }
+
+  function changeQuery(value: string) {
+    setQuery(value)
+    setPage(0)
+  }
+
+  function changeScopeFilter(value: string) {
+    setScopeFilter(value)
     setPage(0)
   }
 
@@ -243,58 +317,63 @@ export function FrameStreamCard(props: {
               "min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
           )}
         >
-          <Table className="w-full table-fixed">
-            <colgroup>
-              <col className="w-[5.5rem]" />
-              <col className="w-[19rem]" />
-              <col className="w-[4.5rem]" />
-              <col className="w-[4.5rem]" />
-              <col className="w-[3.5rem]" />
-              {props.onOpenSession ? <col className="w-[3.25rem]" /> : null}
-              <col />
-            </colgroup>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>{t("gatewayFramesColSession")}</TableHead>
+                <TableHead>{t("gatewayFramesColTags")}</TableHead>
                 <TableHead>{t("gatewayFramesColTime")}</TableHead>
-                <TableHead className="text-right">{t("gatewayFramesColRequest")}</TableHead>
-                <TableHead className="text-right">{t("gatewayFramesColResponse")}</TableHead>
-                <TableHead className="text-right">{t("gatewayFramesColCount")}</TableHead>
+                <TableHead>{t("gatewayFramesColRequest")}</TableHead>
+                <TableHead>{t("gatewayFramesColResponse")}</TableHead>
+                <TableHead>{t("gatewayFramesColCount")}</TableHead>
                 {props.onOpenSession ? (
-                  <TableHead className="text-right">{t("gatewayFramesColActions")}</TableHead>
+                  <TableHead>{t("gatewayFramesColActions")}</TableHead>
                 ) : null}
-                <TableHead aria-hidden className="p-0" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((session) => (
+              {visibleItems.map((session) => (
                 <TableRow key={session.session_id}>
-                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap")} title={session.session_id}>
+                  <TableCell className="font-mono text-xs" title={session.session_id}>
                     {session.session_id.slice(0, 8)}
                   </TableCell>
-                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap")}>
+                  <TableCell>
+                    {session.service_name || session.scope ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {session.service_name ? (
+                          <Badge variant="secondary">{session.service_name}</Badge>
+                        ) : null}
+                        {session.scope ? (
+                          <Badge variant="outline">{session.scope}</Badge>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs tabular-nums text-muted-foreground">
                     <SessionActiveRange
                       firstMs={session.first_ts_unix_ms}
                       lastMs={session.last_ts_unix_ms}
                     />
                   </TableCell>
                   <TableCell
-                    className={cn(CELL_TEXT, "whitespace-nowrap text-right")}
+                    className="text-xs tabular-nums"
                     title={`${session.request_bytes} B`}
                   >
                     {formatByteSize(session.request_bytes)}
                   </TableCell>
                   <TableCell
-                    className={cn(CELL_TEXT, "whitespace-nowrap text-right")}
+                    className="text-xs tabular-nums"
                     title={`${session.response_bytes} B`}
                   >
                     {formatByteSize(session.response_bytes)}
                   </TableCell>
-                  <TableCell className={cn(CELL_TEXT, "whitespace-nowrap text-right")}>
+                  <TableCell className="text-xs tabular-nums">
                     {session.frame_count}
                   </TableCell>
                   {props.onOpenSession ? (
-                    <TableCell className="whitespace-nowrap text-right">
+                    <TableCell>
                       <Button
                         size="sm"
                         variant="link"
@@ -305,7 +384,6 @@ export function FrameStreamCard(props: {
                       </Button>
                     </TableCell>
                   ) : null}
-                  <TableCell aria-hidden className="p-0" />
                 </TableRow>
               ))}
             </TableBody>
@@ -315,11 +393,31 @@ export function FrameStreamCard(props: {
       </>
     )
 
-  const refreshButton = (
-    <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
-      <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
-      {t("refresh")}
-    </Button>
+  const toolbarActions = (
+    <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+      {view === "table" ? (
+        <>
+          <UiverseSearchInput
+            id="frame-session-list-search"
+            placeholder={t("searchSessions")}
+            value={query}
+            onChange={changeQuery}
+          />
+          <FramesFilterDialog
+            activeFilterCount={activeFilterCount}
+            onScopeFilterChange={changeScopeFilter}
+            onSort={setSortBy}
+            scopeFilter={scopeFilter}
+            scopes={scopes}
+            sortBy={sortBy}
+          />
+        </>
+      ) : null}
+      <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
+        {t("refresh")}
+      </Button>
+    </div>
   )
 
   const body =
@@ -343,10 +441,10 @@ export function FrameStreamCard(props: {
           <div
             className={cn(
               "flex justify-end",
-              fill ? "shrink-0 px-4 py-2" : undefined,
+              fill ? "shrink-0 border-b px-4 py-2" : undefined,
             )}
           >
-            {refreshButton}
+            {toolbarActions}
           </div>
           <div className={cn(fill && "flex min-h-0 flex-1 flex-col overflow-hidden")}>
             {body}
@@ -387,7 +485,7 @@ export function FrameStreamCard(props: {
                   </TabsTrigger>
                 ) : null}
               </WorkspaceTabsList>
-              <div className="ml-auto flex shrink-0 items-center gap-2">{refreshButton}</div>
+              {toolbarActions}
             </div>
 
             <TabsContent value="table" className={tabContentClassName}>

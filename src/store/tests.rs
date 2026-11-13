@@ -1181,6 +1181,67 @@ async fn db_source_hydrates_definition_instance_tools_and_status() {
     std::fs::remove_file(source_path).ok();
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn reconcile_load_tolerates_concurrent_tool_projection_writes() {
+    // Boot-connect-storm torn read, kept as a regression: load_from_db used to
+    // read tool entities before instance_tools relations, so a fresh relation
+    // landing between the two scans failed the whole rebuild with
+    // "references missing tool" — freezing the read view on the last-good
+    // snapshot while every referenced tool existed. The reader must snapshot
+    // the pointer (relation) before the pointee (tool entities); this hammers
+    // both sides concurrently and fails on any torn rebuild.
+    let _shared_store = super::shared_store_test_guard().lock().await;
+    let store = std::sync::Arc::new(
+        MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            store: Some(JsonStoreConfig::shared_memory()),
+            namespace: Some(format!("reconcile-order-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
+        })
+        .unwrap(),
+    );
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let instance_id = store_instance_id("svc");
+
+    let writer = {
+        let store = std::sync::Arc::clone(&store);
+        tokio::spawn(async move {
+            for round in 0..60u32 {
+                let tools: Vec<crate::registry::ToolInfo> = (0..4)
+                    .map(|i| {
+                        let name = format!("t{round}-{i}");
+                        crate::registry::ToolInfo {
+                            name: name.clone(),
+                            title: None,
+                            description: format!("{name} description"),
+                            input_schema: serde_json::json!({"type": "object"}),
+                            output_schema: None,
+                            annotations: None,
+                            icons: None,
+                            meta: None,
+                        }
+                    })
+                    .collect();
+                store
+                    .upsert_instance_tools_projection(instance_id, &tools)
+                    .await
+                    .unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            }
+        })
+    };
+    let mut loads = 0u32;
+    while !writer.is_finished() {
+        store
+            .load_from_db()
+            .await
+            .expect("load_from_db must stay consistent while tool projections are written");
+        loads += 1;
+    }
+    writer.await.unwrap();
+    assert!(loads > 5, "reader should loop while the writer runs (loads={loads})");
+}
+
 #[tokio::test]
 async fn registry_change_feed_converges_remote_kv_write() {
     // Dual-panel scenario in one process: two registries over the same shared

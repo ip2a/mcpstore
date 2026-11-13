@@ -16,17 +16,22 @@ impl MCPStore {
         // readers stay lock-free — swap_all is their atomicity barrier.
         let _guard = self.kernel.control.refresh_mutex.lock().await;
 
-        let definition_values = self
+        // Read pointer collections before the collections they point at. The
+        // writers land a relation only after its tool entities, and an
+        // instance only after its definition ("pointer last"), so a reader
+        // that snapshots the pointer first and the pointee second sees a
+        // pointee snapshot at least as new as its pointer snapshot. The
+        // reverse order (pointee first) tore during boot connect storms: the
+        // entity scan finished before a fresh relation landed, and the
+        // relation-vs-entity validation then failed the whole rebuild
+        // ("references missing tool"), freezing the read view on the
+        // last-good snapshot while every referenced tool existed. Reads are
+        // separate KV calls — only this ordering gives them a consistent cut.
+        let tool_relation_values = self
             .kernel
             .persistence
             .kv
-            .get_all_entities_async("service_definitions")
-            .await?;
-        let instance_values = self
-            .kernel
-            .persistence
-            .kv
-            .get_all_entities_async("service_instances")
+            .get_all_relations_async("instance_tools")
             .await?;
         let tool_values = self
             .kernel
@@ -34,11 +39,17 @@ impl MCPStore {
             .kv
             .get_all_entities_async("tools")
             .await?;
-        let tool_relation_values = self
+        let instance_values = self
             .kernel
             .persistence
             .kv
-            .get_all_relations_async("instance_tools")
+            .get_all_entities_async("service_instances")
+            .await?;
+        let definition_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("service_definitions")
             .await?;
 
         let mut definitions = HashMap::with_capacity(definition_values.len());

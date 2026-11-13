@@ -184,37 +184,11 @@ pub(super) async fn frame_activity_by_service(
         .frame_activity_by_service(hours, bucket_ms)
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
 
-    let instances = state
-        .store
-        .list_services_viewed(&mcpstore::identity::ScopeView::All)
-        .await
-        .map_err(ApiError::from_store)?;
-    let mut labels = std::collections::HashMap::new();
-    for value in instances {
-        let Some(id) = value.get("instance_id").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let name = value
-            .get("service_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let scope = value.get("scope");
-        let label = match scope.and_then(|s| s.get("type")).and_then(|t| t.as_str()) {
-            Some("agent") => format!(
-                "{}/{name}",
-                scope
-                    .and_then(|s| s.get("agent_id"))
-                    .and_then(|a| a.as_str())
-                    .unwrap_or("agent")
-            ),
-            _ => format!("store/{name}"),
-        };
-        labels.insert(id.to_string(), label);
-    }
+    let labels = instance_service_labels(&state).await?;
     for point in &mut stats {
         if let Some(id) = &point.instance_id {
-            if let Some(label) = labels.get(id) {
-                point.service = label.clone();
+            if let Some((name, scope)) = labels.get(id) {
+                point.service = format!("{scope}/{name}");
             }
         }
     }
@@ -261,12 +235,13 @@ pub(super) struct FrameSessionsQuery {
 
 /// GET /gateway/frames/sessions — sessions with recorded frames, newest first.
 /// Supports `face` / `hours` filters and `limit` / `offset` pagination in SQL.
+/// Upstream sessions get `service_name` + `scope` from the live catalog via `instance_id`.
 pub(super) async fn frame_sessions(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<FrameSessionsQuery>,
 ) -> ApiResult {
     let telemetry = require_telemetry(&state)?;
-    let page = telemetry
+    let mut page = telemetry
         .frame_sessions(
             query.face.as_deref(),
             query.hours.unwrap_or(24),
@@ -274,10 +249,56 @@ pub(super) async fn frame_sessions(
             query.offset.unwrap_or(0),
         )
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+
+    let labels = instance_service_labels(&state).await?;
+    for session in &mut page.sessions {
+        let Some(id) = session.instance_id.as_deref() else {
+            continue;
+        };
+        if let Some((service_name, scope)) = labels.get(id) {
+            session.service_name = Some(service_name.clone());
+            session.scope = Some(scope.clone());
+        }
+    }
+
     Ok(success(
         "Frame sessions retrieved successfully",
         serde_json::to_value(page).unwrap_or(Value::Null),
     ))
+}
+
+/// `instance_id` → `(service_name, scope_label)` from the live catalog.
+/// `scope_label` is `"store"` or the agent id.
+async fn instance_service_labels(
+    state: &ApiState,
+) -> Result<std::collections::HashMap<String, (String, String)>, ApiError> {
+    let instances = state
+        .store
+        .list_services_viewed(&mcpstore::identity::ScopeView::All)
+        .await
+        .map_err(ApiError::from_store)?;
+    let mut labels = std::collections::HashMap::new();
+    for value in instances {
+        let Some(id) = value.get("instance_id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let name = value
+            .get("service_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let scope = value.get("scope");
+        let scope_label = match scope.and_then(|s| s.get("type")).and_then(|t| t.as_str()) {
+            Some("agent") => scope
+                .and_then(|s| s.get("agent_id"))
+                .and_then(|a| a.as_str())
+                .unwrap_or("agent")
+                .to_string(),
+            _ => "store".to_string(),
+        };
+        labels.insert(id.to_string(), (name, scope_label));
+    }
+    Ok(labels)
 }
 
 #[derive(Deserialize)]

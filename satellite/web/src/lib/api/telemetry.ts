@@ -135,6 +135,10 @@ export type FrameSessionSummary = {
   caller: string | null
   peer: string | null
   instance_id: string | null
+  /** Resolved from live catalog via `instance_id` (upstream only). */
+  service_name?: string | null
+  /** `"store"` or agent id; resolved with `service_name`. */
+  scope?: string | null
   first_ts_unix_ms: number
   last_ts_unix_ms: number
   frame_count: number

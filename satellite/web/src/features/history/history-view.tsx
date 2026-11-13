@@ -4,7 +4,13 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -20,12 +26,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 import { getRequestHistory, type RequestRecord } from "@/lib/api"
 
 const PAGE_SIZES = [10, 20, 50] as const
+
+function formatClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
 
 /** Request-history table body for embedding (e.g. Traces tabs). */
 export function HistoryPanel() {
@@ -105,49 +126,66 @@ export function HistoryPanel() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("gatewayHistoryColTime")}</TableHead>
-                  <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
                   <TableHead>{t("gatewayHistoryColTarget")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
                   <TableHead>{t("gatewayHistoryColKind")}</TableHead>
                   <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
-                  <TableHead className="text-right">{t("gatewayHistoryColDuration")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColDuration")}</TableHead>
+                  <TableHead>{t("gatewayFramesColActions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {records.map((record) => (
-                  <TableRow
-                    key={record.id}
-                    className="cursor-pointer"
-                    onClick={() => setActive(record)}
-                  >
-                    <TableCell className="whitespace-nowrap tabular-nums text-xs text-muted-foreground">
-                      {new Date(record.started_at_unix_ms).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="max-w-[140px] truncate font-mono text-xs">
-                      {record.caller ?? t("gatewayCallDirect")}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-[280px] truncate font-mono text-xs"
-                      title={targetLabel(record)}
-                    >
-                      {targetLabel(record)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
+                {records.map((record) => {
+                  const fullTime = new Date(record.started_at_unix_ms).toLocaleString()
+                  return (
+                    <TableRow key={record.id}>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">
+                              {formatClock(record.started_at_unix_ms)}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={6}>
+                            {fullTime}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell
+                        className="max-w-[280px] truncate font-mono text-xs"
+                        title={targetLabel(record)}
+                      >
+                        {targetLabel(record)}
+                      </TableCell>
+                      <TableCell className="max-w-[140px] truncate font-mono text-xs">
+                        {record.caller ?? t("gatewayCallDirect")}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
                         {record.kind === "tool"
                           ? t("gatewayKindTool")
                           : t("gatewayKindManagement")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={record.success ? "secondary" : "destructive"}>
-                        {record.success ? "OK" : "ERR"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {record.duration_ms}ms
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={record.success ? "secondary" : "destructive"}>
+                          {record.success ? "OK" : "ERR"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        {record.duration_ms}ms
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="link"
+                          className="h-auto px-0 text-xs underline"
+                          onClick={() => setActive(record)}
+                        >
+                          {t("detail")}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -172,6 +210,131 @@ function targetLabel(record: RequestRecord): string {
   return record.tool ?? "—"
 }
 
+/** Full CLI argv from audit payload; `tool` is capped at 200 chars for list display. */
+function argvFromArgs(argsJson: string | null): string[] | null {
+  if (!argsJson) return null
+  try {
+    const parsed = JSON.parse(argsJson) as { argv?: unknown }
+    if (
+      Array.isArray(parsed.argv) &&
+      parsed.argv.length > 0 &&
+      parsed.argv.every((item) => typeof item === "string")
+    ) {
+      return parsed.argv as string[]
+    }
+  } catch {
+    // non-JSON / unexpected shape
+  }
+  return null
+}
+
+function detailTargetTokens(record: RequestRecord): string[] | null {
+  if (record.kind === "tool") return null
+  const argv = argvFromArgs(record.args_json)
+  return argv ? ["cli", ...argv] : null
+}
+
+function detailTargetLabel(record: RequestRecord): string {
+  const tokens = detailTargetTokens(record)
+  if (tokens) return tokens.join(" ")
+  return targetLabel(record)
+}
+
+/** Short verb-like token (binary / subcommand), not uuid/path/value. */
+function isCommandWord(token: string): boolean {
+  return /^[A-Za-z][\w-]*$/.test(token) && token.length <= 32 && !token.includes("/")
+}
+
+function looksLikeCommand(text: string): boolean {
+  return /\s--?[A-Za-z]/.test(text) || /^(cli|mcpstore)\b/i.test(text.trim())
+}
+
+function splitCommandTokens(input: string): string[] {
+  return input.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []
+}
+
+type CommandPart =
+  | { kind: "head"; text: string }
+  | { kind: "positional"; text: string }
+  | { kind: "flag"; flag: string; value?: string }
+
+function parseCommandPartsFromTokens(tokens: string[]): CommandPart[] {
+  if (tokens.length === 0) return []
+
+  const parts: CommandPart[] = []
+  let i = 0
+  const head: string[] = []
+  while (i < tokens.length && !tokens[i]!.startsWith("-") && isCommandWord(tokens[i]!)) {
+    head.push(tokens[i]!)
+    i += 1
+  }
+  if (head.length > 0) parts.push({ kind: "head", text: head.join(" ") })
+
+  while (i < tokens.length) {
+    const tok = tokens[i]!
+    if (tok.startsWith("-")) {
+      const eq = tok.match(/^([^=]+)=(.*)$/)
+      if (eq) {
+        parts.push({ kind: "flag", flag: eq[1]!, value: eq[2] })
+        i += 1
+        continue
+      }
+      const next = tokens[i + 1]
+      if (next && !next.startsWith("-")) {
+        parts.push({ kind: "flag", flag: tok, value: next })
+        i += 2
+      } else {
+        parts.push({ kind: "flag", flag: tok })
+        i += 1
+      }
+      continue
+    }
+    parts.push({ kind: "positional", text: tok })
+    i += 1
+  }
+  return parts
+}
+
+function FormattedTarget({ text, tokens }: { text: string; tokens?: string[] | null }) {
+  const parts =
+    tokens && tokens.length > 0
+      ? parseCommandPartsFromTokens(tokens)
+      : looksLikeCommand(text)
+        ? parseCommandPartsFromTokens(splitCommandTokens(text))
+        : []
+  if (parts.length <= 1) {
+    return <span className="break-all font-mono text-xs">{text}</span>
+  }
+  return (
+    <div className="flex flex-col gap-1 font-mono text-xs">
+      {parts.map((part, index) => {
+        if (part.kind === "head") {
+          return (
+            <div key={index} className="font-medium text-foreground">
+              {part.text}
+            </div>
+          )
+        }
+        if (part.kind === "positional") {
+          return (
+            <div key={index} className="break-all pl-3 text-foreground/90">
+              {part.text}
+            </div>
+          )
+        }
+        return (
+          <div key={index} className="break-all pl-3">
+            <span className="text-muted-foreground">{part.flag}</span>
+            {part.value != null && part.value !== "" ? (
+              <span className="text-foreground/90"> {part.value}</span>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function RequestDetailDialog({
   record,
   onOpenChange,
@@ -180,51 +343,48 @@ function RequestDetailDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
+  const kindLabel =
+    record?.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")
+  const subtitle = record
+    ? [
+        new Date(record.started_at_unix_ms).toLocaleString(),
+        record.caller ?? t("gatewayCallDirect"),
+        kindLabel,
+        record.success ? "OK" : "ERR",
+        `${record.duration_ms}ms`,
+      ].join(" · ")
+    : undefined
+
   return (
     <Dialog open={record !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-3 overflow-hidden sm:max-w-2xl">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="truncate font-mono text-base">
+      <DialogContent
+        className={cn(
+          "@container flex max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none",
+          "h-[54.4dvh] w-[min(90vw,calc(54.4dvh*1.618))]",
+        )}
+      >
+        <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12 @min-[640px]:px-5 @min-[640px]:pr-12">
+          <DialogTitle className="truncate font-mono">
             {t("gatewayHistoryDialogTitle", {
               id: record ? targetLabel(record) : "",
             })}
           </DialogTitle>
+          {subtitle ? <DialogDescription>{subtitle}</DialogDescription> : null}
         </DialogHeader>
         {record ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="tabular-nums text-muted-foreground">
-                {new Date(record.started_at_unix_ms).toLocaleString()}
-              </span>
-              <Badge variant="outline" className="font-mono">
-                {record.caller ?? t("gatewayCallDirect")}
-              </Badge>
-              <Badge variant="secondary">
-                {record.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")}
-              </Badge>
-              <Badge variant={record.success ? "secondary" : "destructive"}>
-                {record.success ? "OK" : "ERR"}
-              </Badge>
-              <span className="text-muted-foreground">{record.duration_ms}ms</span>
-            </div>
-            {record.error_summary ? (
-              <div>
-                <span className="font-medium text-destructive">{record.error_code ?? "ERR"}</span>
-                <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
-                  {record.error_summary}
-                </pre>
+          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
+            <div className="flex min-h-0 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              <div className="grid gap-1">
+                <div className="text-xs text-muted-foreground">{t("gatewayHistoryColTarget")}</div>
+                <FormattedTarget
+                  text={detailTargetLabel(record)}
+                  tokens={detailTargetTokens(record)}
+                />
               </div>
-            ) : null}
-            <PayloadBlock
-              title={t("gatewayDetailArgs")}
-              payload={record.args_json}
-              truncated={record.args_truncated}
-            />
-            <PayloadBlock
-              title={t("gatewayDetailResult")}
-              payload={record.result_json}
-              truncated={record.result_truncated}
-            />
+            </div>
+            <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden max-h-[min(40dvh,20rem)] @min-[640px]:max-h-none">
+              <DetailPayloadTabs record={record} />
+            </aside>
           </div>
         ) : null}
       </DialogContent>
@@ -232,40 +392,76 @@ function RequestDetailDialog({
   )
 }
 
-function PayloadBlock({
-  title,
-  payload,
-  truncated,
-}: {
-  title: string
-  payload: string | null
-  truncated: boolean
-}) {
-  const { t } = useI18n()
-  if (!payload) return null
-  let pretty = payload
+function prettyJson(raw: string | null | undefined): string | null {
+  if (!raw) return null
   try {
-    pretty = JSON.stringify(JSON.parse(payload), null, 2)
+    return JSON.stringify(JSON.parse(raw), null, 2)
   } catch {
-    // non-JSON (truncated residue) shown as-is
+    return raw
   }
+}
+
+function DetailPayloadTabs({ record }: { record: RequestRecord }) {
+  const { t } = useI18n()
+  const hasError = Boolean(record.error_summary)
+  const defaultTab = hasError ? "error" : "args"
+
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="font-medium">{title}</span>
-        {truncated ? (
-          <Badge variant="outline" className="text-[10px]">
+    <Tabs
+      key={record.id}
+      defaultValue={defaultTab}
+      className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+    >
+      <div className="flex min-w-0 shrink-0 items-center gap-2">
+        <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <TabsTrigger value="args" className="flex-none">
+            {t("gatewayDetailArgs")}
+          </TabsTrigger>
+          <TabsTrigger value="result" className="flex-none">
+            {t("gatewayDetailResult")}
+          </TabsTrigger>
+          {hasError ? (
+            <TabsTrigger value="error" className="flex-none text-destructive">
+              {t("error")}
+            </TabsTrigger>
+          ) : null}
+        </TabsList>
+        {record.args_truncated || record.result_truncated ? (
+          <Badge variant="outline" className="ml-auto text-[10px]">
             {t("gatewayTruncated")}
           </Badge>
         ) : null}
       </div>
-      <pre
-        className={cn(
-          "mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2",
-        )}
-      >
-        {pretty}
-      </pre>
-    </div>
+
+      <TabsContent value="args" className="mt-0 min-h-0 flex-1 overflow-hidden">
+        <PayloadPre text={prettyJson(record.args_json)} />
+      </TabsContent>
+      <TabsContent value="result" className="mt-0 min-h-0 flex-1 overflow-hidden">
+        <PayloadPre text={prettyJson(record.result_json)} />
+      </TabsContent>
+      {hasError ? (
+        <TabsContent value="error" className="mt-0 min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+            {record.error_code ? (
+              <Badge variant="destructive" className="w-fit shrink-0">
+                {record.error_code}
+              </Badge>
+            ) : null}
+            <PayloadPre text={prettyJson(record.error_summary)} />
+          </div>
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  )
+}
+
+function PayloadPre({ text }: { text: string | null }) {
+  if (!text) {
+    return <p className="text-sm text-muted-foreground">—</p>
+  }
+  return (
+    <pre className="h-full min-h-0 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 font-mono text-xs [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      {text}
+    </pre>
   )
 }
