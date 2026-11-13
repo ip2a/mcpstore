@@ -11,7 +11,7 @@ import { useKvHealthQuery, useKvInspectQuery } from "@/features/kv/queries"
 import { useI18n } from "@/lib/i18n-context"
 
 /** KV keys table for embedding (e.g. Traces → KV tab). */
-export function KvPanel() {
+export function KvPanel({ search = "" }: { search?: string }) {
   const { t } = useI18n()
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const healthQuery = useKvHealthQuery()
@@ -61,8 +61,8 @@ export function KvPanel() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-2">
-      <KvLayerContent layers={layerNodes} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <KvLayerContent layers={layerNodes} search={search} />
     </div>
   )
 }

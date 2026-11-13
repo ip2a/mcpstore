@@ -36,6 +36,14 @@ import {
   FramesFilterDialog,
   type FrameSessionSortBy,
 } from "@/features/traces/frames-filter-dialog"
+import {
+  TRACE_COL1_CELL_CLASSNAME,
+  TRACE_COL1_CLASSNAME,
+  TRACE_COL2_CELL_CLASSNAME,
+  TRACE_COL2_CLASSNAME,
+  TRACE_COL_TAGS_CLASSNAME,
+  TRACE_TABLE_CLASSNAME,
+} from "@/features/traces/trace-table-layout"
 import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -160,7 +168,7 @@ export function FrameStreamCard(props: {
   /** Optional History tab content (Traces page only; Gateway omits this). */
   historySlot?: ReactNode
   /** Optional KV tab content (Traces page only; Gateway omits this). */
-  kvSlot?: ReactNode
+  kvSlot?: (search: string) => ReactNode
   initialView?: FrameViewMode
   /**
    * Parent owns tab chrome (e.g. Gateway workspace). Renders only this view
@@ -180,6 +188,7 @@ export function FrameStreamCard(props: {
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
   const [query, setQuery] = useState("")
+  const [kvQuery, setKvQuery] = useState("")
   const [scopeFilter, setScopeFilter] = useState("all")
   const [sortBy, setSortBy] = useState<FrameSessionSortBy | null>(null)
 
@@ -317,11 +326,15 @@ export function FrameStreamCard(props: {
               "min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
           )}
         >
-          <Table>
+          <Table className={TRACE_TABLE_CLASSNAME}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("gatewayFramesColSession")}</TableHead>
-                <TableHead>{t("gatewayFramesColTags")}</TableHead>
+                <TableHead className={TRACE_COL1_CLASSNAME}>
+                  {t("gatewayFramesColSession")}
+                </TableHead>
+                <TableHead className={TRACE_COL2_CLASSNAME}>
+                  {t("gatewayFramesColTags")}
+                </TableHead>
                 <TableHead>{t("gatewayFramesColTime")}</TableHead>
                 <TableHead>{t("gatewayFramesColRequest")}</TableHead>
                 <TableHead>{t("gatewayFramesColResponse")}</TableHead>
@@ -334,17 +347,21 @@ export function FrameStreamCard(props: {
             <TableBody>
               {visibleItems.map((session) => (
                 <TableRow key={session.session_id}>
-                  <TableCell className="font-mono text-xs" title={session.session_id}>
+                  <TableCell className={TRACE_COL1_CELL_CLASSNAME} title={session.session_id}>
                     {session.session_id.slice(0, 8)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={TRACE_COL2_CELL_CLASSNAME}>
                     {session.service_name || session.scope ? (
-                      <div className="flex flex-wrap items-center gap-1">
+                      <div className={TRACE_COL_TAGS_CLASSNAME}>
                         {session.service_name ? (
-                          <Badge variant="secondary">{session.service_name}</Badge>
+                          <Badge variant="secondary" className="shrink-0">
+                            {session.service_name}
+                          </Badge>
                         ) : null}
                         {session.scope ? (
-                          <Badge variant="outline">{session.scope}</Badge>
+                          <Badge variant="outline" className="shrink-0">
+                            {session.scope}
+                          </Badge>
                         ) : null}
                       </div>
                     ) : (
@@ -413,6 +430,14 @@ export function FrameStreamCard(props: {
           />
         </>
       ) : null}
+      {view === "kv" && props.kvSlot ? (
+        <UiverseSearchInput
+          id="kv-list-search"
+          placeholder={t("searchKeys")}
+          value={kvQuery}
+          onChange={setKvQuery}
+        />
+      ) : null}
       <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
         <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
         {t("refresh")}
@@ -424,7 +449,7 @@ export function FrameStreamCard(props: {
     view === "history" && props.historySlot ? (
       props.historySlot
     ) : view === "kv" && props.kvSlot ? (
-      props.kvSlot
+      props.kvSlot(kvQuery)
     ) : (
       tableBody
     )
@@ -476,7 +501,7 @@ export function FrameStreamCard(props: {
                 </TabsTrigger>
                 {props.historySlot ? (
                   <TabsTrigger value="history" className="flex-none">
-                    {t("navHistory")}
+                    {t("gatewayFramesTabLog")}
                   </TabsTrigger>
                 ) : null}
                 {props.kvSlot ? (
@@ -498,7 +523,7 @@ export function FrameStreamCard(props: {
             ) : null}
             {props.kvSlot ? (
               <TabsContent value="kv" className={tabContentClassName}>
-                {props.kvSlot}
+                {props.kvSlot(kvQuery)}
               </TabsContent>
             ) : null}
           </Tabs>

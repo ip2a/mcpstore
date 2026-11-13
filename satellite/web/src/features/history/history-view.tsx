@@ -32,6 +32,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  TRACE_COL1_CELL_CLASSNAME,
+  TRACE_COL1_CLASSNAME,
+  TRACE_COL2_CELL_CLASSNAME,
+  TRACE_COL2_CLASSNAME,
+  TRACE_TABLE_CLASSNAME,
+} from "@/features/traces/trace-table-layout"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
@@ -122,11 +129,15 @@ export function HistoryPanel() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <Table>
+            <Table className={TRACE_TABLE_CLASSNAME}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("gatewayHistoryColTime")}</TableHead>
-                  <TableHead>{t("gatewayHistoryColTarget")}</TableHead>
+                  <TableHead className={TRACE_COL1_CLASSNAME}>
+                    {t("gatewayHistoryColTime")}
+                  </TableHead>
+                  <TableHead className={TRACE_COL2_CLASSNAME}>
+                    {t("gatewayHistoryColTarget")}
+                  </TableHead>
                   <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
                   <TableHead>{t("gatewayHistoryColKind")}</TableHead>
                   <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
@@ -139,7 +150,9 @@ export function HistoryPanel() {
                   const fullTime = new Date(record.started_at_unix_ms).toLocaleString()
                   return (
                     <TableRow key={record.id}>
-                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      <TableCell
+                        className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}
+                      >
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="cursor-default">
@@ -152,12 +165,12 @@ export function HistoryPanel() {
                         </Tooltip>
                       </TableCell>
                       <TableCell
-                        className="max-w-[280px] truncate font-mono text-xs"
+                        className={TRACE_COL2_CELL_CLASSNAME}
                         title={targetLabel(record)}
                       >
                         {targetLabel(record)}
                       </TableCell>
-                      <TableCell className="max-w-[140px] truncate font-mono text-xs">
+                      <TableCell className="max-w-[10rem] truncate font-mono text-xs">
                         {record.caller ?? t("gatewayCallDirect")}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">

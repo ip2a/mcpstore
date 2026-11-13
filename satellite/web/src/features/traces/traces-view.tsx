@@ -35,7 +35,7 @@ export function TracesView({
       <FrameStreamCard
         face="upstream"
         fill
-        kvSlot={<KvPanel />}
+        kvSlot={(search) => <KvPanel search={search} />}
         historySlot={<HistoryPanel />}
         initialView={initialTab}
         onOpenSession={onOpenSession}
