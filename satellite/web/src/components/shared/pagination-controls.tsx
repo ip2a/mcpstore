@@ -22,6 +22,8 @@ export interface PaginationControlsProps {
   onPageSizeChange: (value: string) => void
   onPrevPage: () => void
   onNextPage: () => void
+  /** Override Next disable (e.g. while more remote pages can still load). */
+  nextDisabled?: boolean
   className?: string
 }
 
@@ -36,11 +38,14 @@ export function PaginationControls({
   onPageSizeChange,
   onPrevPage,
   onNextPage,
+  nextDisabled,
   className,
 }: PaginationControlsProps) {
   const { t } = useI18n()
 
   if (total === 0) return null
+
+  const disableNext = nextDisabled ?? page + 1 >= pageCount
 
   return (
     <div
@@ -70,7 +75,7 @@ export function PaginationControls({
           <ChevronLeftIcon className="size-3.5" />
           {t("gatewayFramesPrev")}
         </Button>
-        <Button disabled={page + 1 >= pageCount} size="sm" variant="outline" onClick={onNextPage}>
+        <Button disabled={disableNext} size="sm" variant="outline" onClick={onNextPage}>
           {t("gatewayFramesNext")}
           <ChevronRightIcon className="size-3.5" />
         </Button>

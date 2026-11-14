@@ -7,9 +7,11 @@
 //! The algorithms (address normalisation, ranking, registry conversion,
 //! server-key identity) are ported from `internal/library/market.go`
 //! / `market_addr.go`; see `local/调研文档-mcp市场调研v1.md` for the design.
-//! Deliberately not ported: the icon proxy (the browser loads icons
-//! directly), skills market, and the add-custom suggestion (the panel's
-//! add-service dialog already covers manual entries).
+//! Icons: featured entries carry curated URLs; registry entries keep only
+//! icons published in the MCP Registry / protocol payload. Missing icons
+//! stay empty — the panel falls back to the default MCP service mark.
+//! Deliberately not ported: skills market, and the add-custom suggestion
+//! (the panel's add-service dialog already covers manual entries).
 
 use std::{
     collections::{HashMap, HashSet},
@@ -928,24 +930,17 @@ fn from_registry(r: &RegistryServer) -> Option<MarketService> {
     if service.homepage.is_empty() {
         service.homepage = repo_url.to_string();
     }
+    // Protocol / registry icons only — no invented GitHub avatars.
     service.icon = r
         .icons
         .iter()
         .find_map(|icon| {
-            icon.src
-                .as_deref()
-                .filter(|src| src.starts_with("https://"))
+            icon.src.as_deref().filter(|src| {
+                src.starts_with("https://") || src.starts_with("data:image/")
+            })
         })
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            service
-                .publisher
-                .split('/')
-                .next()
-                .filter(|owner| !owner.is_empty() && !owner.contains('.'))
-                .map(github_icon)
-                .unwrap_or_default()
-        });
+        .unwrap_or("")
+        .to_string();
 
     let mut addrs: Vec<String> = Vec::new();
     for candidate in [

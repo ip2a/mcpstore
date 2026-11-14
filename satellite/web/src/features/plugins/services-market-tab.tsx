@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { GlobeIcon, PuzzleIcon, RefreshCwIcon } from "lucide-react"
+import { GlobeIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useScopeServicesQuery } from "@/features/agents/queries"
+import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
+import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { PageSkeleton } from "@/components/shared/page-states"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PaginationControls } from "@/components/shared/pagination-controls"
@@ -44,14 +46,12 @@ function useDebounced(value: string, ms: number) {
   return debounced
 }
 
-/** The Services tab: the featured catalogue first, then the official MCP
- * Registry paged in as the list is scrolled down. A registry failure never
- * takes the featured list down with it. */
+/** The Services tab: curated featured catalogue, then the official MCP
+ * Registry (registry.modelcontextprotocol.io) loaded on open and paged in.
+ * A registry failure never takes the featured list down with it. */
 export function ServicesMarketTab({ query }: { query: string }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const [registryVisible, setRegistryVisible] = useState(false)
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [installing, setInstalling] = useState<MarketServiceItem | null>(null)
   const pagination = usePagination(20)
 
@@ -79,9 +79,6 @@ export function ServicesMarketTab({ query }: { query: string }) {
       const next = last.offset + last.items.length
       return next < last.total ? next : undefined
     },
-    // A search reaches out immediately; without one the registry waits for
-    // the list to be scrolled past the featured catalogue.
-    enabled: normalizedQuery !== "" || registryVisible,
   })
   const installMutation = useMutation({
     mutationFn: async ({
@@ -106,20 +103,6 @@ export function ServicesMarketTab({ query }: { query: string }) {
     },
   })
 
-  // The registry section loads when its sentinel first shows in the window.
-  useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel || registryVisible) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setRegistryVisible(true)
-      },
-      { rootMargin: "400px" },
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [registryVisible])
-
   const installingBusy = installMutation.isPending
   const installedNames = useMemo(
     () => new Set((servicesQuery.data ?? []).map((service) => service.service_name.toLowerCase())),
@@ -135,17 +118,23 @@ export function ServicesMarketTab({ query }: { query: string }) {
   )
   const registryFailed =
     registryQuery.isError || (registryQuery.data?.pages.some((page) => page.failed) ?? false)
+  const registryTotal = registryQuery.data?.pages[0]?.total ?? 0
   const shownRegistryItems = useMemo(
     () =>
       registryItems.filter((item) => !featuredItems.some((featured) => featured.id === item.id)),
     [registryItems, featuredItems],
   )
 
-  // Combine featured and registry items for unified pagination
+  // Featured first, then registry — backend already drops featured keys from registry.
   const allItems = useMemo(
     () => [...featuredItems, ...shownRegistryItems],
     [featuredItems, shownRegistryItems],
   )
+  // Once the registry answers, total = featured + registry (deduped server-side).
+  const listTotal =
+    registryQuery.isSuccess && !registryFailed
+      ? featuredItems.length + registryTotal
+      : allItems.length
 
   const paginatedItems = useMemo(() => {
     const start = pagination.offset
@@ -153,10 +142,27 @@ export function ServicesMarketTab({ query }: { query: string }) {
     return allItems.slice(start, end)
   }, [allItems, pagination.offset, pagination.pageSize])
 
-  const pagInfo = getPaginationInfo(pagination.offset, paginatedItems.length, allItems.length)
+  const pagInfo = getPaginationInfo(
+    pagination.offset,
+    paginatedItems.length,
+    listTotal,
+    pagination.pageSize,
+  )
 
   const hasResults = allItems.length > 0
   const registryFetching = registryQuery.isFetching
+  const nextDisabled =
+    pagination.page + 1 >= pagInfo.pageCount &&
+    !registryQuery.hasNextPage &&
+    !registryQuery.isFetchingNextPage
+
+  async function handleNextPage() {
+    const nextOffset = (pagination.page + 1) * pagination.pageSize
+    if (nextOffset >= allItems.length && registryQuery.hasNextPage) {
+      await registryQuery.fetchNextPage()
+    }
+    pagination.nextPage()
+  }
 
   if (featuredQuery.isPending && !featuredQuery.data) {
     return (
@@ -199,19 +205,19 @@ export function ServicesMarketTab({ query }: { query: string }) {
             {t("serviceMarketRegistryFailed")}
           </p>
         ) : !registryFetching ? (
-          <p className="text-xs text-muted-foreground">
-            {registryQuery.data ? t("serviceMarketNoResults") : t("serviceMarketScrollHint")}
-          </p>
+          <p className="text-xs text-muted-foreground">{t("serviceMarketNoResults")}</p>
         ) : null}
 
-        <div ref={sentinelRef} className="h-px" aria-hidden />
         {registryFetching ? (
           <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
             {t("serviceMarketLoading")}
           </p>
         ) : null}
-        {!registryQuery.hasNextPage && registryItems.length > 0 && !registryFailed ? (
+        {!registryFetching &&
+        !registryQuery.hasNextPage &&
+        registryItems.length > 0 &&
+        !registryFailed ? (
           <p className="mt-3 text-xs text-muted-foreground">{t("serviceMarketNoMore")}</p>
         ) : null}
 
@@ -235,18 +241,19 @@ export function ServicesMarketTab({ query }: { query: string }) {
         />
       </ScrollPane>
 
-      {allItems.length > 0 && (
+      {listTotal > 0 && (
         <PaginationControls
           from={pagInfo.from}
           to={pagInfo.to}
-          total={allItems.length}
+          total={listTotal}
           pageSize={pagination.pageSize}
           pageSizes={pagination.pageSizes}
           page={pagination.page}
           pageCount={pagInfo.pageCount}
+          nextDisabled={nextDisabled}
           onPageSizeChange={pagination.changePageSize}
           onPrevPage={pagination.prevPage}
-          onNextPage={pagination.nextPage}
+          onNextPage={() => void handleNextPage()}
         />
       )}
     </>
@@ -276,60 +283,70 @@ function ServiceMarketCard({
 }) {
   const { t } = useI18n()
   const [iconBroken, setIconBroken] = useState(false)
-  const icon = item.icon && !iconBroken ? item.icon : null
+  // Market / MCP protocol icon when present; otherwise the panel's default MCP mark.
+  const icon = item.icon?.trim() && !iconBroken ? item.icon.trim() : null
+
+  const statusText = installed
+    ? t("clientPluginInstalled")
+    : item.publisher?.trim() || item.id
 
   return (
-    <div className="flex flex-col rounded-lg border border-border/50 bg-card p-4 transition-colors hover:border-border hover:bg-muted/40">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground">
-          {icon ? (
-            <img
-              src={icon}
-              alt=""
-              className="size-5 object-contain"
-              aria-hidden
-              loading="lazy"
-              onError={() => setIconBroken(true)}
-            />
-          ) : (
-            <PuzzleIcon className="size-4" aria-hidden />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 text-sm font-semibold leading-snug">{item.title}</span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${installed ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
-            />
-            <span className="truncate">{item.publisher || item.id}</span>
-          </span>
-        </span>
-        <Button size="sm" className="shrink-0" disabled={busy || installed} onClick={onInstall}>
-          {installed ? t("clientPluginInstalled") : t("clientPluginInstall")}
-        </Button>
-      </div>
-
-      <p className="mt-3 min-h-10 line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {item.description?.trim() || t("noDescription")}
-      </p>
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {item.matched ? (
-          <Badge variant="outline" className="text-[10px]">
-            <GlobeIcon aria-hidden />
-            {t("serviceMarketAddressMatch")}
-          </Badge>
-        ) : null}
-        {item.sign_in ? (
-          <Badge variant="outline" className="text-[10px]">
-            {t("serviceMarketSignIn")}
-          </Badge>
-        ) : null}
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {item.transport}
-        </span>
-      </div>
-    </div>
+    <BasicCard
+      icon={
+        icon ? (
+          <img
+            src={icon}
+            alt=""
+            className={cn(basicCardIconClassName, "object-contain")}
+            aria-hidden
+            loading="lazy"
+            onError={() => setIconBroken(true)}
+          />
+        ) : (
+          <DefaultServiceIcon className={basicCardIconClassName} />
+        )
+      }
+      title={item.title}
+      subtitle={
+        <>
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              installed ? "bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          <span className="truncate">{statusText}</span>
+        </>
+      }
+      action={
+        installed ? (
+          <Button size="sm" variant="outline" className="shrink-0" disabled>
+            {t("clientPluginInstalled")}
+          </Button>
+        ) : (
+          <Button size="sm" className="shrink-0" disabled={busy} onClick={onInstall}>
+            {t("clientPluginInstall")}
+          </Button>
+        )
+      }
+      body={<p className="line-clamp-2">{item.description?.trim() || t("noDescription")}</p>}
+      footer={
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {item.matched ? (
+            <Badge variant="outline" className="text-[10px]">
+              <GlobeIcon aria-hidden />
+              {t("serviceMarketAddressMatch")}
+            </Badge>
+          ) : null}
+          {item.sign_in ? (
+            <Badge variant="outline" className="text-[10px]">
+              {t("serviceMarketSignIn")}
+            </Badge>
+          ) : null}
+          <span className="font-mono tabular-nums">{item.transport}</span>
+        </div>
+      }
+    />
   )
 }
 

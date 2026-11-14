@@ -202,7 +202,7 @@ export function GatewayView({
           <TabsContent value="calls" className={tabContentClassName}>
             <ScrollPane
               className="min-h-0 flex-1"
-              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex flex-col gap-3 overflow-x-auto")}
+              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex min-w-0 flex-col gap-3")}
             >
               <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
                 <span className="truncate">
@@ -579,8 +579,8 @@ function CallFlowDiagram({
   const fresh = latest != null && Date.now() - latest.at_unix_ms < 4_000
 
   return (
-    <div className="flex min-w-[720px] items-stretch gap-0">
-      <div className="flex w-[148px] shrink-0 flex-col justify-center gap-2">
+    <div className="flex w-full min-w-0 items-stretch gap-0">
+      <div className="flex min-w-0 flex-[0.9] basis-0 flex-col justify-center gap-2">
         {wired.length === 0 ? (
           <FlowNodeCard className="border-dashed">
             <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyAgent")}</p>
@@ -603,13 +603,13 @@ function CallFlowDiagram({
         from={Math.max(wired.length, 1)}
       />
 
-      <div className="flex w-[148px] shrink-0 flex-col justify-center">
+      <div className="flex min-w-0 flex-[0.9] basis-0 flex-col justify-center">
         <HubFlowCard endpoint={hubEndpoint} running={Boolean(status?.running)} />
       </div>
 
       <FlowConnector accent={Boolean(latest)} endDot from={1} />
 
-      <div className="flex min-w-[180px] flex-1 flex-col justify-center">
+      <div className="flex min-w-0 flex-[1.3] basis-0 flex-col justify-center">
         <ServiceFlowCard fresh={fresh} record={latest} />
       </div>
     </div>
@@ -679,7 +679,7 @@ function FlowNodeCard({
         type="button"
         onClick={onClick}
         className={cn(
-          "relative flex w-full flex-col gap-1.5 rounded-xl border bg-card p-3 text-left shadow-xs outline-none",
+          "relative flex w-full min-w-0 flex-col gap-1.5 rounded-xl border bg-card p-3 text-left shadow-xs outline-none",
           "focus-visible:ring-[3px] focus-visible:ring-ring/50",
           emphasized ? "border-foreground/80" : "border-border/70",
           className,
@@ -693,7 +693,7 @@ function FlowNodeCard({
   return (
     <div
       className={cn(
-        "relative flex flex-col gap-1.5 rounded-xl border bg-card p-3 shadow-xs",
+        "relative flex w-full min-w-0 flex-col gap-1.5 rounded-xl border bg-card p-3 shadow-xs",
         emphasized ? "border-foreground/80" : "border-border/70",
         className,
       )}
@@ -799,8 +799,8 @@ function ServiceFlowCard({
                 : "bg-destructive",
           )}
         />
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/50">
-          <DefaultServiceIcon className="size-4" />
+        <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+          <DefaultServiceIcon className="size-7" />
         </span>
         <span className="min-w-0 truncate text-sm font-semibold">{record.service_name}</span>
         <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate font-mono text-[11px]">

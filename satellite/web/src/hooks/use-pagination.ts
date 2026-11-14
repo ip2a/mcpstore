@@ -37,10 +37,15 @@ export function usePagination(initialPageSize: PageSize = 20) {
   }
 }
 
-export function getPaginationInfo(offset: number, itemsLength: number, total: number) {
+export function getPaginationInfo(
+  offset: number,
+  itemsLength: number,
+  total: number,
+  pageSize: number,
+) {
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + itemsLength, total)
-  const pageCount = Math.max(1, Math.ceil(total / (itemsLength || 1)))
-  
+  const pageCount = Math.max(1, Math.ceil(total / Math.max(pageSize, 1)))
+
   return { from, to, pageCount }
 }

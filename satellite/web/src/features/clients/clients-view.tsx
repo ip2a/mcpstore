@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
+import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -640,53 +641,43 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
   )
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
-        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
-        "transition-colors hover:border-border hover:bg-muted/40",
-      )}
+    <BasicCard
       onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-    >
-      <div className="flex min-w-0 items-start gap-2">
+      icon={
         <ClientLogo
           clientId={client.id}
           label={client.label}
-          className="size-8 rounded-md border border-border/50 bg-muted/60"
-          imageClassName="size-5"
+          className={basicCardIconClassName}
+          imageClassName={basicCardIconClassName}
         />
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 text-sm font-semibold leading-snug">
-            {client.label || client.id}
-          </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <StatusDot active={client.wired} />
-            <span className="truncate">{statusText}</span>
-          </span>
-        </span>
-      </div>
-
-      <p
-        className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground"
-        title={executable || path || undefined}
-      >
-        {executable || path || t("noDescription")}
-      </p>
-
-      {metaParts.length ? (
-        <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">
-          {metaParts.join(" · ")}
+      }
+      title={client.label || client.id}
+      subtitle={
+        <>
+          <StatusDot active={client.wired} />
+          <span className="truncate">{statusText}</span>
+        </>
+      }
+      body={
+        <>
+          <p className="truncate" title={executable || path || undefined}>
+            {executable || path || t("noDescription")}
+          </p>
+          {metaParts.length ? (
+            <p className="truncate lowercase font-mono tabular-nums" title={metaParts.join(" · ")}>
+              {metaParts.join(" · ")}
+            </p>
+          ) : (
+            <p className="truncate text-muted-foreground/60">&nbsp;</p>
+          )}
+        </>
+      }
+      footer={
+        <p className="truncate">
+          by <span className="text-[#0077c2]">{client.id}</span>
         </p>
-      ) : null}
-    </div>
+      }
+    />
   )
 }
 
@@ -696,7 +687,7 @@ function AddAgentCard({ onSelect }: { onSelect: () => void }) {
     <div
       role="button"
       tabIndex={0}
-      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      className="group flex h-[9.5rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -859,7 +850,7 @@ function ClientDetailDialog({
             <ClientLogo
               clientId={client.id}
               label={client.label}
-              className="size-12 rounded-xl border border-border/50 bg-muted/60"
+              className="size-12"
               imageClassName="size-8"
             />
             <div className="min-w-0 flex-1">

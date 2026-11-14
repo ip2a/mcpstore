@@ -104,6 +104,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
     pagination.offset,
     paginatedPlugins.length,
     visiblePlugins.length,
+    pagination.pageSize,
   )
 
   const agentsLoading =

@@ -496,36 +496,36 @@ export function FrameStreamCard(props: {
               )}
             >
               <WorkspaceTabsList value={view}>
-                <TabsTrigger value="table" className="flex-none">
-                  {t("gatewayFramesTabTable")}
-                </TabsTrigger>
-                {props.historySlot ? (
-                  <TabsTrigger value="history" className="flex-none">
-                    {t("gatewayFramesTabLog")}
-                  </TabsTrigger>
-                ) : null}
                 {props.kvSlot ? (
                   <TabsTrigger value="kv" className="flex-none">
                     {t("kv")}
                   </TabsTrigger>
                 ) : null}
+                {props.historySlot ? (
+                  <TabsTrigger value="history" className="flex-none">
+                    {t("gatewayFramesTabLog")}
+                  </TabsTrigger>
+                ) : null}
+                <TabsTrigger value="table" className="flex-none">
+                  {t("gatewayFramesTabTable")}
+                </TabsTrigger>
               </WorkspaceTabsList>
               {toolbarActions}
             </div>
 
-            <TabsContent value="table" className={tabContentClassName}>
-              {tableBody}
-            </TabsContent>
-            {props.historySlot ? (
-              <TabsContent value="history" className={tabContentClassName}>
-                {props.historySlot}
-              </TabsContent>
-            ) : null}
             {props.kvSlot ? (
               <TabsContent value="kv" className={tabContentClassName}>
                 {props.kvSlot(kvQuery)}
               </TabsContent>
             ) : null}
+            {props.historySlot ? (
+              <TabsContent value="history" className={tabContentClassName}>
+                {props.historySlot}
+              </TabsContent>
+            ) : null}
+            <TabsContent value="table" className={tabContentClassName}>
+              {tableBody}
+            </TabsContent>
           </Tabs>
         </PanelCard>
       )}

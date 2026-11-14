@@ -883,9 +883,10 @@ function ConnectionSection({
               role="button"
               tabIndex={0}
               className={cn(
-                "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
-                "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
-                "transition-colors hover:border-border hover:bg-muted/40",
+                "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
+                "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
+                "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
+                "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
                 isActive && "border-sky-500/35",
                 isEditing && "border-border bg-muted/40",
               )}
@@ -901,9 +902,9 @@ function ConnectionSection({
                 }
               }}
             >
-              <div className="flex min-w-0 items-start gap-2">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground">
-                  <MonitorIcon className="size-4" aria-hidden />
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex size-8 shrink-0 items-center justify-center text-muted-foreground">
+                  <MonitorIcon className="size-8" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="line-clamp-1 text-sm font-semibold leading-snug">

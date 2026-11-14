@@ -177,12 +177,12 @@ function ServiceCardDialogBody({
               >
                 <span
                   aria-hidden
-                  className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-muted/60 text-muted-foreground"
+                  className="flex size-16 shrink-0 items-center justify-center text-muted-foreground"
                 >
                   <McpIcon
                     icons={serviceOverride?.icons ?? service.mcp?.serverInfo?.icons}
-                    fallback={<DefaultServiceIcon className="size-8" />}
-                    className="size-8"
+                    fallback={<DefaultServiceIcon className="size-16" />}
+                    className="size-16"
                   />
                 </span>
                 <div className="min-w-0 w-full">

@@ -88,9 +88,9 @@ function CatalogRowIcon({ icons, fallback }: { icons: unknown; fallback: ReactNo
   return (
     <span
       aria-hidden
-      className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
+      className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
     >
-      <McpIcon icons={icons} fallback={fallback} className="size-4" />
+      <McpIcon icons={icons} fallback={fallback} className="size-8" />
     </span>
   )
 }
@@ -604,7 +604,7 @@ export function ServiceDetailView(props: {
                           leading={
                             <CatalogRowIcon
                               icons={tool.icons}
-                              fallback={<DefaultToolIcon className="size-4" />}
+                              fallback={<DefaultToolIcon className="size-8" />}
                             />
                           }
                           meta={t("paramCount", { count: paramCount })}
@@ -643,7 +643,7 @@ export function ServiceDetailView(props: {
                           leading={
                             <CatalogRowIcon
                               icons={prompt.icons}
-                              fallback={<ScrollTextIcon className="size-4" />}
+                              fallback={<ScrollTextIcon className="size-8" />}
                             />
                           }
                           meta={
@@ -681,7 +681,7 @@ export function ServiceDetailView(props: {
                           leading={
                             <CatalogRowIcon
                               icons={resource.icons}
-                              fallback={<FileStackIcon className="size-4" />}
+                              fallback={<FileStackIcon className="size-8" />}
                             />
                           }
                           meta={mimeType || resource.uri}
@@ -707,7 +707,7 @@ export function ServiceDetailView(props: {
                           leading={
                             <CatalogRowIcon
                               icons={template.icons}
-                              fallback={<FileStackIcon className="size-4" />}
+                              fallback={<FileStackIcon className="size-8" />}
                             />
                           }
                           meta={mimeType || uriTemplate}

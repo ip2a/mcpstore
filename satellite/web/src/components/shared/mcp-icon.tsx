@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react"
 
+import { cn } from "@/lib/utils"
+
 type McpIconEntry = { src?: unknown }
 
 export function firstIconSrc(icons: unknown): string | null {
@@ -30,7 +32,7 @@ export function McpIcon({
       src={src}
       alt=""
       aria-hidden
-      className={className}
+      className={cn("shrink-0 object-contain", className)}
       onError={() => setBroken(true)}
     />
   )

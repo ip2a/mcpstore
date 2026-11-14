@@ -1,10 +1,10 @@
 import { BadgeCheckIcon, FileStackIcon } from "lucide-react"
 
+import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
 import { McpIcon } from "@/components/shared/mcp-icon"
 import { resourceMimeType } from "@/features/services/service-panels"
 import { useI18n } from "@/lib/i18n-context"
 import type { ResourceInfo, ServiceInstance } from "@/lib/api"
-import { cn } from "@/lib/utils"
 
 export function ResourceListCard({
   className,
@@ -25,54 +25,38 @@ export function ResourceListCard({
     instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
-        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
-        "transition-colors hover:border-border hover:bg-muted/40",
-        className,
-      )}
+    <BasicCard
+      className={className}
       onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-    >
-      <div className="flex min-w-0 items-start gap-2">
-        <span
-          aria-hidden
-          className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
-        >
-          <McpIcon
-            icons={resource.icons}
-            fallback={<FileStackIcon className="size-4" />}
-            className="size-4"
-          />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
-            {displayName}
-          </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <BadgeCheckIcon className="size-3.5 shrink-0" />
-            <span className="truncate">{instance.service_name}</span>
-          </span>
-        </span>
-      </div>
-
-      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {description || t("noDescription")}
-      </p>
-
-      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
-        {mime ? <span className="font-mono">{mime}</span> : null}
-        {mime ? " · by " : "by "}
-        <span className="text-[#0077c2]">{scopeLabel}</span>
-      </p>
-    </div>
+      icon={
+        <McpIcon
+          icons={resource.icons}
+          fallback={<FileStackIcon className={basicCardIconClassName} />}
+          className={basicCardIconClassName}
+        />
+      }
+      title={displayName}
+      subtitle={
+        <>
+          <BadgeCheckIcon className="size-3.5 shrink-0" />
+          <span className="truncate">{instance.service_name}</span>
+        </>
+      }
+      body={
+        <>
+          <p className="truncate">{description || t("noDescription")}</p>
+          {mime ? (
+            <p className="truncate font-mono lowercase">{mime}</p>
+          ) : (
+            <p className="truncate text-muted-foreground/60">&nbsp;</p>
+          )}
+        </>
+      }
+      footer={
+        <p className="truncate">
+          by <span className="text-[#0077c2]">{scopeLabel}</span>
+        </p>
+      }
+    />
   )
 }

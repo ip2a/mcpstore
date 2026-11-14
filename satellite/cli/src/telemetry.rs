@@ -34,6 +34,9 @@ pub struct HistoryFilter {
     pub caller: Option<String>,
     pub service: Option<String>,
     pub tool: Option<String>,
+    pub kind: Option<String>,
+    /// Free-text match across caller / service / tool / kind / error.
+    pub q: Option<String>,
     pub success: Option<bool>,
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
@@ -513,6 +516,28 @@ impl TelemetryLog {
                 "AND tool = ",
                 Value::Text(value.to_string()),
             );
+        }
+        if let Some(value) = filter.kind.as_deref() {
+            push(
+                &mut where_sql,
+                "AND kind = ",
+                Value::Text(value.to_string()),
+            );
+        }
+        if let Some(value) = filter.q.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let pattern = format!("%{}%", value);
+            let n = args.len() + 1;
+            where_sql.push_str(&format!(
+                " AND (\
+                    IFNULL(caller, '') LIKE ?{n} ESCAPE '\\' \
+                    OR IFNULL(service_name, '') LIKE ?{n} ESCAPE '\\' \
+                    OR IFNULL(tool, '') LIKE ?{n} ESCAPE '\\' \
+                    OR IFNULL(kind, '') LIKE ?{n} ESCAPE '\\' \
+                    OR IFNULL(error_code, '') LIKE ?{n} ESCAPE '\\' \
+                    OR IFNULL(error_summary, '') LIKE ?{n} ESCAPE '\\'\
+                )"
+            ));
+            args.push(Value::Text(pattern));
         }
         if let Some(value) = filter.success {
             push(&mut where_sql, "AND success = ", Value::from(value));

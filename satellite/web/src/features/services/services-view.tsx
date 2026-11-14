@@ -275,6 +275,7 @@ function ServicesScopeContent({
     pagination.offset,
     paginatedServices.length,
     filteredServices.length,
+    pagination.pageSize,
   )
 
   if (scopeError) {

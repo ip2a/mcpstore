@@ -1,5 +1,6 @@
 import { AlertCircleIcon, BadgeCheckIcon, Loader2Icon } from "lucide-react"
 
+import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { McpIcon } from "@/components/shared/mcp-icon"
@@ -54,53 +55,34 @@ export function ServiceListCard({
   const icons = service.icons ?? service.mcp?.serverInfo?.icons
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
-        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
-        "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
-        "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
-        className,
-      )}
+    <BasicCard
+      className={className}
       onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-    >
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-w-0 items-start gap-2">
-          <span
-            aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
-          >
-            <McpIcon icons={icons} fallback={<DefaultServiceIcon />} className="size-4" />
+      icon={
+        <McpIcon
+          icons={icons}
+          fallback={<DefaultServiceIcon className={basicCardIconClassName} />}
+          className={basicCardIconClassName}
+        />
+      }
+      title={projectedName}
+      subtitle={
+        <>
+          {status === "connected" ? (
+            <BadgeCheckIcon className={cn("size-3.5 shrink-0", statusColorClass)} />
+          ) : status === "connecting" ? (
+            <Loader2Icon className={cn("size-3.5 shrink-0 animate-spin", statusColorClass)} />
+          ) : status === "error" ? (
+            <AlertCircleIcon className={cn("size-3.5 shrink-0", statusColorClass)} />
+          ) : null}
+          <span className={cn("truncate", statusColorClass)}>
+            {t(SERVICE_STATUS_LABEL_KEYS[status])}
+            {connected && transportLabel ? ` · ${transportLabel}` : null}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
-              {projectedName}
-            </span>
-            <span className={cn("mt-1 flex min-w-0 items-center gap-1 text-xs", statusColorClass)}>
-              {status === "connected" ? (
-                <BadgeCheckIcon className="size-3.5 shrink-0" />
-              ) : status === "connecting" ? (
-                <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
-              ) : status === "error" ? (
-                <AlertCircleIcon className="size-3.5 shrink-0" />
-              ) : null}
-              <span className="truncate">
-                {t(SERVICE_STATUS_LABEL_KEYS[status])}
-                {connected && transportLabel ? ` · ${transportLabel}` : null}
-              </span>
-            </span>
-          </span>
-        </div>
-
-        <div className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground">
+        </>
+      }
+      body={
+        <>
           <p className="truncate">{description || t("noDescription")}</p>
           {metaParts.length ? (
             <p className="truncate lowercase" title={metaParts.join(" · ")}>
@@ -109,12 +91,13 @@ export function ServiceListCard({
           ) : (
             <p className="truncate text-muted-foreground/60">&nbsp;</p>
           )}
-        </div>
-
-        <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        </>
+      }
+      footer={
+        <p className="truncate">
           by <span className="text-[#0077c2]">{scopeLabel}</span>
         </p>
-      </div>
-    </div>
+      }
+    />
   )
 }
