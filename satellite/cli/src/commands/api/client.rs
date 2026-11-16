@@ -1,6 +1,7 @@
-use std::time::Duration;
+use std::{process::Stdio, time::Duration};
 
 use super::*;
+use crate::gateway::{GatewayBootPhase, GATEWAY_BOOT_PREFIX};
 use axum::{
     extract::{Path, Query},
     Json,
@@ -8,6 +9,7 @@ use axum::{
 use mcpstore::{store::StoreSpec, ScopeRef};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Deserialize)]
 pub(super) struct ClientConfigImportRequest {
@@ -55,17 +57,20 @@ pub(super) async fn gateway_status(
 ) -> ApiResult {
     let options = gateway_options(&state, &query)?;
     let descriptor = options.launch_descriptor();
-    let (running, pid, summary) = gateway_status_inner(&state)?;
+    let (running, pid, summary, boot) = gateway_status_inner(&state)?;
+    let starting = boot.as_ref().is_some_and(|boot| boot.phase.is_starting());
     Ok(success(
         "Gateway status fetched successfully",
         json!({
             "running": running,
+            "starting": starting,
             "pid": pid,
             "host": options.host,
             "port": options.port,
             "path": options.path,
             "url": descriptor.url,
             "summary": summary,
+            "boot": boot,
         }),
     ))
 }
@@ -74,37 +79,58 @@ pub(super) async fn gateway_start(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
-    // The whole start sequence — running check, automatic store migration,
-    // child spawn — is serialized against gateway_stop and concurrent starts.
+    // Running check, migration, and spawn are serialized against stop and
+    // concurrent starts. Readiness is supervised in the background.
     let _launch = state.gateway_launch.lock().await;
     let options = gateway_options(&state, &query)?;
-
     let descriptor = options.launch_descriptor();
+    let exe = std::env::current_exe().map_err(|error| {
+        ApiError::internal(format!("Failed to locate the mcpstore executable: {error}"))
+    })?;
     {
         let mut process = state
             .gateway
             .lock()
             .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
         if let Some(existing) = process.as_mut() {
-            if existing.child.try_wait().ok().flatten().is_none() {
-                return Ok(success(
-                    "Gateway is already running",
-                    gateway_payload(existing, true),
-                ));
+            match existing.child.try_wait() {
+                Ok(None) => {
+                    let boot = current_gateway_boot(&state)?;
+                    let running = boot
+                        .as_ref()
+                        .is_some_and(|boot| boot.phase == GatewayBootPhase::Ready);
+                    return Ok(success(
+                        if running {
+                            "Gateway is already running"
+                        } else {
+                            "Gateway is already starting"
+                        },
+                        gateway_payload(existing, running, boot),
+                    ));
+                }
+                Ok(Some(_)) => {}
+                Err(error) => {
+                    return Err(ApiError::internal(format!(
+                        "Failed to inspect gateway child process: {error}"
+                    )))
+                }
             }
         }
     }
 
+    set_gateway_boot(&state, GatewayBoot::new(GatewayBootPhase::Migrating))?;
     // First start on a private memory store promotes the daemon (and thereby
     // the gateway child, which inherits the store config below) to the shared
     // shm store. Failure leaves memory active and never spawns a child.
-    let store_migration = ensure_gateway_store_shared(&state).await?;
+    let store_migration = match ensure_gateway_store_shared(&state).await {
+        Ok(migration) => migration,
+        Err(error) => {
+            set_gateway_boot(&state, GatewayBoot::failed(error.message().to_string()))?;
+            return Err(error);
+        }
+    };
 
-    // The gateway runs as its own `mcpstore gateway` child process; this daemon
-    // supervises it (pid, stop) and forwards the call stream to its /calls route.
-    let exe = std::env::current_exe().map_err(|error| {
-        ApiError::internal(format!("Failed to locate the mcpstore executable: {error}"))
-    })?;
+    set_gateway_boot(&state, GatewayBoot::new(GatewayBootPhase::Spawning))?;
     let mut command = tokio::process::Command::new(exe);
     command
         .arg("gateway")
@@ -118,8 +144,15 @@ pub(super) async fn gateway_start(
     // control plane on the shared `@control` column (CAS-fight panics) and
     // double-supervise every service. Store config stays inherited.
     let store_cfg = state.store.store_config().await;
-    let store_config_json = serde_json::to_string(&store_cfg.config)
-        .map_err(|e| ApiError::internal(format!("Failed to serialize store config: {e}")))?;
+    let store_config_json = match serde_json::to_string(&store_cfg.config) {
+        Ok(config) => config,
+        Err(error) => {
+            let api_error =
+                ApiError::internal(format!("Failed to serialize store config: {error}"));
+            set_gateway_boot(&state, GatewayBoot::failed(api_error.message().to_string()))?;
+            return Err(api_error);
+        }
+    };
     command.args(["--store", &store_cfg.store]);
     command.args(["--store-config", &store_config_json]);
 
@@ -161,15 +194,18 @@ pub(super) async fn gateway_start(
             command.arg(flag);
         }
     }
-    let mut child = command.kill_on_drop(true).spawn().map_err(|error| {
-        ApiError::invalid_request(format!("Failed to start gateway child process: {error}"))
-    })?;
+    let mut child = match command.stderr(Stdio::piped()).kill_on_drop(true).spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let api_error = ApiError::invalid_request(format!(
+                "Failed to start gateway child process: {error}"
+            ));
+            set_gateway_boot(&state, GatewayBoot::failed(api_error.message().to_string()))?;
+            return Err(api_error);
+        }
+    };
     let pid = child.id().unwrap_or_default();
-    if let Err(error) = wait_for_gateway_ready(&options.host, options.port).await {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
-        return Err(error);
-    }
+    let stderr = child.stderr.take();
     let probe_host = match options.host.as_str() {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
@@ -190,12 +226,30 @@ pub(super) async fn gateway_start(
             child,
         });
 
+    if let Some(stderr) = stderr {
+        spawn_gateway_stderr_reader(Arc::clone(&state), pid, stderr);
+    }
+    tokio::spawn(wait_for_gateway_ready(
+        Arc::clone(&state),
+        pid,
+        options.host.clone(),
+        options.port,
+    ));
+
+    let boot = current_gateway_boot(&state)?;
+    let running = boot
+        .as_ref()
+        .is_some_and(|boot| boot.phase == GatewayBootPhase::Ready);
+    let starting = boot.as_ref().is_some_and(|boot| boot.phase.is_starting());
     Ok(success(
-        "Gateway started successfully",
+        "Gateway start accepted",
         json!({
-            "running": true,
+            "running": running,
+            "starting": starting,
             "pid": pid,
             "url": descriptor.url,
+            "summary": gateway_summary(&options),
+            "boot": boot,
             "store_migration": serde_json::to_value(&store_migration)
                 .expect("SwapResult serializes by construction"),
         }),
@@ -213,6 +267,7 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
             .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
         gateway.take()
     };
+    clear_gateway_boot(&state)?;
     let Some(mut process) = process else {
         return Ok(success(
             "Gateway is not running",
@@ -220,10 +275,12 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
         ));
     };
     let pid = process.pid;
-    if let Err(error) = process.child.kill().await {
-        return Err(ApiError::invalid_request(format!(
-            "Failed to stop gateway: {error}"
-        )));
+    if process.child.try_wait().ok().flatten().is_none() {
+        if let Err(error) = process.child.kill().await {
+            return Err(ApiError::invalid_request(format!(
+                "Failed to stop gateway: {error}"
+            )));
+        }
     }
     let _ = process.child.wait().await;
     Ok(success(
@@ -370,59 +427,219 @@ fn gateway_summary(options: &GatewayOptions) -> Value {
     })
 }
 
-async fn wait_for_gateway_ready(host: &str, port: u16) -> Result<(), ApiError> {
-    let probe_host = match host {
+fn set_gateway_boot(state: &ApiState, boot: GatewayBoot) -> Result<(), ApiError> {
+    *state
+        .gateway_boot
+        .lock()
+        .map_err(|_| ApiError::invalid_request("Gateway boot status unavailable"))? = Some(boot);
+    Ok(())
+}
+
+fn clear_gateway_boot(state: &ApiState) -> Result<(), ApiError> {
+    *state
+        .gateway_boot
+        .lock()
+        .map_err(|_| ApiError::invalid_request("Gateway boot status unavailable"))? = None;
+    Ok(())
+}
+
+fn current_gateway_boot(state: &ApiState) -> Result<Option<GatewayBoot>, ApiError> {
+    state
+        .gateway_boot
+        .lock()
+        .map(|boot| boot.clone())
+        .map_err(|_| ApiError::invalid_request("Gateway boot status unavailable"))
+}
+
+/// Apply a child update only to the launch that produced it. A stopped or
+/// replaced child must never overwrite the next launch's progress.
+fn update_gateway_boot(state: &ApiState, pid: u32, boot: GatewayBoot) {
+    let Ok(gateway) = state.gateway.lock() else {
+        return;
+    };
+    if !gateway.as_ref().is_some_and(|process| process.pid == pid) {
+        return;
+    }
+    if let Ok(mut current) = state.gateway_boot.lock() {
+        let terminal = current.as_ref().map(|current| current.phase);
+        if (terminal == Some(GatewayBootPhase::Failed) && boot.phase != GatewayBootPhase::Failed)
+            || (terminal == Some(GatewayBootPhase::Ready) && boot.phase.is_starting())
+        {
+            return;
+        }
+        *current = Some(boot);
+    }
+}
+
+/// Mark a launch failed and take its child for an async kill outside the locks.
+fn fail_gateway(state: &ApiState, pid: u32, error: String) -> Option<GatewayProcess> {
+    let mut gateway = state.gateway.lock().ok()?;
+    if !gateway.as_ref().is_some_and(|process| process.pid == pid) {
+        return None;
+    }
+    if let Ok(mut current) = state.gateway_boot.lock() {
+        if current
+            .as_ref()
+            .is_none_or(|boot| boot.phase != GatewayBootPhase::Failed)
+        {
+            *current = Some(GatewayBoot::failed(error));
+        }
+    }
+    gateway.take()
+}
+
+fn parse_gateway_boot_line(line: &str) -> Option<Result<GatewayBoot, serde_json::Error>> {
+    let payload = line.strip_prefix(GATEWAY_BOOT_PREFIX)?.trim_start();
+    Some(serde_json::from_str(payload))
+}
+
+fn spawn_gateway_stderr_reader(
+    state: Arc<ApiState>,
+    pid: u32,
+    stderr: tokio::process::ChildStderr,
+) {
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => match parse_gateway_boot_line(&line) {
+                    Some(Ok(boot)) => update_gateway_boot(&state, pid, boot),
+                    Some(Err(error)) => {
+                        eprintln!("[GATEWAY] invalid boot progress from pid {pid}: {error}")
+                    }
+                    None => eprintln!("{line}"),
+                },
+                Ok(None) => break,
+                Err(error) => {
+                    eprintln!("[GATEWAY] failed to read child stderr from pid {pid}: {error}");
+                    break;
+                }
+            }
+        }
+    });
+}
+
+async fn wait_for_gateway_ready(state: Arc<ApiState>, pid: u32, host: String, port: u16) {
+    let probe_host = match host.as_str() {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
         value => value,
     };
-    // The gateway binds its listener only after building every mount, and
-    // mount building connects instances (bounded by BOOT_CONNECT_GUARD_SECS
-    // = 150s each, in parallel). Allow one full worst-case boot before
-    // declaring the child dead.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
+    // The gateway binds only after every mount is built. Each connect has its
+    // own 150s guard; this is the outer bound for the whole boot.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
 
     loop {
+        let terminal_error = {
+            let Ok(mut gateway) = state.gateway.lock() else {
+                return;
+            };
+            let Some(process) = gateway.as_mut().filter(|process| process.pid == pid) else {
+                return;
+            };
+            match process.child.try_wait() {
+                Ok(None) => {
+                    if state
+                        .gateway_boot
+                        .lock()
+                        .ok()
+                        .and_then(|boot| {
+                            boot.as_ref()
+                                .map(|boot| boot.phase == GatewayBootPhase::Ready)
+                        })
+                        .unwrap_or(false)
+                    {
+                        return;
+                    }
+                    None
+                }
+                Ok(Some(status)) => Some(format!("Gateway process exited with status {status}")),
+                Err(error) => Some(format!("Failed to inspect gateway child process: {error}")),
+            }
+        };
+        if let Some(error) = terminal_error {
+            fail_gateway(&state, pid, error);
+            return;
+        }
+
         if tokio::time::timeout(
-            std::time::Duration::from_millis(200),
+            Duration::from_millis(200),
             tokio::net::TcpStream::connect((probe_host, port)),
         )
         .await
         .is_ok_and(|result| result.is_ok())
         {
-            return Ok(());
+            update_gateway_boot(&state, pid, GatewayBoot::new(GatewayBootPhase::Ready));
+            return;
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(ApiError::invalid_request(format!(
-                "Timed out waiting for gateway to listen on {probe_host}:{port}"
-            )));
+            let process = fail_gateway(
+                &state,
+                pid,
+                format!("Timed out waiting for gateway to listen on {probe_host}:{port}"),
+            );
+            if let Some(mut process) = process {
+                let _ = process.child.kill().await;
+                let _ = process.child.wait().await;
+            }
+            return;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
-fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<Value>), ApiError> {
+#[allow(clippy::type_complexity)]
+fn gateway_status_inner(
+    state: &ApiState,
+) -> Result<(bool, Option<u32>, Option<Value>, Option<GatewayBoot>), ApiError> {
     let mut gateway = state
         .gateway
         .lock()
         .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
-    if let Some(process) = gateway.as_mut() {
-        if process.child.try_wait().ok().flatten().is_some() {
-            *gateway = None; // child exited on its own
+    let mut boot = state
+        .gateway_boot
+        .lock()
+        .map_err(|_| ApiError::invalid_request("Gateway boot status unavailable"))?;
+
+    let terminal_error = if let Some(process) = gateway.as_mut() {
+        match process.child.try_wait() {
+            Ok(None) => None,
+            Ok(Some(status)) => Some(format!("Gateway process exited with status {status}")),
+            Err(error) => Some(format!("Failed to inspect gateway child process: {error}")),
         }
+    } else {
+        None
+    };
+    if let Some(error) = terminal_error {
+        if boot
+            .as_ref()
+            .is_none_or(|boot| boot.phase != GatewayBootPhase::Failed)
+        {
+            *boot = Some(GatewayBoot::failed(error));
+        }
+        *gateway = None;
     }
-    match gateway.as_ref() {
-        Some(process) => Ok((true, Some(process.pid), Some(process.summary.clone()))),
-        None => Ok((false, None, None)),
-    }
+
+    let (pid, summary) = gateway
+        .as_ref()
+        .map(|process| (Some(process.pid), Some(process.summary.clone())))
+        .unwrap_or((None, None));
+    let running = pid.is_some()
+        && boot
+            .as_ref()
+            .is_some_and(|boot| boot.phase == GatewayBootPhase::Ready);
+    Ok((running, pid, summary, boot.clone()))
 }
 
-fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
+fn gateway_payload(process: &GatewayProcess, running: bool, boot: Option<GatewayBoot>) -> Value {
+    let starting = boot.as_ref().is_some_and(|boot| boot.phase.is_starting());
     json!({
         "running": running,
+        "starting": starting,
         "pid": process.pid,
         "url": process.descriptor.url,
         "summary": process.summary,
+        "boot": boot,
     })
 }
 
@@ -436,20 +653,16 @@ pub(super) async fn gateway_requests(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayRequestsQuery>,
 ) -> ApiResult {
-    let calls_url = {
-        let mut gateway = state
+    let (running, _, _, _) = gateway_status_inner(&state)?;
+    let calls_url = if running {
+        state
             .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
-        if let Some(process) = gateway.as_mut() {
-            if process.child.try_wait().ok().flatten().is_some() {
-                *gateway = None; // child exited on its own
-            }
-        }
-        match gateway.as_ref() {
-            Some(process) => Some(process.calls_url.clone()),
-            None => None,
-        }
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?
+            .as_ref()
+            .map(|process| process.calls_url.clone())
+    } else {
+        None
     };
     let Some(calls_url) = calls_url else {
         return Ok(success(
@@ -486,20 +699,16 @@ pub(super) async fn gateway_requests(
 /// GET /gateway/projection — per-mount projection issues (down/skipped/
 /// degraded tools) forwarded to the child's /projection route.
 pub(super) async fn gateway_projection(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let projection_url = {
-        let mut gateway = state
+    let (running, _, _, _) = gateway_status_inner(&state)?;
+    let projection_url = if running {
+        state
             .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
-        if let Some(process) = gateway.as_mut() {
-            if process.child.try_wait().ok().flatten().is_some() {
-                *gateway = None; // child exited on its own
-            }
-        }
-        match gateway.as_ref() {
-            Some(process) => Some(process.projection_url.clone()),
-            None => None,
-        }
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?
+            .as_ref()
+            .map(|process| process.projection_url.clone())
+    } else {
+        None
     };
     let Some(projection_url) = projection_url else {
         return Ok(success(
@@ -1116,7 +1325,27 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
 
 #[cfg(test)]
 mod tests {
-    use super::{gateway_entry_host, gateway_entry_url};
+    use super::{gateway_entry_host, gateway_entry_url, parse_gateway_boot_line};
+    use crate::gateway::GatewayBootPhase;
+
+    #[test]
+    fn parses_only_machine_readable_boot_lines() {
+        let boot = parse_gateway_boot_line(
+            r#"[GATEWAY_BOOT] {"phase":"connecting","done":12,"total":40,"message":"brave_search"}"#,
+        )
+        .expect("boot marker")
+        .expect("valid boot JSON");
+        assert_eq!(boot.phase, GatewayBootPhase::Connecting);
+        assert_eq!(boot.done, Some(12));
+        assert_eq!(boot.total, Some(40));
+        assert_eq!(boot.message.as_deref(), Some("brave_search"));
+        assert!(boot.phase.is_starting());
+
+        assert!(parse_gateway_boot_line("[GATEWAY] ordinary log").is_none());
+        assert!(parse_gateway_boot_line("[GATEWAY_BOOT] not-json")
+            .expect("boot marker")
+            .is_err());
+    }
 
     #[test]
     fn entry_host_follows_bind_surface() {

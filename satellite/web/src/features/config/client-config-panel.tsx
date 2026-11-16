@@ -110,10 +110,16 @@ export function ClientConfigPanel({
     setBusy(true)
     try {
       const options = mcpHubOptions()
-      if (action === "start") await startMcpHub(options)
-      else await stopMcpHub()
-      await loadMcpHubStatus()
-      toast.success(action === "start" ? "MCP Hub Service started" : "MCP Hub Service stopped")
+      if (action === "start") {
+        const result = await startMcpHub(options)
+        await loadMcpHubStatus()
+        if (result.running) toast.success("MCP Hub Service started")
+        else toast.info("MCP Hub Service starting")
+      } else {
+        await stopMcpHub()
+        await loadMcpHubStatus()
+        toast.success("MCP Hub Service stopped")
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     } finally {
@@ -127,9 +133,12 @@ export function ClientConfigPanel({
       return
     }
     void loadMcpHubStatus()
-    const timer = window.setInterval(() => void loadMcpHubStatus(), 5000)
+    const timer = window.setInterval(
+      () => void loadMcpHubStatus(),
+      mcpHubStatus?.starting ? 500 : 5000,
+    )
     return () => window.clearInterval(timer)
-  }, [transport, scope, agentId, host, port, pathValue])
+  }, [transport, scope, agentId, host, port, pathValue, mcpHubStatus?.starting])
 
   return (
     <section className={open !== undefined ? "hidden" : "mt-6 flex flex-col gap-4 border-t pt-5"}>
@@ -140,7 +149,13 @@ export function ClientConfigPanel({
         <Dialog open={open ?? mcpHubOpen} onOpenChange={onOpenChange ?? setMcpHubOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" className="h-8 min-w-28 justify-between">
-              <span>{mcpHubStatus?.running ? "running" : "stopped"}</span>
+              <span>
+                {mcpHubStatus?.running
+                  ? "running"
+                  : mcpHubStatus?.starting
+                    ? "starting"
+                    : "stopped"}
+              </span>
               <span className="text-xs text-muted-foreground">Configure</span>
             </Button>
           </DialogTrigger>
@@ -215,7 +230,10 @@ export function ClientConfigPanel({
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 disabled={
-                  busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())
+                  busy ||
+                  mcpHubStatus?.starting ||
+                  transport !== "streamable-http" ||
+                  (scope === "agent" && !agentId.trim())
                 }
                 onClick={() => void toggleMcpHub("start")}
               >
@@ -223,7 +241,7 @@ export function ClientConfigPanel({
               </Button>
               <Button
                 variant="outline"
-                disabled={busy || !mcpHubStatus?.running}
+                disabled={busy || (!mcpHubStatus?.running && !mcpHubStatus?.starting)}
                 onClick={() => void toggleMcpHub("stop")}
               >
                 Stop
@@ -238,7 +256,9 @@ export function ClientConfigPanel({
                 Status:{" "}
                 {mcpHubStatus?.running
                   ? `running${mcpHubStatus.pid ? ` (#${mcpHubStatus.pid})` : ""}`
-                  : "stopped"}
+                  : mcpHubStatus?.starting
+                    ? "starting"
+                    : "stopped"}
               </span>
             </div>
             {transport === "stdio" ? (

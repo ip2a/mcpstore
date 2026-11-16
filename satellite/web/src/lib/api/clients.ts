@@ -17,14 +17,33 @@ export type ClientInventory = {
   wired_url: string | null
 }
 
+export type GatewayBootPhase =
+  | "migrating"
+  | "spawning"
+  | "connecting"
+  | "mounting"
+  | "binding"
+  | "ready"
+  | "failed"
+
+export type GatewayBoot = {
+  phase: GatewayBootPhase
+  done?: number
+  total?: number
+  message?: string
+  error?: string
+}
+
 export type GatewayStatus = {
   running: boolean
+  starting?: boolean
   pid: number | null
   host: string
   port: number
   path: string
   url: string
   summary: unknown
+  boot?: GatewayBoot | null
 }
 
 export type GatewayRequestRecord = {

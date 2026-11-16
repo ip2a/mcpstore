@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react"
-import { SettingsIcon, WaypointsIcon } from "lucide-react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { AlertCircleIcon, CheckIcon, CircleIcon, SettingsIcon, WaypointsIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
@@ -15,8 +15,10 @@ import {
   WORKSPACE_TABS_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
@@ -35,9 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import {
-  EXPOSE_KEYS,
-} from "@/features/clients/clients-view"
+import { EXPOSE_KEYS } from "@/features/clients/clients-view"
 import {
   useClientsQuery,
   useGatewayProjectionQuery,
@@ -52,6 +52,7 @@ import {
   startMcpHub,
   stopMcpHub,
   type FrameSessionSummary,
+  type GatewayBoot,
   type GatewayProjectionIssue,
   type GatewayRequestRecord,
   type GatewayStatus,
@@ -84,10 +85,14 @@ export function GatewayView({
   const projection = useGatewayProjectionQuery(status.data?.running === true)
   const meta = useSettingsMetaQuery()
   const updateSettings = useUpdateSettingsMutation()
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<"start" | "stop" | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [launchOptions, setLaunchOptions] = useState<McpHubOptions>(DEFAULT_LAUNCH_OPTIONS)
   const [panelTab, setPanelTab] = useState<GatewayPanelTab>("calls")
+  const boot = status.data?.boot
+  const starting = status.data?.starting === true
+  const failed = boot?.phase === "failed" && !starting && status.data?.running !== true
+  const bootNoticePending = useRef(false)
 
   const wiredLabels = (clients.data ?? [])
     .filter((client) => client.wired)
@@ -101,34 +106,49 @@ export function GatewayView({
     }
   }, [defaultPort])
 
+  useEffect(() => {
+    if (starting) {
+      bootNoticePending.current = true
+      return
+    }
+    if (!bootNoticePending.current) return
+    if (status.data?.running) {
+      toast.success(t("gatewayStarted"))
+    } else if (failed) {
+      toast.error(boot?.error || t("gatewayBootFailed"))
+    }
+    bootNoticePending.current = false
+  }, [starting, status.data?.running, failed, boot?.error, t])
+
   async function handleStart(options: McpHubOptions, persistPort: boolean) {
-    setBusy(true)
+    setBusy("start")
     try {
       await startMcpHub(options)
+      bootNoticePending.current = true
       if (persistPort && options.port) {
         await updateSettings.mutateAsync({ gateway: { port: options.port } })
         await meta.refetch()
       }
       await status.refetch()
-      toast.success(t("gatewayStarted"))
       setSettingsOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   async function handleStop() {
-    setBusy(true)
+    setBusy("stop")
+    const toastId = toast.loading(t("gatewayStopping"))
     try {
       await stopMcpHub()
       await status.refetch()
-      toast.success(t("gatewayStopped"))
+      toast.success(t("gatewayStopped"), { id: toastId })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), { id: toastId })
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
@@ -142,7 +162,7 @@ export function GatewayView({
       />
 
       <LaunchSettingsDialog
-        busy={busy}
+        busy={busy !== null || starting}
         onOpenChange={setSettingsOpen}
         onStart={handleStart}
         open={settingsOpen}
@@ -171,11 +191,15 @@ export function GatewayView({
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               {status.data?.running ? (
                 <Badge variant="default">{t("homeRunning")}</Badge>
+              ) : starting ? (
+                <Badge variant="secondary">{t("gatewayStarting")}</Badge>
               ) : (
-                <Badge variant="destructive">{t("gatewayStopped")}</Badge>
+                <Badge variant="destructive">
+                  {failed ? t("gatewayBootFailed") : t("gatewayStopped")}
+                </Badge>
               )}
               <Button
-                disabled={busy}
+                disabled={busy !== null || starting}
                 size="sm"
                 variant="outline"
                 onClick={() => setSettingsOpen(true)}
@@ -183,21 +207,25 @@ export function GatewayView({
                 <SettingsIcon data-icon="inline-start" />
                 {t("gatewaySettings")}
               </Button>
-              {status.data?.running ? (
-                <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
-                  {t("gatewayStop")}
+              {status.data?.running || starting ? (
+                <Button disabled={busy !== null} size="sm" variant="outline" onClick={handleStop}>
+                  {busy === "stop" ? <Spinner data-icon="inline-start" /> : null}
+                  {busy === "stop" ? t("gatewayStopping") : t("gatewayStop")}
                 </Button>
               ) : (
                 <Button
-                  disabled={busy}
+                  disabled={busy !== null}
                   size="sm"
                   onClick={() => handleStart(launchOptions, false)}
                 >
-                  {t("gatewayStart")}
+                  {busy === "start" ? <Spinner data-icon="inline-start" /> : null}
+                  {busy === "start" ? t("gatewayStarting") : t("gatewayStart")}
                 </Button>
               )}
             </div>
           </div>
+
+          {starting || failed ? <GatewayBootProgress boot={boot} failed={failed} /> : null}
 
           <TabsContent value="calls" className={tabContentClassName}>
             <ScrollPane
@@ -302,6 +330,94 @@ function ProjectionRow({ issue }: { issue: GatewayProjectionIssue }) {
       <span className="text-muted-foreground">
         {issue.DegradedTool.tool} @ {issue.DegradedTool.service}
       </span>
+    </div>
+  )
+}
+
+const BOOT_STEP_LABEL_KEYS = [
+  "gatewayBootPrepare",
+  "gatewayBootSpawn",
+  "gatewayBootConnect",
+  "gatewayBootMounts",
+  "gatewayBootReady",
+] as const
+const BOOT_STEP_INDEX = {
+  migrating: 0,
+  spawning: 1,
+  connecting: 2,
+  mounting: 3,
+  binding: 4,
+  ready: 4,
+  failed: 0,
+} as const
+
+function GatewayBootProgress({ boot, failed }: { boot?: GatewayBoot | null; failed: boolean }) {
+  const { t } = useI18n()
+  if (failed) {
+    return (
+      <Alert
+        variant="destructive"
+        className="shrink-0 rounded-none border-x-0 border-t-0 px-4 py-2"
+      >
+        <AlertCircleIcon />
+        <AlertTitle>{t("gatewayBootFailed")}</AlertTitle>
+        <AlertDescription className="line-clamp-2">
+          {boot?.error || t("gatewayBootFailedDescription")}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+  if (!boot) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex shrink-0 items-center gap-2 border-b bg-muted/20 px-4 py-2 text-xs"
+      >
+        <Spinner />
+        {t("gatewayStarting")}
+      </div>
+    )
+  }
+  const currentStep = BOOT_STEP_INDEX[boot.phase]
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/20 px-4 py-2 text-xs"
+    >
+      {BOOT_STEP_LABEL_KEYS.map((labelKey, index) => (
+        <span
+          key={labelKey}
+          className={cn(
+            "flex items-center gap-2",
+            index === currentStep
+              ? "text-foreground"
+              : index < currentStep
+                ? "text-muted-foreground"
+                : "text-muted-foreground/50",
+          )}
+        >
+          {index < currentStep ? (
+            <CheckIcon className="size-3.5" />
+          ) : index === currentStep ? (
+            <Spinner />
+          ) : (
+            <CircleIcon className="size-3.5" />
+          )}
+          <span>{t(labelKey)}</span>
+          {boot.phase === "connecting" && index === currentStep && boot.done != null ? (
+            <span className="tabular-nums">
+              {boot.done}/{boot.total ?? "—"}
+            </span>
+          ) : null}
+        </span>
+      ))}
+      {boot.message ? (
+        <span className="max-w-48 truncate font-mono text-muted-foreground" title={boot.message}>
+          {boot.message}
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -482,7 +598,8 @@ function LaunchSettingsDialog({
         </div>
         <DialogFooter>
           <Button disabled={busy} onClick={() => onStart(options, isHttp && persistPort)}>
-            {t("gatewayStart")}
+            {busy ? <Spinner data-icon="inline-start" /> : null}
+            {busy ? t("gatewayStarting") : t("gatewayStart")}
           </Button>
         </DialogFooter>
       </DialogContent>

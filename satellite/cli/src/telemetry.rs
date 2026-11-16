@@ -492,13 +492,14 @@ impl TelemetryLog {
         let conn = self.read_conn()?;
         let mut where_sql = String::from("WHERE 1=1");
         let mut args: Vec<Value> = Vec::new();
-        let mut push = |sql: &mut String, clause: &str, value: Value| {
+        fn push(sql: &mut String, args: &mut Vec<Value>, clause: &str, value: Value) {
             sql.push_str(&format!(" {clause}?{}", args.len() + 1));
             args.push(value);
-        };
+        }
         if let Some(value) = filter.caller.as_deref() {
             push(
                 &mut where_sql,
+                &mut args,
                 "AND caller = ",
                 Value::Text(value.to_string()),
             );
@@ -506,6 +507,7 @@ impl TelemetryLog {
         if let Some(value) = filter.service.as_deref() {
             push(
                 &mut where_sql,
+                &mut args,
                 "AND service_name = ",
                 Value::Text(value.to_string()),
             );
@@ -513,6 +515,7 @@ impl TelemetryLog {
         if let Some(value) = filter.tool.as_deref() {
             push(
                 &mut where_sql,
+                &mut args,
                 "AND tool = ",
                 Value::Text(value.to_string()),
             );
@@ -520,6 +523,7 @@ impl TelemetryLog {
         if let Some(value) = filter.kind.as_deref() {
             push(
                 &mut where_sql,
+                &mut args,
                 "AND kind = ",
                 Value::Text(value.to_string()),
             );
@@ -540,16 +544,31 @@ impl TelemetryLog {
             args.push(Value::Text(pattern));
         }
         if let Some(value) = filter.success {
-            push(&mut where_sql, "AND success = ", Value::from(value));
+            push(
+                &mut where_sql,
+                &mut args,
+                "AND success = ",
+                Value::from(value),
+            );
         }
         if let Some(value) = filter.from_unix_ms {
-            push(&mut where_sql, "AND started_at_unix_ms >= ", value.into());
+            push(
+                &mut where_sql,
+                &mut args,
+                "AND started_at_unix_ms >= ",
+                value.into(),
+            );
         }
         if let Some(value) = filter.to_unix_ms {
-            push(&mut where_sql, "AND started_at_unix_ms <= ", value.into());
+            push(
+                &mut where_sql,
+                &mut args,
+                "AND started_at_unix_ms <= ",
+                value.into(),
+            );
         }
         if let Some(value) = filter.before_id {
-            push(&mut where_sql, "AND id < ", value.into());
+            push(&mut where_sql, &mut args, "AND id < ", value.into());
         }
 
         let total: i64 = {

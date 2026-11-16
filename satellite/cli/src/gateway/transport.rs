@@ -54,8 +54,25 @@ pub(super) async fn connect_target_instances(
             (instance, outcome)
         });
     }
+    let total = connects.len();
+    report_gateway_boot(GatewayBoot {
+        phase: GatewayBootPhase::Connecting,
+        done: Some(0),
+        total: Some(total),
+        message: None,
+        error: None,
+    });
     let mut down = HashMap::new();
+    let mut done = 0;
     while let Some((instance, outcome)) = connects.next().await {
+        done += 1;
+        report_gateway_boot(GatewayBoot {
+            phase: GatewayBootPhase::Connecting,
+            done: Some(done),
+            total: Some(total),
+            message: Some(instance.service_name.clone()),
+            error: None,
+        });
         let reason = match outcome {
             Ok(Ok(())) => continue,
             Ok(Err(error)) => error.to_string(),

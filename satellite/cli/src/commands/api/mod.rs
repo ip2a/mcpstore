@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::gateway::{GatewayLaunchDescriptor, GatewayOptions};
+use crate::gateway::{GatewayBoot, GatewayLaunchDescriptor, GatewayOptions};
 use axum::{
     extract::State,
     http::{Method, Uri},
@@ -63,6 +63,8 @@ pub(crate) trait PanelCtx: Send + Sync + 'static {
 pub struct ApiState {
     store: Arc<MCPStore>,
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
+    /// Boot progress outlives the child handle so failures remain visible to status polls.
+    gateway_boot: Arc<Mutex<Option<GatewayBoot>>>,
     /// Serializes gateway start/stop so the first start's automatic
     /// memory→shm migration can never race a concurrent stop or a second
     /// start. Status/descriptor reads stay outside.
@@ -183,6 +185,7 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        gateway_boot: Arc::new(Mutex::new(None)),
         gateway_launch: Arc::new(tokio::sync::Mutex::new(())),
         telemetry: Arc::new(Mutex::new(None)),
         http_client: host_http_client(),

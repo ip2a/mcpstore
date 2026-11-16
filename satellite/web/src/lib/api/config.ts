@@ -47,7 +47,7 @@ import type {
   UpdateServiceScopeInput,
   UpdateSettingsPayload,
 } from "../api"
-import type { ExposeConfig } from "./clients"
+import type { ExposeConfig, GatewayBoot } from "./clients"
 
 export type McpHubOptions = {
   scope?: "store" | "agent"
@@ -63,6 +63,8 @@ export type McpHubOptions = {
 
 export type McpHubStatus = {
   running: boolean
+  starting?: boolean
+  boot?: GatewayBoot | null
   pid: number | null
   background_supported: boolean
   transport: string
@@ -110,10 +112,13 @@ export async function getMcpHubStatus(options: McpHubOptions) {
 }
 
 export async function startMcpHub(options: McpHubOptions) {
-  return api<{ running: boolean; pid: number | null; transport: string; url: string | null }>(
-    `/gateway/start${mcpHubQuery(options)}`,
-    { method: "POST" },
-  )
+  return api<{
+    running: boolean
+    starting?: boolean
+    pid: number | null
+    url: string | null
+    boot?: GatewayBoot | null
+  }>(`/gateway/start${mcpHubQuery(options)}`, { method: "POST" })
 }
 
 export async function stopMcpHub() {

@@ -7,7 +7,8 @@ use mcpstore::client_wire;
 use mcpstore::{InstanceId, MCPStore, ScopeRef};
 
 use crate::gateway::{
-    streamable_http_router, GatewayCallLog, GatewayCatalog, GatewayOptions, GatewayServer,
+    report_gateway_boot, streamable_http_router, GatewayBoot, GatewayBootPhase, GatewayCallLog,
+    GatewayCatalog, GatewayOptions, GatewayServer,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -167,6 +168,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     };
     let (generic_router, mount_set) =
         build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
+    report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Mounting));
     // Wired mounts live behind a shared registry so the reconciliation loop
     // can add/rebuild/remove them while the listener keeps running.
     let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
@@ -189,7 +191,17 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
             generic_catalog,
         });
     let addr = format!("{}:{}", options.host, options.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Binding));
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            report_gateway_boot(GatewayBoot::failed(format!(
+                "Failed to bind gateway listener on {addr}: {error}"
+            )));
+            return Err(error.into());
+        }
+    };
+    report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Ready));
     // Guard chain ( port): peer loopback, Host rebinding, Origin,
     // POST-only, per-mount rate limit, 4 MiB body ceiling. See
     // gateway::guards for the incident history behind each guard.

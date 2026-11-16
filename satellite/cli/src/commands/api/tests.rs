@@ -246,6 +246,8 @@ async fn gateway_routes_report_http_configuration() {
         .await
         .unwrap();
     assert_eq!(status["data"]["running"], false);
+    assert_eq!(status["data"]["starting"], false);
+    assert!(status["data"]["boot"].is_null());
     assert_eq!(status["data"]["port"], 1830);
     assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
     handle.abort();

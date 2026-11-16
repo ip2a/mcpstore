@@ -508,6 +508,8 @@ export {
   type ClientInventory,
   type DetectedBy,
   type ExposeConfig,
+  type GatewayBoot,
+  type GatewayBootPhase,
   type GatewayStatus,
   type GatewayProjection,
   type GatewayProjectionIssue,

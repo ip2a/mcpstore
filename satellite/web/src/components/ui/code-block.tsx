@@ -11,6 +11,10 @@ import { cn } from "@/lib/utils"
 
 type CodeBlockVariant = "request" | "response"
 
+/** Scrollable, but no visible scrollbar (wheel / trackpad / touch still work). */
+const hideScrollbar =
+  "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+
 const variantStyles: Record<
   CodeBlockVariant,
   { root: string; header: string; body: string; code: string }
@@ -113,6 +117,7 @@ export function CodeBlockBody({
         <pre
           className={cn(
             "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            hideScrollbar,
             styles.code,
           )}
         >
@@ -144,6 +149,7 @@ export function CodeBlockBody({
         data-slot="code-block-body"
         className={cn(
           "relative min-h-0 overflow-auto",
+          hideScrollbar,
           fill && "flex flex-1 flex-col",
           styles.body,
           className,
@@ -168,11 +174,15 @@ export function CodeBlockBody({
     >
       <ScrollArea
         style={fill ? undefined : { maxHeight }}
-        className={cn("w-full", fill && "min-h-0 flex-1")}
+        className={cn(
+          "w-full [&_[data-slot=scroll-area-scrollbar]]:hidden",
+          fill && "min-h-0 flex-1",
+        )}
       >
         <pre
           className={cn(
             "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            hideScrollbar,
             styles.code,
           )}
         >

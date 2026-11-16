@@ -39,7 +39,7 @@ export function useGatewayStatusQuery() {
   return useQuery({
     queryKey: queryKeys.gatewayStatus,
     queryFn: getGatewayStatus,
-    refetchInterval: 5_000,
+    refetchInterval: (query) => (query.state.data?.starting ? 500 : 5_000),
   })
 }
 

@@ -46,6 +46,10 @@ pub(super) struct ApiError {
 }
 
 impl ApiError {
+    pub(super) fn message(&self) -> &str {
+        &self.message
+    }
+
     fn new(
         status: StatusCode,
         code: FailureCode,

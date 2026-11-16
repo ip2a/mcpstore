@@ -86,6 +86,78 @@ pub struct GatewayLaunchDescriptor {
     pub url: String,
 }
 
+pub const GATEWAY_BOOT_PREFIX: &str = "[GATEWAY_BOOT]";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayBootPhase {
+    Migrating,
+    Spawning,
+    Connecting,
+    Mounting,
+    Binding,
+    Ready,
+    Failed,
+}
+
+impl GatewayBootPhase {
+    pub fn is_starting(self) -> bool {
+        !matches!(self, Self::Ready | Self::Failed)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GatewayBoot {
+    pub phase: GatewayBootPhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl GatewayBoot {
+    pub fn new(phase: GatewayBootPhase) -> Self {
+        Self {
+            phase,
+            done: None,
+            total: None,
+            message: None,
+            error: None,
+        }
+    }
+
+    pub fn failed(error: impl Into<String>) -> Self {
+        Self {
+            phase: GatewayBootPhase::Failed,
+            done: None,
+            total: None,
+            message: None,
+            error: Some(error.into()),
+        }
+    }
+}
+
+/// Machine-readable child boot progress on stderr; the daemon consumes these
+/// lines. Runtime mount reconciliation must not reopen the completed boot.
+pub(crate) fn report_gateway_boot(boot: GatewayBoot) {
+    static BOOT_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    if !BOOT_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let encoded = serde_json::to_string(&boot).expect("gateway boot progress serializes");
+    eprintln!("{GATEWAY_BOOT_PREFIX} {encoded}");
+    if matches!(
+        boot.phase,
+        GatewayBootPhase::Ready | GatewayBootPhase::Failed
+    ) {
+        BOOT_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// What kind of business call a routed record represents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

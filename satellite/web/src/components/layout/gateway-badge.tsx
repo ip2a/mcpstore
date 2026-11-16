@@ -11,17 +11,22 @@ export function GatewayBadge() {
 
   const label = t("gateway")
   const running = status.data?.running === true
+  const starting = status.data?.starting === true
   const title = status.isPending
     ? label
     : running
       ? `${label} · ${t("homeRunning")}`
-      : `${label} · ${t("gatewayStopped")}`
+      : starting
+        ? `${label} · ${t("gatewayStarting")}`
+        : `${label} · ${t("gatewayStopped")}`
 
   const dot = status.isPending
     ? "bg-muted-foreground/40"
     : running
       ? "bg-emerald-500"
-      : "bg-destructive"
+      : starting
+        ? "bg-primary"
+        : "bg-destructive"
 
   return (
     <button
