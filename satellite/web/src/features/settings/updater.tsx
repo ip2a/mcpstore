@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { invoke } from "@tauri-apps/api/core"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import { relaunch } from "@tauri-apps/plugin-process"
 import { DownloadIcon, RotateCwIcon } from "lucide-react"
@@ -8,6 +9,10 @@ import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n-context"
 
 export const isDesktopShell = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+
+export async function resetDefaultWindowSize() {
+  await invoke("reset_default_window_size")
+}
 
 export function useAppVersionLabel() {
   const [version, setVersion] = useState<string | null>(null)
@@ -108,6 +113,37 @@ export function UpdateButton({
       {phase === "downloading"
         ? t("downloadingUpdate", { progress: `${progress}%` })
         : t("checkUpdates")}
+    </Button>
+  )
+}
+
+export function ResetWindowSizeButton() {
+  const { t } = useI18n()
+  const [pending, setPending] = useState(false)
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      title={t("resetDefaultWindowSizeDescription")}
+      onClick={() => {
+        setPending(true)
+        void resetDefaultWindowSize()
+          .then(() => toast.success(t("resetDefaultWindowSizeDone")))
+          .catch((error) =>
+            toast.error(
+              t("resetDefaultWindowSizeFailed", {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+          )
+          .finally(() => setPending(false))
+      }}
+    >
+      {pending ? <RotateCwIcon data-icon="inline-start" className="animate-spin" /> : null}
+      {t("resetWindowSize")}
     </Button>
   )
 }

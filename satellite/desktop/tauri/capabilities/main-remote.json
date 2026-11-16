@@ -10,6 +10,7 @@
     "core:default",
     "updater:default",
     "process:allow-restart",
-    "opener:default"
+    "opener:default",
+    "allow-reset-default-window-size"
   ]
 }

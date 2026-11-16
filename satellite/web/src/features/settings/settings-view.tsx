@@ -68,6 +68,7 @@ import {
 import {
   formatReleaseVersion,
   isDesktopShell,
+  ResetWindowSizeButton,
   UpdateButton,
   useAppUpdater,
   useAppVersionLabel,
@@ -419,21 +420,27 @@ export function SettingsView() {
                         value={formatReleaseVersion(meta?.version)}
                       />
                       {isDesktopShell ? (
-                        <AboutRow
-                          label={
-                            updateAvailable
-                              ? t("updateAvailable", { version: `v${updateAvailable}` })
-                              : t("checkUpdates")
-                          }
-                          action={
-                            <UpdateButton
-                              phase={phase}
-                              progress={progress}
-                              onCheck={() => void checkForUpdate()}
-                              onRestart={restartToUpdate}
-                            />
-                          }
-                        />
+                        <>
+                          <AboutRow
+                            label={
+                              updateAvailable
+                                ? t("updateAvailable", { version: `v${updateAvailable}` })
+                                : t("checkUpdates")
+                            }
+                            action={
+                              <UpdateButton
+                                phase={phase}
+                                progress={progress}
+                                onCheck={() => void checkForUpdate()}
+                                onRestart={restartToUpdate}
+                              />
+                            }
+                          />
+                          <AboutRow
+                            label={t("resetDefaultWindowSize")}
+                            action={<ResetWindowSizeButton />}
+                          />
+                        </>
                       ) : null}
                       <AboutRow
                         label={t("github")}

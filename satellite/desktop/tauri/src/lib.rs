@@ -7,13 +7,14 @@ use std::time::Duration;
 use tauri::{
     AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
-// Mirrors `web/src/App.tsx` shell: w-[min(1280px,calc(100vw-24px))]
-const WEB_CONTENT_MAX_WIDTH: f64 = 1280.0;
+// Mirrors `web/src/App.tsx` shell: max-w-[1200px] + px-3 (12*2).
+const WEB_CONTENT_MAX_WIDTH: f64 = 1200.0;
 const WEB_CONTENT_HORIZONTAL_PADDING: f64 = 24.0;
 
-/// Minimum width as a fraction of the 1280px content boundary (below the boundary is OK).
-/// Effective min window width ≈ 1280 * ratio + 24. Tune while checking list/header layout.
+/// Minimum width as a fraction of the 1200px content boundary (below the boundary is OK).
+/// Effective min window width ≈ 1200 * ratio + 24. Tune while checking list/header layout.
 const MIN_CONTENT_WIDTH_RATIO: f64 = 0.70;
 
 /// Hard floor so ultra-narrow monitors still stay usable.
@@ -22,8 +23,11 @@ const ABSOLUTE_MIN_INNER_WIDTH: f64 = 720.0;
 /// Height can shrink more aggressively than width; list pages scroll internally.
 const DESIGN_MIN_INNER_HEIGHT: f64 = 480.0;
 
-const DEFAULT_INNER_WIDTH: f64 = 1180.0;
-const DEFAULT_INNER_HEIGHT: f64 = 760.0;
+/// Default size targets Services 3×3 card grid with equal L/R insets:
+/// sidebar 192 + shell 24 + list px-4 32 + 3×256 + 2×16 gap = 1048;
+/// height ≈ chrome + 3×152 card rows (no 4th row peek).
+const DEFAULT_INNER_WIDTH: f64 = 1048.0;
+const DEFAULT_INNER_HEIGHT: f64 = 720.0;
 
 #[derive(Clone, Copy)]
 struct MinInnerSize {
@@ -232,6 +236,33 @@ fn merge_path_values(preferred: &str, current: Option<OsString>) -> Option<OsStr
     std::env::join_paths(merged).ok()
 }
 
+/// Resize the main window to the design default and persist via window-state.
+#[tauri::command]
+fn reset_default_window_size(app: AppHandle) -> std::result::Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+
+    if window.is_fullscreen().map_err(|error| error.to_string())? {
+        window
+            .set_fullscreen(false)
+            .map_err(|error| error.to_string())?;
+    }
+    if window.is_maximized().map_err(|error| error.to_string())? {
+        window.unmaximize().map_err(|error| error.to_string())?;
+    }
+
+    window
+        .set_size(LogicalSize::new(DEFAULT_INNER_WIDTH, DEFAULT_INNER_HEIGHT))
+        .map_err(|error| error.to_string())?;
+    window.center().map_err(|error| error.to_string())?;
+    apply_min_inner_size(&window);
+
+    app.save_window_state(StateFlags::all())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -243,6 +274,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![reset_default_window_size])
         .setup(|app| {
             prime_desktop_environment();
             if let Some(home) = dirs::home_dir() {

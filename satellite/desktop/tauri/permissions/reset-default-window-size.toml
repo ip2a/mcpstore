@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-reset-default-window-size"
+description = "Enables the reset_default_window_size command."
+commands.allow = ["reset_default_window_size"]
