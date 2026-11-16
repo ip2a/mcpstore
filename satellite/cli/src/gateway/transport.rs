@@ -593,7 +593,7 @@ fn emit_gateway_frames(
     }
 }
 
-pub(super) fn normalize_http_path(path: &str) -> String {
+pub(crate) fn normalize_http_path(path: &str) -> String {
     if path.is_empty() || path == "/" {
         return "/mcp".to_string();
     }

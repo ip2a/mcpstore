@@ -668,4 +668,4 @@ mod tests;
 mod tools;
 mod transport;
 
-pub(crate) use transport::streamable_http_router;
+pub(crate) use transport::{normalize_http_path, streamable_http_router};

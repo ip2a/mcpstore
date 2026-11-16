@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { useScopeServicesQuery } from "@/features/agents/queries"
+import { serviceListLiveQueryOptions } from "@/features/services/service-live-query"
 import type { ServiceInstance, ScopeView } from "@/lib/api"
 
 export type SelectedScope = ScopeView
@@ -13,16 +14,8 @@ export function useAgentScope({
   selectedScope: ScopeView
   services: ServiceInstance[]
 }) {
-  // Single authority for the grid: one list?scope=… query, with light status polling.
-  const scopeServicesQuery = useScopeServicesQuery(selectedScope, {
-    refetchInterval: (query) => {
-      const rows = query.state.data || []
-      const transitioning = rows.some(
-        (service) => service.state?.phase === "starting" || service.state?.phase === "stopping",
-      )
-      return transitioning ? 3_000 : 15_000
-    },
-  })
+  // Page-scoped: fresh on enter; poll only while services are transitioning.
+  const scopeServicesQuery = useScopeServicesQuery(selectedScope, serviceListLiveQueryOptions)
   const scopeServices = scopeServicesQuery.data || []
 
   // Services that can join an agent scope = declared in the store but not yet present under that agent.

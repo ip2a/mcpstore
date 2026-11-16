@@ -11,12 +11,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { AgentItem } from "@/lib/api"
+import type { ScopeView } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceDialog(props: {
-  agents: AgentItem[]
   className?: string
+  initialScope?: ScopeView
   onAdded: () => Promise<void>
   onOpenChange?: (open: boolean) => void
   open?: boolean
@@ -64,7 +64,7 @@ export function AddServiceDialog(props: {
         </DialogHeader>
         <AddServiceForm
           key={session}
-          agents={props.agents}
+          initialScope={props.initialScope}
           onAdded={handleAdded}
           onCancel={() => onOpenChange(false)}
         />

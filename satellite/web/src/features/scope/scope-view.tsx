@@ -18,7 +18,7 @@ import {
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { useScopesQuery } from "@/features/agents/queries"
+import { useScopeServicesQuery, useScopesQuery } from "@/features/agents/queries"
 import { useToolOverridesQuery } from "@/features/overrides/queries"
 import { ToolConfigRow } from "@/features/scope/tool-config-row"
 import { ToolPolicyDialog } from "@/features/scope/tool-policy-dialog"
@@ -26,6 +26,7 @@ import {
   deriveServiceDisplayStatus,
   type ServiceDisplayStatus,
 } from "@/features/services/service-display-status"
+import { serviceListLiveQueryOptions } from "@/features/services/service-live-query"
 import type { ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
@@ -120,20 +121,15 @@ export function ScopeView(props: {
     return set
   }, [toolOverrides, selectedScope])
 
-  const scopeServices = useMemo(() => {
-    if (!selectedScope) return []
-    if (selectedScope.type === "all") return props.services
-    if (selectedScope.type === "store") {
-      return props.services.filter((service) => service.scope.type === "store")
-    }
-    return props.services.filter(
-      (service) =>
-        service.scope.type === "agent" && service.scope.agent_id === selectedScope.agent_id,
-    )
-  }, [props.services, selectedScope])
+  const liveServicesQuery = useScopeServicesQuery(selectedScope ?? { type: "all" }, {
+    enabled: Boolean(selectedScope),
+    ...serviceListLiveQueryOptions,
+  })
 
-  const loading = scopesQuery.isFetching
-  const error = scopesQuery.error
+  const scopeServices = selectedScope ? liveServicesQuery.data || [] : []
+
+  const loading = scopesQuery.isFetching || (Boolean(selectedScope) && liveServicesQuery.isFetching)
+  const error = scopesQuery.error || liveServicesQuery.error
   const errorMessage =
     error instanceof Error ? error.message : error ? String(error) : "Failed to load scope"
 
@@ -172,7 +168,11 @@ export function ScopeView(props: {
     : ""
 
   async function handleRefresh() {
-    await Promise.all([scopesQuery.refetch(), toolOverridesQuery.refetch()])
+    await Promise.all([
+      scopesQuery.refetch(),
+      toolOverridesQuery.refetch(),
+      selectedScope ? liveServicesQuery.refetch() : Promise.resolve(),
+    ])
   }
 
   function backToOverview() {

@@ -3,6 +3,7 @@ import { toast } from "sonner"
 
 import {
   addServiceFromConfig,
+  type ScopeView,
   type ServiceRestartPolicy,
   type ServiceStartupPolicy,
 } from "@/lib/api"
@@ -18,20 +19,33 @@ import {
 export type AddServiceScope = "store" | "agent"
 export type AddServiceTransport = ServiceConfigTransport
 
+function defaultsFromScope(initialScope?: ScopeView): {
+  scope: AddServiceScope
+  agentId: string
+} {
+  if (initialScope?.type === "agent" && initialScope.agent_id.trim()) {
+    return { scope: "agent", agentId: initialScope.agent_id.trim() }
+  }
+  return { scope: "store", agentId: "" }
+}
+
 export function useAddServiceForm({
+  initialScope,
   onAdded,
   onBack,
 }: {
+  initialScope?: ScopeView
   onAdded: () => Promise<void>
   onBack: () => void
 }) {
-  const [scope, setScope] = useState<AddServiceScope>("store")
+  const initial = defaultsFromScope(initialScope)
+  const [scope, setScope] = useState<AddServiceScope>(initial.scope)
   const [serviceName, setServiceName] = useState("")
   const [configFields, setConfigFields] = useState<ServiceConfigFields>(
     DEFAULT_SERVICE_CONFIG_FIELDS,
   )
   const [previewFormat, setPreviewFormat] = useState<ServiceConfigFormat>("json")
-  const [agentId, setAgentId] = useState("")
+  const [agentId, setAgentId] = useState(initial.agentId)
   const [startupPolicy, setStartupPolicy] = useState<ServiceStartupPolicy>("lazy")
   const [restartPolicy, setRestartPolicy] = useState<ServiceRestartPolicy>("no")
   const [submitting, setSubmitting] = useState(false)

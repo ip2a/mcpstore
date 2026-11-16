@@ -1,5 +1,6 @@
 import { toast } from "sonner"
 
+import { isServiceConnecting } from "@/features/services/service-display-status"
 import {
   checkInstance,
   connectInstance,
@@ -12,6 +13,22 @@ import {
 } from "@/lib/api"
 import type { ServiceState } from "@/lib/api/service"
 import { useI18n } from "@/lib/i18n-context"
+
+async function waitWhileTransitioning(
+  service: ServiceInstance,
+  stillBusy: (state: ServiceState) => boolean,
+) {
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    let settled: ServiceState | undefined
+    try {
+      settled = await getServiceState(service)
+    } catch {
+      break
+    }
+    if (!settled || !stillBusy(settled)) break
+  }
+}
 
 type RunAction = (
   label: string,
@@ -47,19 +64,10 @@ export function useServiceActions({
         if (state?.auth?.status === "unauthenticated") {
           toast.info(t("oauthConnectLoginRequired"))
         }
-        // The connect itself runs in the background, so the snapshot above still
-        // says "starting". Poll until the phase settles, then refresh the lists —
-        // otherwise the card spins on "Connecting" until a manual reload.
-        for (let i = 0; i < 20; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 1500))
-          let settled: ServiceState | undefined
-          try {
-            settled = await getServiceState(service)
-          } catch {
-            break
-          }
-          if (!settled || settled.phase !== "starting") break
-        }
+        // Push "connecting" into the list immediately so cards update even if the
+        // user closes the dialog; list queries then poll at 3s while transitioning.
+        await refreshInstanceQueries(service)
+        await waitWhileTransitioning(service, (next) => isServiceConnecting(next))
       },
       () => refreshInstanceQueries(service),
     )
@@ -68,7 +76,11 @@ export function useServiceActions({
   function disconnectServiceEntry(service: ServiceInstance) {
     return runAction(
       `disconnect:${service.instance_id}`,
-      () => disconnectInstance(service),
+      async () => {
+        await disconnectInstance(service)
+        await refreshInstanceQueries(service)
+        await waitWhileTransitioning(service, (next) => next.phase === "stopping")
+      },
       () => refreshInstanceQueries(service),
     )
   }

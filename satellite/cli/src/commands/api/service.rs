@@ -680,13 +680,16 @@ pub(super) async fn add_service_definition(
     let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
         ApiError::invalid_request(format!("Invalid service configuration: {error}"))
     })?;
+    // Scope-aware add: create the definition, or attach missing scopes from
+    // `_mcpstore.scopes` when the base config already exists (same semantics as
+    // the SDK facade). Create-only imports still use MCPStore::add_service.
     state
         .store
-        .add_service(&service_name, config)
+        .add_service_into_scopes(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Service definition added successfully",
+        "Service added successfully",
         json!({ "status": "ok" }),
     ))
 }

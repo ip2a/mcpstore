@@ -15,7 +15,6 @@ import {
   type ServiceConfigFormat,
 } from "@/features/services/service-config-draft"
 import type { AddServiceScope } from "@/features/services/use-add-service-form"
-import { AgentIdPicker } from "@/components/shared/agent-id-picker"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -37,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
@@ -241,7 +239,6 @@ export function ServiceConfigHandshakePane({
 
 export function AddServicePlaygroundAside({
   agentId,
-  agentIds = [],
   className,
   fields,
   name,
@@ -255,13 +252,13 @@ export function AddServicePlaygroundAside({
   onPreviewFormatChange,
   restartPolicy,
   scope,
+  scopeOptions = [],
   showCli = true,
   showLifecycleTab = false,
   showScopeTab = false,
   startupPolicy,
 }: {
   agentId: string
-  agentIds?: string[]
   className?: string
   fields: ServiceConfigFields
   name: string
@@ -275,6 +272,8 @@ export function AddServicePlaygroundAside({
   onPreviewFormatChange: (format: ServiceConfigFormat) => void
   restartPolicy?: ServiceRestartPolicy
   scope: AddServiceScope
+  /** Writable scopes only: store + agent ids (same source as Services tabs). */
+  scopeOptions?: Array<{ value: string; label: string }>
   showCli?: boolean
   showLifecycleTab?: boolean
   showScopeTab?: boolean
@@ -282,6 +281,17 @@ export function AddServicePlaygroundAside({
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<StoreAsideTab>("preview")
+  const scopeValue = scope === "agent" && agentId.trim() ? agentId.trim() : "store"
+  const resolvedScopeOptions = useMemo(() => {
+    const options = [...scopeOptions]
+    if (!options.some((option) => option.value === "store")) {
+      options.unshift({ value: "store", label: t("store") })
+    }
+    if (scopeValue !== "store" && !options.some((option) => option.value === scopeValue)) {
+      options.push({ value: scopeValue, label: scopeValue })
+    }
+    return options
+  }, [scopeOptions, scopeValue, t])
 
   return (
     <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col", className)}>
@@ -319,32 +329,34 @@ export function AddServicePlaygroundAside({
         <TabsContent value="profile" className="min-h-0 flex-1 overflow-hidden">
           <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {showScopeTab ? (
-              <FieldGroup>
-                <div className="flex items-center gap-3">
-                  <span className="shrink-0 text-sm text-muted-foreground">{t("agent")}</span>
-                  <Switch
-                    id="aside-add-service-agent-scope"
-                    checked={scope === "agent"}
-                    onCheckedChange={(useAgent) => {
-                      onScopeChange?.(useAgent ? "agent" : "store")
-                      if (!useAgent) {
-                        onAgentIdChange?.("")
-                      }
-                    }}
-                    aria-label={t("agent")}
-                  />
-                  <AgentIdPicker
-                    id="aside-agentId"
-                    name="agentId"
-                    agentIds={agentIds}
-                    value={agentId}
-                    disabled={scope !== "agent"}
-                    required={scope === "agent"}
-                    placeholder={scope === "agent" ? t("agentIdPlaceholder") : t("store")}
-                    onChange={(next) => onAgentIdChange?.(next)}
-                  />
-                </div>
-              </FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="aside-add-service-scope">{t("scope")}</FieldLabel>
+                <Select
+                  value={scopeValue}
+                  onValueChange={(value) => {
+                    if (value === "store") {
+                      onScopeChange?.("store")
+                      onAgentIdChange?.("")
+                      return
+                    }
+                    onScopeChange?.("agent")
+                    onAgentIdChange?.(value)
+                  }}
+                >
+                  <SelectTrigger id="aside-add-service-scope" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {resolvedScopeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
             ) : null}
             <ServiceConfigDescriptionPane fields={fields} onFieldsChange={onFieldsChange} />
             <ServiceConfigHandshakePane fields={fields} onFieldsChange={onFieldsChange} />

@@ -28,6 +28,8 @@ type ScopeServicesQuery = Query<ServiceInstance[], Error, ServiceInstance[], rea
 export function useScopeServicesQuery(
   view: ScopeView,
   options?: {
+    enabled?: boolean
+    refetchOnMount?: boolean | "always"
     refetchInterval?:
       | number
       | false
@@ -35,9 +37,11 @@ export function useScopeServicesQuery(
   },
 ) {
   return useQuery({
-    enabled: view.type !== "agent" || Boolean(view.agent_id),
+    enabled:
+      (options?.enabled ?? true) && (view.type !== "agent" || Boolean(view.agent_id)),
     queryKey: queryKeys.scopeServices(view),
     queryFn: () => listServices(view),
+    refetchOnMount: options?.refetchOnMount,
     refetchInterval: options?.refetchInterval,
   })
 }

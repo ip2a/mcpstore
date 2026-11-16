@@ -969,6 +969,87 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
 }
 
 #[tokio::test]
+async fn post_service_attaches_missing_agent_scope_when_definition_exists() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-post-attach-scope");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let create = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"store": {}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(create.status().is_success());
+
+    // Same base config, agent scope only → attach, do not fail as duplicate definition.
+    let attach = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"agents": {"claude": {}}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        attach.status().is_success(),
+        "attach response: {:?}",
+        attach.text().await.unwrap()
+    );
+
+    let agent_list = client
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=claude"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_list["data"]["total"], 1);
+    assert_eq!(agent_list["data"]["services"][0]["service_name"], "demo1");
+
+    // Same scopes again → already declared.
+    let duplicate = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"agents": {"claude": {}}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(!duplicate.status().is_success());
+    let duplicate_body = duplicate.json::<Value>().await.unwrap();
+    let message = duplicate_body["message"]
+        .as_str()
+        .or_else(|| duplicate_body["errors"][0]["message"].as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("already declared"),
+        "unexpected message: {message}"
+    );
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
 async fn scope_registry_routes_expose_root_store_and_agents() {
     let fixture_dir = unique_temp_dir_path("mcpstore-api-scope-registry");
     std::fs::create_dir_all(&fixture_dir).unwrap();

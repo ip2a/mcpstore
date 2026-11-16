@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
+import { serviceStateRefetchInterval } from "@/features/services/service-live-query"
+import { isServiceTransitioning } from "@/features/services/service-display-status"
 import {
   getInstanceAuthStatus,
   getServiceState,
@@ -17,6 +19,9 @@ export function useServiceDetailQuery(addr: ServiceAddress, enabled = false) {
     enabled: enabled && Boolean(addr.service_name),
     queryKey: queryKeys.instance(addr),
     queryFn: () => getServiceInstance(addr),
+    refetchOnMount: "always",
+    refetchInterval: (query) =>
+      isServiceTransitioning(query.state.data?.state) ? 3_000 : false,
   })
 }
 
@@ -39,11 +44,13 @@ export function useServiceAuthQuery(addr: ServiceAddress) {
   })
 }
 
-export function useServiceStatusQuery(addr: ServiceAddress) {
+export function useServiceStatusQuery(addr: ServiceAddress, enabled = false) {
   return useQuery({
-    enabled: false,
+    enabled: enabled && Boolean(addr.service_name),
     queryKey: queryKeys.instanceStatus(addr),
     queryFn: () => getServiceState(addr).catch(() => null),
+    refetchOnMount: "always",
+    refetchInterval: serviceStateRefetchInterval,
   })
 }
 

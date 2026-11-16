@@ -24,3 +24,9 @@ export function isServiceConnected(state?: ServiceState) {
 export function isServiceConnecting(state?: ServiceState) {
   return state ? deriveServiceDisplayStatus(state) === "connecting" : false
 }
+
+/** True while the list should poll a bit faster (connect / disconnect / recovery). */
+export function isServiceTransitioning(state?: ServiceState) {
+  if (!state) return false
+  return state.phase === "stopping" || isServiceConnecting(state)
+}

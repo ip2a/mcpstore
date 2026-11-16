@@ -157,7 +157,7 @@ export function ServicesView(props: {
                 {t("refresh")}
               </Button>
               <AddServiceDialog
-                agents={props.agents}
+                initialScope={selectedScope}
                 onAdded={props.onAdded}
                 open={addOpen}
                 onOpenChange={setAddOpen}

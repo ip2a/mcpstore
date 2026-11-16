@@ -11,6 +11,20 @@ impl MCPStore {
             .await
     }
 
+    /// Create a definition or attach missing scopes from `config._mcpstore.scopes`.
+    /// Prefer this for product "add service" flows; use [`Self::add_service`] when
+    /// a hard create-only failure is required.
+    pub async fn add_service_into_scopes(
+        &self,
+        service_name: &str,
+        config: ServerConfig,
+    ) -> Result<()> {
+        self.kernel
+            .control
+            .add_service_into_scopes(self, service_name, config)
+            .await
+    }
+
     pub async fn remove_service(&self, service_name: &str) -> Result<()> {
         self.kernel.control.remove_service(self, service_name).await
     }

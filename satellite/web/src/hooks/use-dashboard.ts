@@ -12,18 +12,11 @@ export function useDashboard() {
     queryFn: () => listAgents().catch(() => []),
   })
 
-  // Use all scope to fetch all services in a single request
+  // Shared snapshot for routing / non-status pages. No background polling —
+  // Services / Agents / Scope / detail own live refresh while mounted.
   const servicesQuery = useQuery({
     queryKey: queryKeys.instances,
     queryFn: () => listServices({ type: "all" }),
-    refetchInterval: (query) => {
-      // Dynamic polling: faster when services are transitioning, slower when stable
-      const services = query.state.data || []
-      const hasTransitioningServices = services.some(
-        (s) => s.state?.phase === "starting" || s.state?.phase === "stopping",
-      )
-      return hasTransitioningServices ? 3_000 : 12_000
-    },
   })
 
   const services = servicesQuery.data || []

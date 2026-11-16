@@ -11,7 +11,8 @@ use mcpstore::{MCPStore, ScopeRef};
 
 use crate::gateway::{
     report_gateway_boot, streamable_http_router, GatewayBoot, GatewayBootPhase,
-    GatewayBootReporter, GatewayCallLog, GatewayCatalog, GatewayOptions, GatewayServer,
+    normalize_http_path, GatewayBootReporter, GatewayCallLog, GatewayCatalog, GatewayOptions,
+    GatewayServer,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -213,13 +214,12 @@ impl GatewayRuntime {
         if let Some(report) = &report {
             report(GatewayBoot::new(GatewayBootPhase::Mounting));
         }
-        let (generic_router, mount_set) =
+        let mount_set =
             build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
+        let generic_path = normalize_http_path(&options.path);
         let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
-        let generic_projection = mount_set.generic_projection;
-        let generic_catalog = mount_set.generic_catalog.clone();
         let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
-        publish_projections(&mounts, &generic_projection, &projections);
+        publish_projections(&mounts, &projections);
         let calls = axum::Router::new()
             .route("/calls", axum::routing::get(calls_route))
             .with_state(call_log.clone());
@@ -231,9 +231,12 @@ impl GatewayRuntime {
             .with_state(HealthState {
                 mounts: Arc::clone(&mounts),
                 projections: Arc::clone(&projections),
-                generic_catalog,
             });
-        let router = generic_router
+        // Wired mounts and the generic `/mcp` mount all live in `mounts` and
+        // are reached through `mount_dispatch` (longest-prefix). Nesting the
+        // generic router on this outer tree would steal `/mcp/<client>` because
+        // axum nest(`/mcp`) is a prefix match.
+        let router = axum::Router::new()
             .merge(calls)
             .merge(projection)
             .merge(health)
@@ -245,7 +248,7 @@ impl GatewayRuntime {
             wired_path,
             mounts,
             projections,
-            generic_projection,
+            generic_path,
         ));
         Ok(Arc::new(Self {
             options,
@@ -293,8 +296,6 @@ struct LiveMount {
 #[derive(Default)]
 struct MountSet {
     routers: std::collections::HashMap<String, LiveMount>,
-    generic_projection: Option<MountProjection>,
-    generic_catalog: Option<Arc<GatewayCatalog>>,
 }
 
 async fn build_mount(
@@ -352,12 +353,16 @@ async fn build_mount(
 /// previous runtime to preserve), skip-with-warning on
 /// a mount that individually fails to build so one bad client doesn't take
 /// down the rest of the gateway (projection resilience, M2).
+///
+/// The generic `/mcp` mount is registered in the same map as wired
+/// `/mcp/<client>` mounts so dispatch can longest-prefix pick the client
+/// mount instead of letting an axum nest(`/mcp`) steal those paths.
 async fn build_mounts(
     store: &Arc<MCPStore>,
     options: &GatewayOptions,
     shared_log: Arc<GatewayCallLog>,
     wired_path: &std::path::Path,
-) -> Result<(axum::Router, MountSet), BoxErr> {
+) -> Result<MountSet, BoxErr> {
     let mut set = MountSet::default();
     let wired_state = client_wire::load_wired_state(wired_path)?;
     for entry in &wired_state.entries {
@@ -372,28 +377,47 @@ async fn build_mounts(
     }
 
     // Generic mount from the CLI options; its exposure is fixed for the
-    // process lifetime, so reconciliation never touches it.
-    let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
+    // process lifetime, so reconciliation never removes it.
+    let generic_path = normalize_http_path(&options.path);
+    let generic_server =
+        build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
     let generic_projection = MountProjection {
-        caller: generic_server.caller_name(),
+        caller: None,
         issues: generic_server.projection_handle(),
     };
     let generic_catalog = generic_server.catalog_handle();
-    let generic_router = streamable_http_router(generic_server, &options.path);
-    set.generic_projection = Some(generic_projection);
-    set.generic_catalog = Some(generic_catalog);
+    let generic_router = streamable_http_router(generic_server, &generic_path);
+    set.routers.insert(
+        generic_path,
+        LiveMount {
+            fingerprint: MountFingerprint {
+                scope: options.scope.clone(),
+                expose: mcpstore::client_wire::ExposeConfig {
+                    session_state: options.expose_session_state_tools,
+                    tool: options.expose_tool_override_tools,
+                    prompt: options.expose_prompt_override_tools,
+                    resource: options.expose_resource_override_tools,
+                    openapi: options.expose_openapi_tools,
+                    service: options.expose_service_tools,
+                    kv: options.expose_kv_tools,
+                    search: options.expose_search_tools,
+                },
+            },
+            router: generic_router,
+            projection: generic_projection,
+            catalog: generic_catalog,
+        },
+    );
 
-    Ok((generic_router, set))
+    Ok(set)
 }
 
-/// Rebuild the shared projection list from the live mounts plus the generic
-/// mount's handle.
+/// Rebuild the shared projection list from every live mount (wired + generic).
 fn publish_projections(
     mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
-    generic_projection: &Option<MountProjection>,
     projections: &Arc<std::sync::RwLock<ProjectionMounts>>,
 ) {
-    let wired = mounts
+    let all = mounts
         .read()
         .map(|map| {
             map.values()
@@ -401,8 +425,6 @@ fn publish_projections(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut all = wired;
-    all.extend(generic_projection.clone());
     if let Ok(mut guard) = projections.write() {
         *guard = all;
     }
@@ -444,14 +466,12 @@ async fn projection_route(
     .into_response()
 }
 
-/// What the gateway health route reads: the live mount registry (per-mount
-/// catalogs), the projection list (served-mount count), and the generic
-/// mount's catalog.
+/// What the gateway health route reads: the live mount registry and the
+/// projection list (served-mount count).
 #[derive(Clone)]
 struct HealthState {
     mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     projections: Arc<std::sync::RwLock<ProjectionMounts>>,
-    generic_catalog: Option<Arc<crate::gateway::GatewayCatalog>>,
 }
 
 /// Gateway liveness plus the two counters the R4 stress trajectory correlates
@@ -463,7 +483,7 @@ async fn health_route(State(health): State<HealthState>) -> Response {
         .read()
         .map(|mounts| mounts.len())
         .unwrap_or(0);
-    let mut rebuilds: u64 = health
+    let rebuilds: u64 = health
         .mounts
         .read()
         .map(|mounts| {
@@ -473,9 +493,6 @@ async fn health_route(State(health): State<HealthState>) -> Response {
                 .sum()
         })
         .unwrap_or(0);
-    if let Some(catalog) = &health.generic_catalog {
-        rebuilds += catalog.rebuild_count();
-    }
     axum::Json(json!({
         "success": true,
         "data": { "running": true, "mounts": mount_count, "catalog_rebuilds": rebuilds },
@@ -483,25 +500,40 @@ async fn health_route(State(health): State<HealthState>) -> Response {
     .into_response()
 }
 
-/// Dispatch a request onto its wired mount's router. The registry changes
-/// under the reconciliation loop, so the map is read per request; a Router
-/// clone is an Arc clone.
+/// Pick the mount whose path is an exact or boundary-aware prefix of `path`,
+/// preferring the longest match (`/mcp/claude` over `/mcp`).
+fn select_mount<'a>(
+    path: &str,
+    mounts: &'a std::collections::HashMap<String, LiveMount>,
+) -> Option<&'a LiveMount> {
+    mounts.get(path).or_else(|| {
+        mounts
+            .iter()
+            .filter(|(mount_path, _)| mount_path_matches(path, mount_path))
+            .max_by_key(|(mount_path, _)| mount_path.len())
+            .map(|(_, mount)| mount)
+    })
+}
+
+fn mount_path_matches(request_path: &str, mount_path: &str) -> bool {
+    request_path == mount_path
+        || request_path
+            .strip_prefix(mount_path)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Dispatch a request onto its mount's router (wired `/mcp/<id>` or generic
+/// `/mcp`). The registry changes under the reconciliation loop, so the map is
+/// read per request.
 async fn mount_dispatch(
     State(mounts): State<Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>>,
     request: axum::extract::Request,
 ) -> Response {
     let path = request.uri().path().to_string();
-    let router = mounts.read().ok().and_then(|map| {
-        map.get(&path)
-            // nest semantics: the longest mount path that prefixes the request
-            .or_else(|| {
-                map.iter()
-                    .filter(|(mount_path, _)| path.starts_with(mount_path.as_str()))
-                    .max_by_key(|(mount_path, _)| mount_path.len())
-                    .map(|(_, mount)| mount)
-            })
-            .map(|mount| mount.router.clone())
-    });
+    let router = mounts
+        .read()
+        .ok()
+        .and_then(|map| select_mount(&path, &map).map(|mount| mount.router.clone()));
     match router {
         Some(router) => router
             .oneshot(request)
@@ -546,7 +578,7 @@ async fn reconcile_loop(
     wired_path: std::path::PathBuf,
     mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     projections: Arc<std::sync::RwLock<ProjectionMounts>>,
-    generic_projection: Option<MountProjection>,
+    generic_path: String,
 ) {
     let mut ticker = tokio::time::interval(RECONCILE_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -565,7 +597,7 @@ async fn reconcile_loop(
                     &state,
                     &mounts,
                     &projections,
-                    &generic_projection,
+                    &generic_path,
                 )
                 .await;
             }
@@ -590,9 +622,9 @@ async fn reconcile_once(
     state: &client_wire::WiredState,
     mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     projections: &Arc<std::sync::RwLock<ProjectionMounts>>,
-    generic_projection: &Option<MountProjection>,
+    generic_path: &str,
 ) {
-    let (adds, rebuilds, removes, warnings) = plan_mount_changes(&mounts, state);
+    let (adds, rebuilds, removes, warnings) = plan_mount_changes(mounts, state, generic_path);
     for warning in &warnings {
         eprintln!("[GATEWAY] {warning}");
     }
@@ -643,7 +675,7 @@ async fn reconcile_once(
         }
     }
     if changed {
-        publish_projections(mounts, generic_projection, projections);
+        publish_projections(mounts, projections);
     }
 }
 
@@ -662,6 +694,7 @@ type MountPlan = (
 fn plan_mount_changes(
     mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     state: &client_wire::WiredState,
+    generic_path: &str,
 ) -> MountPlan {
     let mut adds = Vec::new();
     let mut rebuilds = Vec::new();
@@ -698,6 +731,10 @@ fn plan_mount_changes(
         }
     }
     for path in running.keys() {
+        // The generic `/mcp` mount is not ledger-backed; never prune it.
+        if path == generic_path {
+            continue;
+        }
         if !ledger_paths.contains(path) {
             removes.push(path.clone());
         }
@@ -837,7 +874,57 @@ mod tests {
         mounts: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
         entries: Vec<client_wire::WiredEntry>,
     ) -> MountPlan {
-        plan_mount_changes(mounts, &WiredState { entries })
+        plan_mount_changes(mounts, &WiredState { entries }, "/mcp")
+    }
+
+    #[test]
+    fn mount_dispatch_prefers_client_path_over_generic_prefix() {
+        assert!(mount_path_matches("/mcp/claude", "/mcp/claude"));
+        assert!(mount_path_matches("/mcp/claude", "/mcp"));
+        assert!(mount_path_matches("/mcp/", "/mcp"));
+        assert!(!mount_path_matches("/mcpfoo", "/mcp"));
+
+        let mounts = running_with(&[entry("claude", false)]);
+        // Inject the generic `/mcp` mount alongside the wired client.
+        {
+            let store = Arc::new(
+                mcpstore::MCPStore::setup_with_options(mcpstore::StoreOptions {
+                    store: Some(mcpstore::JsonStoreConfig::memory()),
+                    ..mcpstore::StoreOptions::default()
+                })
+                .expect("memory store"),
+            );
+            let mut map = mounts.write().unwrap();
+            map.insert(
+                "/mcp".into(),
+                LiveMount {
+                    fingerprint: MountFingerprint {
+                        scope: mcpstore::ScopeRef::Store,
+                        expose: ExposeConfig::default(),
+                    },
+                    router: axum::Router::new(),
+                    projection: MountProjection {
+                        caller: None,
+                        issues: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+                    },
+                    catalog: GatewayCatalog::blank(
+                        Arc::clone(&store),
+                        mcpstore::ScopeRef::Store,
+                        None,
+                        None,
+                    ),
+                },
+            );
+            let selected = select_mount("/mcp/claude", &map).expect("mount");
+            assert_eq!(selected.projection.caller.as_deref(), Some("claude"));
+            let selected = select_mount("/mcp", &map).expect("generic");
+            assert_eq!(selected.projection.caller, None);
+        }
+
+        // Empty ledger must not prune the generic mount.
+        let (adds, rebuilds, removes, warnings) = plan_of(&mounts, vec![]);
+        assert!(adds.is_empty() && rebuilds.is_empty() && warnings.is_empty());
+        assert_eq!(removes, ["/mcp/claude"]);
     }
 
     #[test]

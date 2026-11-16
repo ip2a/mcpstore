@@ -97,38 +97,9 @@ impl ScopeContext {
         if config.mcpstore.is_none() {
             config.mcpstore = Some(extension_for_scope(&self.scope));
         }
-        let existing = self
-            .store
-            .get_definition_config(service_name)
-            .await?
-            .map(serde_json::from_value::<ServerConfig>)
-            .transpose()
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-
-        if let Some(existing) = existing {
-            if existing.base_config() != config.base_config() {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!(
-                    "Service definition already exists with a different base config: {service_name}"
-                ),
-                ));
-            }
-            if declares_scope(&existing, &self.scope) {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!(
-                        "Scope {:?} is already declared for service '{service_name}'",
-                        self.scope
-                    ),
-                ));
-            }
-            self.store
-                .declare_service_scope(service_name, &self.scope, ScopeDescriptor::default())
-                .await?;
-        } else {
-            self.store.add_service(service_name, config).await?;
-        }
+        self.store
+            .add_service_into_scopes(service_name, config)
+            .await?;
         Ok(self.clone())
     }
 
@@ -1075,14 +1046,6 @@ impl MCPStore {
             },
         )
     }
-}
-
-fn declares_scope(config: &ServerConfig, scope: &ScopeRef) -> bool {
-    config
-        .mcpstore
-        .as_ref()
-        .map(|extension| extension.scopes.descriptor(scope).is_some())
-        .unwrap_or(false)
 }
 
 fn extension_for_scope(scope: &ScopeRef) -> McpStoreExtension {

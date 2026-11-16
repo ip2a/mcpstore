@@ -325,8 +325,8 @@ function ServiceCardDialogBody({
                     state={service.state}
                     size="default"
                     variant="outline"
-                    onConnect={() => closeThen(() => onConnect(service))}
-                    onDisconnect={() => closeThen(() => onDisconnect(service))}
+                    onConnect={() => onConnect(service)}
+                    onDisconnect={() => onDisconnect(service)}
                   />
                   <Button
                     type="button"

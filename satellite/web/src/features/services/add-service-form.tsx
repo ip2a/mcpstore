@@ -1,4 +1,6 @@
-import { useScopeServicesQuery } from "@/features/agents/queries"
+import { useMemo } from "react"
+
+import { useScopeServicesQuery, useScopesQuery } from "@/features/agents/queries"
 import { useAddServiceForm } from "@/features/services/use-add-service-form"
 import { AddServicePlaygroundAside } from "@/features/services/add-service-playground-aside"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
@@ -20,26 +22,37 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getAgentId } from "@/features/agents/model"
 import { useI18n } from "@/lib/i18n-context"
-import type { AgentItem, ServiceInstance } from "@/lib/api"
+import type { ScopeView, ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceForm({
-  agents,
   className,
+  initialScope,
   onAdded,
   onCancel,
   showActions = true,
 }: {
-  agents: AgentItem[]
   className?: string
+  initialScope?: ScopeView
   onAdded: () => Promise<void>
   onCancel?: () => void
   showActions?: boolean
 }) {
   const { t } = useI18n()
-  const agentIds = agents.map(getAgentId).filter(Boolean)
+  const scopesQuery = useScopesQuery()
+  const scopeOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = []
+    for (const summary of scopesQuery.data ?? []) {
+      if (summary.scope.type === "store") {
+        options.push({ value: "store", label: t("store") })
+      } else if (summary.scope.type === "agent") {
+        const id = summary.scope.agent_id.trim()
+        if (id) options.push({ value: id, label: id })
+      }
+    }
+    return options
+  }, [scopesQuery.data, t])
   const storeServicesQuery = useScopeServicesQuery({ type: "store" })
   const existingServices = storeServicesQuery.data ?? []
   const {
@@ -60,6 +73,7 @@ export function AddServiceForm({
     startupPolicy,
     submitting,
   } = useAddServiceForm({
+    initialScope,
     onAdded,
     onBack: () => onCancel?.(),
   })
@@ -144,13 +158,13 @@ export function AddServiceForm({
 
         <AddServicePlaygroundAside
           agentId={agentId}
-          agentIds={agentIds}
           className="min-h-0 max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none"
           fields={configFields}
           name={serviceName}
           previewFormat={previewFormat}
           restartPolicy={restartPolicy}
           scope={scope}
+          scopeOptions={scopeOptions}
           showLifecycleTab
           showScopeTab
           startupPolicy={startupPolicy}
