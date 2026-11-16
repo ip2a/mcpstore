@@ -19,6 +19,7 @@ import {
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { useServiceTabsPrefsMutation } from "@/features/mcp-registry/use-service-tabs-prefs-mutation"
 import { ToolsFilterDialog, type ToolSortBy } from "@/features/tools/tools-filter-dialog"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
@@ -32,6 +33,7 @@ export function ToolsView(props: {
 }) {
   const { t } = useI18n()
   const [sortBy, setSortBy] = useState<ToolSortBy | null>(null)
+  const { saveServiceTabsPrefs } = useServiceTabsPrefsMutation()
   const {
     activeFilterCount,
     agentId,
@@ -45,6 +47,7 @@ export function ToolsView(props: {
     scope,
     instanceId,
     scopeInstances,
+    serviceTabsPrefs,
     setAgentId,
     setQuery,
     setScope,
@@ -155,10 +158,12 @@ export function ToolsView(props: {
                 }
                 onInstanceIdChange={setInstanceId}
                 onScopeChange={setScope}
+                onServiceTabsPrefsChange={(prefs) => void saveServiceTabsPrefs(prefs)}
                 onSort={setSortBy}
                 onVisibilityFilterChange={setVisibilityFilter}
                 scope={scope}
                 scopeInstances={scopeInstances}
+                serviceTabsPrefs={serviceTabsPrefs}
                 sortBy={sortBy}
                 visibilityFilter={visibilityFilter}
               />

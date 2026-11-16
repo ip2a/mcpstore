@@ -23,6 +23,7 @@ import {
   McpRegistryFilterDialog,
   type RegistrySortBy,
 } from "@/features/mcp-registry/mcp-registry-filter-dialog"
+import { useServiceTabsPrefsMutation } from "@/features/mcp-registry/use-service-tabs-prefs-mutation"
 import { usePromptsRegistry } from "@/features/prompts/use-prompts-registry"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, PromptInfo, ServiceInstance } from "@/lib/api"
@@ -34,6 +35,7 @@ export function PromptsView(props: {
 }) {
   const { t } = useI18n()
   const [sortBy, setSortBy] = useState<RegistrySortBy | null>(null)
+  const { saveServiceTabsPrefs } = useServiceTabsPrefsMutation()
   const {
     activeFilterCount,
     agentId,
@@ -47,6 +49,7 @@ export function PromptsView(props: {
     query,
     scope,
     scopeInstances,
+    serviceTabsPrefs,
     setAgentId,
     setInstanceId,
     setQuery,
@@ -144,9 +147,11 @@ export function PromptsView(props: {
                 onAgentIdChange={setAgentId}
                 onInstanceIdChange={setInstanceId}
                 onScopeChange={setScope}
+                onServiceTabsPrefsChange={(prefs) => void saveServiceTabsPrefs(prefs)}
                 onSort={setSortBy}
                 scope={scope}
                 scopeInstances={scopeInstances}
+                serviceTabsPrefs={serviceTabsPrefs}
                 sortBy={sortBy}
               />
               <Button size="sm" variant="outline" onClick={loadPrompts} disabled={loading}>

@@ -321,6 +321,11 @@ export type HostsPayload = {
   [name: string]: string | HostEntry
 }
 
+export type ServiceTabsSettingsPayload = {
+  sort?: "name" | "added_newest" | "added_oldest"
+  show_disconnected?: boolean
+}
+
 export type SettingsPayload = {
   language?: UiLanguage
   api?: { host?: string; port?: number; url_prefix?: string }
@@ -328,6 +333,7 @@ export type SettingsPayload = {
   gateway?: { port?: number }
   diagnostics?: DiagnosticsSettingsPayload
   hosts?: HostsPayload
+  service_tabs?: ServiceTabsSettingsPayload
   [key: string]: unknown
 }
 
@@ -368,6 +374,7 @@ export type UpdateSettingsPayload = {
   gateway?: { port?: number }
   diagnostics?: DiagnosticsSettingsPayload
   hosts?: HostsPayload
+  service_tabs?: ServiceTabsSettingsPayload
   [key: string]: unknown
 }
 

@@ -233,6 +233,48 @@ export function SettingsView() {
                           </SelectContent>
                         </Select>
                       </Field>
+                      <Field orientation="responsive">
+                        <FieldContent>
+                          <FieldTitle>{t("serviceTabsSort")}</FieldTitle>
+                          <FieldDescription>{t("serviceTabsSortDescription")}</FieldDescription>
+                        </FieldContent>
+                        <Select
+                          value={draft.serviceTabs.sort}
+                          onValueChange={(value) =>
+                            patchDraft({
+                              serviceTabs: {
+                                ...draft.serviceTabs,
+                                sort: value as SettingsDraft["serviceTabs"]["sort"],
+                              },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-56">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="name">{t("serviceTabsSortName")}</SelectItem>
+                              <SelectItem value="added_newest">
+                                {t("serviceTabsSortAddedNewest")}
+                              </SelectItem>
+                              <SelectItem value="added_oldest">
+                                {t("serviceTabsSortAddedOldest")}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <ToggleField
+                        title={t("serviceTabsShowDisconnected")}
+                        description={t("serviceTabsShowDisconnectedDescription")}
+                        checked={draft.serviceTabs.showDisconnected}
+                        onCheckedChange={(showDisconnected) =>
+                          patchDraft({
+                            serviceTabs: { ...draft.serviceTabs, showDisconnected },
+                          })
+                        }
+                      />
                     </FieldGroup>
 
                     <div className="flex flex-col gap-3">

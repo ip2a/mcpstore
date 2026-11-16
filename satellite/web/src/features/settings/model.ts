@@ -1,5 +1,10 @@
 import type { HostsPayload, SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
 import { type HostsConfig, parseHostsPayload, serializeHostsPayload } from "@/lib/api/hosts"
+import {
+  parseServiceTabsPrefs,
+  type ServiceTabSort,
+  type ServiceTabsPrefs,
+} from "@/features/mcp-registry/service-tabs-prefs"
 import type { I18nKey } from "@/lib/i18n-core"
 
 export type SectionId = "general" | "connection" | "diagnostics" | "kv" | "config" | "about"
@@ -25,6 +30,7 @@ export type SettingsDraft = {
     runtime_max_size_bytes: number
     runtime_retention_days: number | null
   }
+  serviceTabs: ServiceTabsPrefs
 }
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
@@ -69,6 +75,7 @@ export function settingsDraft(settings: SettingsPayload): SettingsDraft {
           ? settings.diagnostics.runtime_log.retention_days
           : null,
     },
+    serviceTabs: parseServiceTabsPrefs(settings.service_tabs),
   }
 }
 
@@ -86,5 +93,11 @@ export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
         retention_days: draft.diagnostics.runtime_retention_days,
       },
     },
+    service_tabs: {
+      sort: draft.serviceTabs.sort,
+      show_disconnected: draft.serviceTabs.showDisconnected,
+    },
   }
 }
+
+export type { ServiceTabSort, ServiceTabsPrefs }

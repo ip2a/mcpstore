@@ -17,6 +17,30 @@ pub(super) struct PanelSettings {
     /// from HostEntry parse errors — still an explicit failure.
     #[serde(default)]
     pub hosts: HostsConfig,
+    /// Tools / Resources / Prompts service-tab visibility and order.
+    #[serde(default)]
+    pub service_tabs: ServiceTabsSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct ServiceTabsSettings {
+    #[serde(default = "default_service_tab_sort")]
+    pub sort: String,
+    #[serde(default)]
+    pub show_disconnected: bool,
+}
+
+fn default_service_tab_sort() -> String {
+    "name".to_string()
+}
+
+impl Default for ServiceTabsSettings {
+    fn default() -> Self {
+        Self {
+            sort: default_service_tab_sort(),
+            show_disconnected: false,
+        }
+    }
 }
 
 impl Default for PanelSettings {
@@ -24,6 +48,7 @@ impl Default for PanelSettings {
         Self {
             language: "en".to_string(),
             hosts: HostsConfig::default(),
+            service_tabs: ServiceTabsSettings::default(),
         }
     }
 }
@@ -72,6 +97,7 @@ pub(super) fn load_or_migrate(manager: &ConfigManager) -> Result<PanelSettings, 
             None => "en".to_string(),
         },
         hosts: hosts_from_legacy_config(&raw),
+        service_tabs: ServiceTabsSettings::default(),
     };
     if language.is_some() || settings_has_hosts(&raw) {
         save(&path, &settings)?;
@@ -222,8 +248,16 @@ pub(super) fn normalize_language(language: &str) -> Result<String, String> {
     }
 }
 
+pub(super) fn normalize_service_tab_sort(sort: &str) -> Result<String, String> {
+    match sort.trim() {
+        "name" | "added_newest" | "added_oldest" => Ok(sort.trim().to_string()),
+        _ => Err("service_tabs.sort must be name, added_newest, or added_oldest".to_string()),
+    }
+}
+
 fn validate(settings: &PanelSettings) -> Result<(), String> {
-    normalize_language(&settings.language).map(|_| ())
+    normalize_language(&settings.language)?;
+    normalize_service_tab_sort(&settings.service_tabs.sort).map(|_| ())
 }
 
 fn save(path: &Path, settings: &PanelSettings) -> Result<(), String> {
@@ -414,6 +448,7 @@ mod tests {
             &PanelSettings {
                 language: "zh".into(),
                 hosts: Default::default(),
+                service_tabs: Default::default(),
             },
         )
         .unwrap();

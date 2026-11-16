@@ -22,6 +22,13 @@ pub(super) struct UpdateSettingsRequest {
     web: Option<UpdateWebRequest>,
     gateway: Option<UpdateGatewayRequest>,
     hosts: Option<HostsConfig>,
+    service_tabs: Option<UpdateServiceTabsRequest>,
+}
+
+#[derive(Deserialize)]
+struct UpdateServiceTabsRequest {
+    sort: Option<String>,
+    show_disconnected: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +186,15 @@ pub(super) async fn update_settings<T: PanelCtx>(
     if let Some(hosts) = payload.hosts {
         panel_settings.hosts = hosts;
     }
+    if let Some(service_tabs) = payload.service_tabs {
+        if let Some(sort) = service_tabs.sort {
+            panel_settings.service_tabs.sort = panel_settings::normalize_service_tab_sort(&sort)
+                .map_err(|message| ApiError::invalid_parameter(message, Some("service_tabs.sort")))?;
+        }
+        if let Some(show_disconnected) = service_tabs.show_disconnected {
+            panel_settings.service_tabs.show_disconnected = show_disconnected;
+        }
+    }
 
     config_manager
         .save_app_config(&config)
@@ -276,6 +292,10 @@ fn settings_payload(
             },
         },
         "hosts": hosts_payload(&panel_settings.hosts),
+        "service_tabs": {
+            "sort": panel_settings.service_tabs.sort,
+            "show_disconnected": panel_settings.service_tabs.show_disconnected,
+        },
     })
 }
 

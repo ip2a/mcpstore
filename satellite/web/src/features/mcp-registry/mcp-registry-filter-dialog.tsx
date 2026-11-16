@@ -24,6 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DEFAULT_SERVICE_TABS_PREFS,
+  type ServiceTabSort,
+  type ServiceTabsPrefs,
+} from "@/features/mcp-registry/service-tabs-prefs"
+import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -40,9 +46,11 @@ export function McpRegistryFilterDialog(props: {
   onAgentIdChange: (value: string) => void
   onInstanceIdChange: (value: string) => void
   onScopeChange: (value: "store" | "agent") => void
+  onServiceTabsPrefsChange?: (value: ServiceTabsPrefs) => void
   onSort?: (value: RegistrySortBy) => void
   scope: "store" | "agent"
   scopeInstances: ServiceInstance[]
+  serviceTabsPrefs?: ServiceTabsPrefs
   sortBy?: RegistrySortBy | null
 }) {
   const { t } = useI18n()
@@ -51,12 +59,16 @@ export function McpRegistryFilterDialog(props: {
   const [draftAgentId, setDraftAgentId] = useState(props.agentId)
   const [draftInstanceId, setDraftInstanceId] = useState(props.instanceId)
   const [pendingSort, setPendingSort] = useState<RegistrySortBy | null>(null)
+  const [draftServiceTabs, setDraftServiceTabs] = useState(
+    props.serviceTabsPrefs ?? DEFAULT_SERVICE_TABS_PREFS,
+  )
 
   function beginDraft() {
     setDraftScope(props.scope)
     setDraftAgentId(props.agentId)
     setDraftInstanceId(props.instanceId)
     setPendingSort(props.sortBy ?? null)
+    setDraftServiceTabs(props.serviceTabsPrefs ?? DEFAULT_SERVICE_TABS_PREFS)
   }
 
   function onOpenChange(next: boolean) {
@@ -69,6 +81,7 @@ export function McpRegistryFilterDialog(props: {
     props.onAgentIdChange(draftAgentId)
     if (!props.hideServiceFilter) props.onInstanceIdChange(draftInstanceId)
     if (pendingSort) props.onSort?.(pendingSort)
+    props.onServiceTabsPrefsChange?.(draftServiceTabs)
     setOpen(false)
   }
 
@@ -77,6 +90,7 @@ export function McpRegistryFilterDialog(props: {
     setDraftAgentId("")
     setDraftInstanceId("all")
     setPendingSort(null)
+    setDraftServiceTabs(DEFAULT_SERVICE_TABS_PREFS)
   }
 
   const draftFilterCount =
@@ -181,7 +195,53 @@ export function McpRegistryFilterDialog(props: {
             </div>
           </FieldGroup>
 
-          <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none">
+          <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] gap-4 overflow-y-auto [scrollbar-width:none] @min-[640px]:h-full @min-[640px]:max-h-none">
+            {props.onServiceTabsPrefsChange ? (
+              <div className="flex shrink-0 flex-col gap-3">
+                <FieldLabel className="shrink-0">{t("serviceTabsPrefsLabel")}</FieldLabel>
+                <RadioGroup
+                  value={draftServiceTabs.sort}
+                  onValueChange={(value) =>
+                    setDraftServiceTabs((current) => ({
+                      ...current,
+                      sort: value as ServiceTabSort,
+                    }))
+                  }
+                  className="flex flex-col gap-3"
+                >
+                  <Field orientation="horizontal" className="items-center gap-2">
+                    <RadioGroupItem value="name" id="registry-service-tab-sort-name" />
+                    <Label htmlFor="registry-service-tab-sort-name" className="font-normal">
+                      {t("serviceTabsSortName")}
+                    </Label>
+                  </Field>
+                  <Field orientation="horizontal" className="items-center gap-2">
+                    <RadioGroupItem value="added_newest" id="registry-service-tab-sort-newest" />
+                    <Label htmlFor="registry-service-tab-sort-newest" className="font-normal">
+                      {t("serviceTabsSortAddedNewest")}
+                    </Label>
+                  </Field>
+                  <Field orientation="horizontal" className="items-center gap-2">
+                    <RadioGroupItem value="added_oldest" id="registry-service-tab-sort-oldest" />
+                    <Label htmlFor="registry-service-tab-sort-oldest" className="font-normal">
+                      {t("serviceTabsSortAddedOldest")}
+                    </Label>
+                  </Field>
+                </RadioGroup>
+                <Field orientation="horizontal" className="items-center justify-between gap-2">
+                  <Label htmlFor="registry-service-tab-show-disconnected" className="font-normal">
+                    {t("serviceTabsShowDisconnected")}
+                  </Label>
+                  <Switch
+                    id="registry-service-tab-show-disconnected"
+                    checked={draftServiceTabs.showDisconnected}
+                    onCheckedChange={(showDisconnected) =>
+                      setDraftServiceTabs((current) => ({ ...current, showDisconnected }))
+                    }
+                  />
+                </Field>
+              </div>
+            ) : null}
             {props.onSort ? (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
                 <FieldLabel className="shrink-0">{t("sortLabel")}</FieldLabel>
@@ -205,7 +265,7 @@ export function McpRegistryFilterDialog(props: {
                   </Field>
                 </RadioGroup>
               </div>
-            ) : (
+            ) : props.onServiceTabsPrefsChange ? null : (
               <div className="text-sm text-muted-foreground">{description}</div>
             )}
           </aside>

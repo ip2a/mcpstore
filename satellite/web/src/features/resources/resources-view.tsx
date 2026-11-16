@@ -23,6 +23,7 @@ import {
   McpRegistryFilterDialog,
   type RegistrySortBy,
 } from "@/features/mcp-registry/mcp-registry-filter-dialog"
+import { useServiceTabsPrefsMutation } from "@/features/mcp-registry/use-service-tabs-prefs-mutation"
 import { useResourcesRegistry } from "@/features/resources/use-resources-registry"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, ResourceInfo, ServiceInstance } from "@/lib/api"
@@ -34,6 +35,7 @@ export function ResourcesView(props: {
 }) {
   const { t } = useI18n()
   const [sortBy, setSortBy] = useState<RegistrySortBy | null>(null)
+  const { saveServiceTabsPrefs } = useServiceTabsPrefsMutation()
   const {
     activeFilterCount,
     agentId,
@@ -47,6 +49,7 @@ export function ResourcesView(props: {
     query,
     scope,
     scopeInstances,
+    serviceTabsPrefs,
     setAgentId,
     setInstanceId,
     setQuery,
@@ -144,9 +147,11 @@ export function ResourcesView(props: {
                 onAgentIdChange={setAgentId}
                 onInstanceIdChange={setInstanceId}
                 onScopeChange={setScope}
+                onServiceTabsPrefsChange={(prefs) => void saveServiceTabsPrefs(prefs)}
                 onSort={setSortBy}
                 scope={scope}
                 scopeInstances={scopeInstances}
+                serviceTabsPrefs={serviceTabsPrefs}
                 sortBy={sortBy}
               />
               <Button size="sm" variant="outline" onClick={loadResources} disabled={loading}>

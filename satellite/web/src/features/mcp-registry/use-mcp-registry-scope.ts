@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { getAgentId } from "@/features/agents/model"
 import { useAgentServicesQuery } from "@/features/agents/queries"
+import {
+  filterAndSortScopeInstances,
+  parseServiceTabsPrefs,
+  type ServiceTabsPrefs,
+} from "@/features/mcp-registry/service-tabs-prefs"
+import { useSettingsMetaQuery } from "@/features/settings/queries"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
 
 export function countActiveMcpRegistryFilters(filters: { scope: "store" | "agent" }) {
@@ -23,11 +29,18 @@ export function useMcpRegistryScope({
   const [instanceId, setInstanceId] = useState("all")
   const [query, setQuery] = useState("")
   const agentServicesQuery = useAgentServicesQuery(scope === "agent" ? agentId : "")
+  const metaQuery = useSettingsMetaQuery()
 
-  // Sort instances alphabetically by service_name for stable ordering
-  const scopeInstances = (scope === "agent" ? agentServicesQuery.data || [] : services)
-    .slice()
-    .sort((a, b) => a.service_name.localeCompare(b.service_name))
+  const serviceTabsPrefs: ServiceTabsPrefs = useMemo(
+    () => parseServiceTabsPrefs(metaQuery.data?.settings?.service_tabs),
+    [metaQuery.data?.settings?.service_tabs],
+  )
+
+  // Default: ALL − disconnected − error (− connecting). Sort by prefs.
+  const scopeInstances = useMemo(() => {
+    const raw = scope === "agent" ? agentServicesQuery.data || [] : services
+    return filterAndSortScopeInstances(raw, serviceTabsPrefs)
+  }, [agentServicesQuery.data, scope, serviceTabsPrefs, services])
 
   const selectedInstances =
     instanceId === "all"
@@ -63,6 +76,7 @@ export function useMcpRegistryScope({
     scope,
     scopeInstances,
     selectedInstances,
+    serviceTabsPrefs,
     setAgentId,
     setInstanceId,
     setQuery,
