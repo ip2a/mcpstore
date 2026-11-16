@@ -92,7 +92,6 @@ pub const GATEWAY_BOOT_PREFIX: &str = "[GATEWAY_BOOT]";
 #[serde(rename_all = "snake_case")]
 pub enum GatewayBootPhase {
     Spawning,
-    Connecting,
     Mounting,
     Binding,
     Ready,
@@ -478,7 +477,6 @@ pub(crate) struct GatewayCatalog {
     scope: ScopeRef,
     instance_id: Option<InstanceId>,
     session_key: Option<String>,
-    down: Arc<HashMap<InstanceId, transport::DownService>>,
     management: Arc<GatewayManagementTools>,
     /// Projection report, refreshed on every successful rebuild.
     projection: Arc<std::sync::Mutex<Vec<ProjectionIssue>>>,
@@ -543,7 +541,6 @@ impl GatewayCatalog {
         scope: ScopeRef,
         instance_id: Option<InstanceId>,
         session_key: Option<String>,
-        down: Arc<HashMap<InstanceId, transport::DownService>>,
         management: Arc<GatewayManagementTools>,
         snapshot: CatalogSnapshot,
     ) -> Arc<Self> {
@@ -552,7 +549,6 @@ impl GatewayCatalog {
             scope,
             instance_id,
             session_key,
-            down,
             management,
             projection: Arc::new(std::sync::Mutex::new(Vec::new())),
             snapshot: std::sync::RwLock::new(Arc::new(snapshot)),
@@ -576,7 +572,6 @@ impl GatewayCatalog {
             scope,
             instance_id,
             session_key,
-            Arc::new(HashMap::new()),
             Arc::new(GatewayManagementTools::default()),
             CatalogSnapshot {
                 bindings: HashMap::new(),
@@ -640,7 +635,6 @@ impl GatewayCatalog {
             &self.scope,
             self.instance_id,
             self.session_key.as_deref(),
-            &self.down,
         )
         .await?;
         let tools = merged_tools(&bindings, &self.management)?;
@@ -659,14 +653,9 @@ impl GatewayCatalog {
         &self,
         session_key: Option<&str>,
     ) -> Result<HashMap<String, ToolBinding>, BoxErr> {
-        let (bindings, _issues) = transport::build_tool_bindings(
-            &self.store,
-            &self.scope,
-            self.instance_id,
-            session_key,
-            &self.down,
-        )
-        .await?;
+        let (bindings, _issues) =
+            transport::build_tool_bindings(&self.store, &self.scope, self.instance_id, session_key)
+                .await?;
         Ok(bindings)
     }
 }

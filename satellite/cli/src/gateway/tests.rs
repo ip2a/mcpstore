@@ -565,7 +565,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unconnectable_service_downs_its_tools_but_not_the_mount() {
+    async fn gateway_build_reads_disconnected_state_without_connecting() {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -596,22 +596,26 @@ mod tests {
             scope: ScopeRef::Store,
             ..Default::default()
         };
-        let server = GatewayServer::from_store(
-            Arc::clone(&store),
-            &options,
-            None,
-            GatewayCallLog::new(),
-            None,
-        )
-        .await
-        .expect("mount must build even when a service cannot connect");
+        let instance_id = ServiceInstanceKey::new("ghost", ScopeRef::Store).instance_id();
+        let before = store.service_state_entry(instance_id).await.unwrap();
+        let server =
+            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
+                .await
+                .expect("mount must project the current disconnected state");
 
-        let projection = server.projection_handle();
-        let projection = projection.lock().unwrap();
-        assert!(projection.iter().any(|issue| matches!(
-            issue,
-            ProjectionIssue::Down { service, .. } if service == "ghost"
-        )));
+        {
+            let projection = server.projection_handle();
+            let projection = projection.lock().unwrap();
+            assert!(projection.iter().any(|issue| matches!(
+                issue,
+                ProjectionIssue::Down { service, .. } if service == "ghost"
+            )));
+        }
+        let after = store.service_state_entry(instance_id).await.unwrap();
+        assert_eq!(
+            after, before,
+            "gateway startup must not mutate service state"
+        );
         let _ = std::fs::remove_file(store_path);
     }
 
@@ -693,15 +697,10 @@ mod tests {
             instance_id: Some(instance_id),
             ..Default::default()
         };
-        let server = GatewayServer::from_store(
-            Arc::clone(&store),
-            &options,
-            None,
-            GatewayCallLog::new(),
-            None,
-        )
-        .await
-        .expect("per-instance mount must build on a down service");
+        let server =
+            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
+                .await
+                .expect("per-instance mount must build on a down service");
         let catalog = server.catalog_handle();
         assert_eq!(catalog.rebuild_count(), 0);
 

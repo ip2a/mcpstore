@@ -210,17 +210,11 @@ impl GatewayRuntime {
     ) -> Result<Arc<Self>, BoxErr> {
         let call_log = GatewayCallLog::new();
         let wired_path = wired_ledger_path(&store);
-        let (generic_router, mount_set) = build_mounts(
-            &store,
-            &options,
-            Arc::clone(&call_log),
-            &wired_path,
-            report.as_ref(),
-        )
-        .await?;
         if let Some(report) = &report {
             report(GatewayBoot::new(GatewayBootPhase::Mounting));
         }
+        let (generic_router, mount_set) =
+            build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
         let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
         let generic_projection = mount_set.generic_projection;
         let generic_catalog = mount_set.generic_catalog.clone();
@@ -308,7 +302,6 @@ async fn build_mount(
     options: &GatewayOptions,
     shared_log: &Arc<GatewayCallLog>,
     entry: &client_wire::WiredEntry,
-    report: Option<&GatewayBootReporter>,
 ) -> Result<(String, LiveMount), BoxErr> {
     let scope = entry.effective_scope().map_err(|error| {
         err(&format!(
@@ -336,7 +329,6 @@ async fn build_mount(
         wired_options,
         caller.clone(),
         Arc::clone(shared_log),
-        report,
     )
     .await?;
     let projection = MountProjection {
@@ -365,12 +357,11 @@ async fn build_mounts(
     options: &GatewayOptions,
     shared_log: Arc<GatewayCallLog>,
     wired_path: &std::path::Path,
-    report: Option<&GatewayBootReporter>,
 ) -> Result<(axum::Router, MountSet), BoxErr> {
     let mut set = MountSet::default();
     let wired_state = client_wire::load_wired_state(wired_path)?;
     for entry in &wired_state.entries {
-        match build_mount(store, options, &shared_log, entry, report).await {
+        match build_mount(store, options, &shared_log, entry).await {
             Ok((path, mount)) => {
                 set.routers.insert(path, mount);
             }
@@ -382,8 +373,7 @@ async fn build_mounts(
 
     // Generic mount from the CLI options; its exposure is fixed for the
     // process lifetime, so reconciliation never touches it.
-    let generic_server =
-        build_server(Arc::clone(store), options.clone(), None, shared_log, report).await?;
+    let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
     let generic_projection = MountProjection {
         caller: generic_server.caller_name(),
         issues: generic_server.projection_handle(),
@@ -617,7 +607,7 @@ async fn reconcile_once(
         }
     }
     for entry in adds {
-        match build_mount(store, options, call_log, &entry, None).await {
+        match build_mount(store, options, call_log, &entry).await {
             Ok((path, mount)) => {
                 eprintln!("[GATEWAY] mounted {path}");
                 if let Ok(mut map) = mounts.write() {
@@ -634,7 +624,7 @@ async fn reconcile_once(
         }
     }
     for entry in rebuilds {
-        match build_mount(store, options, call_log, &entry, None).await {
+        match build_mount(store, options, call_log, &entry).await {
             Ok((path, mount)) => {
                 eprintln!("[GATEWAY] rebuilt mount {path}");
                 if let Ok(mut map) = mounts.write() {
@@ -720,9 +710,8 @@ async fn build_server(
     options: GatewayOptions,
     caller: Option<String>,
     call_log: Arc<GatewayCallLog>,
-    report: Option<&GatewayBootReporter>,
 ) -> Result<GatewayServer, BoxErr> {
-    GatewayServer::from_store(store, &options, caller, call_log, report)
+    GatewayServer::from_store(store, &options, caller, call_log)
         .await
         .map_err(|error| err(&format!("failed to build gateway server: {error}")))
 }

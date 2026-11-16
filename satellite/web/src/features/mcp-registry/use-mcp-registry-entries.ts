@@ -70,8 +70,14 @@ export function useMcpRegistryEntries<T extends { instance_id: string }>({
     }
   }
 
-  const visibleEntries = entries.filter(({ instance, entry }) =>
-    matchQuery(instance, entry, scopeState.query),
+  const selectedInstanceIds = useMemo(
+    () => new Set(scopeState.selectedInstances.map((instance) => instance.instance_id)),
+    [scopeState.selectedInstances],
+  )
+  const visibleEntries = entries.filter(
+    ({ instance, entry }) =>
+      selectedInstanceIds.has(instance.instance_id) &&
+      matchQuery(instance, entry, scopeState.query),
   )
 
   return {

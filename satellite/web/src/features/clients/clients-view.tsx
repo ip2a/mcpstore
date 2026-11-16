@@ -6,16 +6,15 @@ import {
   FolderIcon,
   PencilIcon,
   PlusIcon,
-  StoreIcon,
   TerminalIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
 import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
 import { PathBrowser } from "@/components/shared/path-browser"
-import { PluginListCard } from "@/components/shared/plugin-list-card"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -28,18 +27,16 @@ import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ClientPluginRowActions,
   useClientPluginMarketQuery,
@@ -705,8 +702,6 @@ function AddAgentCard({ onSelect }: { onSelect: () => void }) {
   )
 }
 
-const ADD_AGENT_MARKET_PREVIEW = 4
-
 function AddAgentDialog({
   open,
   onOpenChange,
@@ -719,19 +714,19 @@ function AddAgentDialog({
   const { t } = useI18n()
   const [tab, setTab] = useState<"path" | "market">("path")
   const [path, setPath] = useState<string | null>(null)
-  const marketQuery = useClientPluginMarketQuery()
-  const pluginAction = usePluginAction()
-  const pluginUpdate = usePluginUpdate()
-  const pluginBusy = pluginAction.isPending || pluginUpdate.isPending
-  const marketPlugins = marketQuery.data?.plugins ?? []
-  const previewPlugins = marketPlugins.slice(0, ADD_AGENT_MARKET_PREVIEW)
+  const canConfirm = tab === "path" && Boolean(path?.trim())
+
+  function handleConfirm() {
+    if (!canConfirm) return
+    toast.message(t("clientsAddImportSoon"))
+    onOpenChange(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t("clientsAddTitle")}</DialogTitle>
-          <DialogDescription>{t("clientsAddDescription")}</DialogDescription>
         </DialogHeader>
         <Tabs
           value={tab}
@@ -739,9 +734,10 @@ function AddAgentDialog({
           className="flex h-[min(60vh,28rem)] min-h-0 flex-col gap-2"
         >
           <TabsList variant="line" className="h-9 w-full shrink-0 justify-start">
-            <TabsTrigger value="path">{t("clientsAddTabPath")}</TabsTrigger>
-            <TabsTrigger value="market">
-              <StoreIcon data-icon="inline-start" />
+            <TabsTrigger value="path" className="flex-none">
+              {t("clientsAddTabPath")}
+            </TabsTrigger>
+            <TabsTrigger value="market" className="flex-none">
               {t("clientsAddMarket")}
             </TabsTrigger>
           </TabsList>
@@ -754,50 +750,23 @@ function AddAgentDialog({
             />
           </TabsContent>
 
-          <TabsContent value="market" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-            {marketQuery.isPending ? (
-              <div className="flex min-h-0 flex-1 items-center justify-center">
-                <Spinner />
-              </div>
-            ) : marketQuery.isError ? (
-              <p className="px-1 text-sm text-destructive">
-                {marketQuery.error instanceof Error
-                  ? marketQuery.error.message
-                  : String(marketQuery.error)}
-              </p>
-            ) : previewPlugins.length === 0 ? (
-              <p className="px-1 text-sm text-muted-foreground">{t("clientPluginMarketEmpty")}</p>
-            ) : (
-              <ScrollPane
-                className="min-h-0 flex-1"
-                innerClassName="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
-              >
-                {previewPlugins.map((entry) => (
-                  <PluginListCard
-                    key={entry.id}
-                    busy={pluginBusy}
-                    plugin={{
-                      id: entry.id,
-                      name: entry.id,
-                      title: entry.label,
-                      description: entry.description?.trim() || "",
-                      version: entry.plugin_version,
-                      author: "mcpstore",
-                      installed: Boolean(entry.installed),
-                      kind: "agent",
-                      updateAvailable: entry.update_available,
-                    }}
-                    onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                    onUpdate={(id) => pluginUpdate.mutate(id)}
-                  />
-                ))}
-              </ScrollPane>
-            )}
-            <Button variant="outline" className="shrink-0" onClick={onBrowseMarket}>
+          <TabsContent
+            value="market"
+            className="mt-0 flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden"
+          >
+            <Button variant="outline" onClick={onBrowseMarket}>
               {t("clientsAddMarketMore")}
             </Button>
           </TabsContent>
         </Tabs>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t("cancel")}
+          </Button>
+          <Button disabled={!canConfirm} onClick={handleConfirm}>
+            {t("confirm")}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

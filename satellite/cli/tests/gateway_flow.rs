@@ -160,6 +160,8 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
     ];
     let daemon = TestDaemon::start(&store_args).await?;
     let daemon_pid = daemon.pid();
+    daemon.connect_service("first", "scope=store").await?;
+    daemon.connect_service("second", "scope=store").await?;
     let gateway_child = spawn_gateway(&daemon, &[]).await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
@@ -389,6 +391,7 @@ async fn gateway_command_exposes_only_selected_instance_over_stdio_inner() -> Te
         config_path.display().to_string(),
     ];
     let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("selected", "scope=store").await?;
     let gateway_child = spawn_gateway(
         &daemon,
         &["--instance-id".to_string(), instance_id.to_string()],
@@ -544,6 +547,7 @@ async fn gateway_command_exposes_session_scope_over_stdio_inner(redis_url: Strin
 
     let daemon_args: Vec<String> = store_args.iter().map(|arg| (*arg).to_string()).collect();
     let daemon = TestDaemon::start(&daemon_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
     let gateway_child = spawn_gateway(
         &daemon,
         &[
@@ -660,6 +664,7 @@ async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult
         config_path.display().to_string(),
     ];
     let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
     let gateway_child = spawn_gateway(&daemon, &["--expose-search-tools".to_string()]).await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
@@ -774,6 +779,9 @@ async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
         config_path.display().to_string(),
     ];
     let daemon = TestDaemon::start(&store_args).await?;
+    daemon
+        .connect_service("demo", "scope=agent&agent_id=agent-a")
+        .await?;
     let gateway_child = spawn_gateway(
         &daemon,
         &[
@@ -873,6 +881,7 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
         config_path.display().to_string(),
     ];
     let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
     let gateway_child = spawn_gateway(&daemon, &[]).await?;
 
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
@@ -1019,6 +1028,32 @@ impl TestDaemon {
 
     fn pid(&self) -> u32 {
         self.child.id().expect("daemon pid")
+    }
+
+    async fn connect_service(&self, service_name: &str, scope_query: &str) -> TestResult {
+        let client = reqwest::Client::new();
+        let base = format!("{}/services/{service_name}", self.core_url);
+        let response = client
+            .post(format!("{base}/connect?{scope_query}"))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(format!("service connect failed: {}", response.text().await?).into());
+        }
+        for _ in 0..100 {
+            let state: serde_json::Value = client
+                .get(format!("{base}/state?{scope_query}"))
+                .send()
+                .await?
+                .json()
+                .await?;
+            match state["data"]["phase"].as_str() {
+                Some("running") => return Ok(()),
+                Some("failed") => return Err(format!("service failed to connect: {state}").into()),
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+        Err(format!("service {service_name} did not become ready").into())
     }
 }
 

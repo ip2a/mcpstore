@@ -1324,11 +1324,11 @@ mod tests {
     #[test]
     fn parses_only_machine_readable_boot_lines() {
         let boot = parse_gateway_boot_line(
-            r#"[GATEWAY_BOOT] {"phase":"connecting","done":12,"total":40,"message":"brave_search"}"#,
+            r#"[GATEWAY_BOOT] {"phase":"mounting","done":12,"total":40,"message":"brave_search"}"#,
         )
         .expect("boot marker")
         .expect("valid boot JSON");
-        assert_eq!(boot.phase, GatewayBootPhase::Connecting);
+        assert_eq!(boot.phase, GatewayBootPhase::Mounting);
         assert_eq!(boot.done, Some(12));
         assert_eq!(boot.total, Some(40));
         assert_eq!(boot.message.as_deref(), Some("brave_search"));

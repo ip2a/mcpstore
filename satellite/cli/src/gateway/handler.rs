@@ -13,7 +13,7 @@ use super::tools::{
     call_resource_template_override_tool, call_service_tool, call_session_state_tool,
     call_tool_override_tool, extract_business_session_key, map_store_error,
 };
-use super::transport::{build_tool_bindings, connect_target_instances};
+use super::transport::build_tool_bindings;
 use super::*;
 use serde_json::json;
 
@@ -23,17 +23,15 @@ impl GatewayServer {
         options: &GatewayOptions,
         caller: Option<String>,
         call_log: Arc<GatewayCallLog>,
-        report: Option<&GatewayBootReporter>,
     ) -> Result<Self, BoxErr> {
         let scope = options.scope.clone();
         let instance_id = options.instance_id;
         let session_key = options.session_key.clone();
-        let down = connect_target_instances(&store, &scope, instance_id, report).await?;
         if let Some(session_key) = session_key.as_deref() {
             store.session_by_key(session_key).status().await?;
         }
         let (bindings, issues) =
-            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref(), &down).await?;
+            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref()).await?;
         let management = Arc::new(GatewayManagementTools {
             session_state_tools: Arc::new(if options.expose_session_state_tools {
                 build_session_state_tools()
@@ -88,7 +86,6 @@ impl GatewayServer {
             scope.clone(),
             instance_id,
             session_key.clone(),
-            Arc::new(down),
             Arc::clone(&management),
             CatalogSnapshot { bindings, tools },
         );

@@ -336,16 +336,14 @@ function ProjectionRow({ issue }: { issue: GatewayProjectionIssue }) {
 
 const BOOT_STEP_LABEL_KEYS = [
   "gatewayBootSpawn",
-  "gatewayBootConnect",
   "gatewayBootMounts",
   "gatewayBootReady",
 ] as const
 const BOOT_STEP_INDEX = {
   spawning: 0,
-  connecting: 1,
-  mounting: 2,
-  binding: 3,
-  ready: 3,
+  mounting: 1,
+  binding: 2,
+  ready: 2,
   failed: 0,
 } as const
 
@@ -404,11 +402,6 @@ function GatewayBootProgress({ boot, failed }: { boot?: GatewayBoot | null; fail
             <CircleIcon className="size-3.5" />
           )}
           <span>{t(labelKey)}</span>
-          {boot.phase === "connecting" && index === currentStep && boot.done != null ? (
-            <span className="tabular-nums">
-              {boot.done}/{boot.total ?? "—"}
-            </span>
-          ) : null}
         </span>
       ))}
       {boot.message ? (

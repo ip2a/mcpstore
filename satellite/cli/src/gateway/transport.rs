@@ -10,22 +10,14 @@ use super::tools::{read_required_instance_id, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
 
-/// Connect every instance the mount needs. A failing instance never fails the
-/// mount: it is reported `Down` (with its service name) and its payloads are
-/// excluded downstream. Only local misconfiguration (target not declared in
-/// the scope) and store infrastructure failures stay hard errors.
-///
-/// Instances connect concurrently, each under an outer guard well above every
-/// legitimate per-service budget (stdio startup hard timeout is 120s), so a
-/// wedged connect reports Down instead of stalling the whole mount boot.
-pub(super) async fn connect_target_instances(
+/// Read the daemon's current service states without changing them. Gateway
+/// startup is a read-only projection: disconnected instances are reported Down
+/// and their cached payloads are excluded, never connected as a side effect.
+pub(super) async fn read_target_instances(
     store: &MCPStore,
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
-    report: Option<&GatewayBootReporter>,
 ) -> Result<HashMap<InstanceId, DownService>, BoxErr> {
-    const BOOT_CONNECT_GUARD_SECS: u64 = 150;
-
     let instances = store.list_scope_instances(scope).await?;
     let selected: Vec<mcpstore::ServiceInstance> = if let Some(instance_id) = target_instance_id {
         let matched = instances
@@ -37,55 +29,27 @@ pub(super) async fn connect_target_instances(
         instances
     };
 
-    let mut connects = FuturesUnordered::new();
+    let mut states = FuturesUnordered::new();
     for instance in selected {
-        // Delegated instances execute on the control panel: there is no local
-        // connect to make, the tools still project from the shared store and
-        // calls route remotely. Connecting would fail with ServiceUnavailable
-        // and wrongly demote the service to Down.
         if !store.panel_executes_locally(instance.instance_id).await? {
             continue;
         }
-        connects.push(async move {
-            let outcome = tokio::time::timeout(
-                std::time::Duration::from_secs(BOOT_CONNECT_GUARD_SECS),
-                store.connect_service(instance.instance_id),
-            )
-            .await;
-            (instance, outcome)
+        states.push(async move {
+            let state = store.service_state_entry(instance.instance_id).await;
+            (instance, state)
         });
     }
-    let total = connects.len();
-    let report = |boot| {
-        if let Some(report) = report {
-            report(boot);
-        }
-    };
-    report(GatewayBoot {
-        phase: GatewayBootPhase::Connecting,
-        done: Some(0),
-        total: Some(total),
-        message: None,
-        error: None,
-    });
     let mut down = HashMap::new();
-    let mut done = 0;
-    while let Some((instance, outcome)) = connects.next().await {
-        done += 1;
-        report(GatewayBoot {
-            phase: GatewayBootPhase::Connecting,
-            done: Some(done),
-            total: Some(total),
-            message: Some(instance.service_name.clone()),
-            error: None,
-        });
-        let reason = match outcome {
-            Ok(Ok(())) => continue,
-            Ok(Err(error)) => error.to_string(),
-            Err(_) => {
-                format!("gateway boot connect guard timed out after {BOOT_CONNECT_GUARD_SECS}s")
-            }
-        };
+    while let Some((instance, state)) = states.next().await {
+        let state = state?;
+        if state.phase == mcpstore::RuntimePhase::Running {
+            continue;
+        }
+        let reason = state
+            .failure
+            .map(|failure| failure.message)
+            .or(state.readiness.message)
+            .unwrap_or_else(|| format!("service is not running (phase: {:?})", state.phase));
         down.insert(
             instance.instance_id,
             DownService {
@@ -119,8 +83,8 @@ pub(super) async fn build_tool_bindings(
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
     session_key: Option<&str>,
-    down: &HashMap<InstanceId, DownService>,
 ) -> Result<(HashMap<String, ToolBinding>, Vec<ProjectionIssue>), BoxErr> {
+    let down = read_target_instances(store, scope, target_instance_id).await?;
     let tool_payloads = if let Some(session_key) = session_key {
         serde_json::to_value(store.list_tools_in_session(session_key).await?)
             .and_then(serde_json::from_value::<Vec<Value>>)
@@ -139,7 +103,7 @@ pub(super) async fn build_tool_bindings(
     let mut tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
     apply_tool_overrides(&mut tool_payloads, &tool_override_map(store).await?);
 
-    let (parsed, issues) = classify_tool_payloads(&tool_payloads, down);
+    let (parsed, issues) = classify_tool_payloads(&tool_payloads, &down);
 
     // Name-collision counts over surviving payloads only (the payload "name"
     // field is the original_name read above).

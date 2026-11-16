@@ -17,13 +17,7 @@ export type ClientInventory = {
   wired_url: string | null
 }
 
-export type GatewayBootPhase =
-  | "spawning"
-  | "connecting"
-  | "mounting"
-  | "binding"
-  | "ready"
-  | "failed"
+export type GatewayBootPhase = "spawning" | "mounting" | "binding" | "ready" | "failed"
 
 export type GatewayBoot = {
   phase: GatewayBootPhase
