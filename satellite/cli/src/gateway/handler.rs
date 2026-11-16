@@ -23,11 +23,12 @@ impl GatewayServer {
         options: &GatewayOptions,
         caller: Option<String>,
         call_log: Arc<GatewayCallLog>,
+        report: Option<&GatewayBootReporter>,
     ) -> Result<Self, BoxErr> {
         let scope = options.scope.clone();
         let instance_id = options.instance_id;
         let session_key = options.session_key.clone();
-        let down = connect_target_instances(&store, &scope, instance_id).await?;
+        let down = connect_target_instances(&store, &scope, instance_id, report).await?;
         if let Some(session_key) = session_key.as_deref() {
             store.session_by_key(session_key).status().await?;
         }

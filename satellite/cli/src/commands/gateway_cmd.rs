@@ -1,196 +1,64 @@
 use std::sync::Arc;
 
+use axum::body::{Body, HttpBody};
 use axum::extract::{Query, State};
+use axum::http::{header, HeaderName, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use clap::Args;
+use futures_util::TryStreamExt;
 use mcpstore::client_wire;
-use mcpstore::{InstanceId, MCPStore, ScopeRef};
+use mcpstore::{MCPStore, ScopeRef};
 
 use crate::gateway::{
-    report_gateway_boot, streamable_http_router, GatewayBoot, GatewayBootPhase, GatewayCallLog,
-    GatewayCatalog, GatewayOptions, GatewayServer,
+    report_gateway_boot, streamable_http_router, GatewayBoot, GatewayBootPhase,
+    GatewayBootReporter, GatewayCallLog, GatewayCatalog, GatewayOptions, GatewayServer,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tower::ServiceExt as _;
 
-use crate::store_args::StoreSourceArgs;
 use crate::BoxErr;
 
-/// `mcpstore gateway`: standalone gateway process, launched on demand.
-/// Serves the per-client wired mounts (/mcp/<client-id> from gateway-wired.json)
-/// plus one generic mount whose exposure comes from the flags below, and a
-/// /calls management route the daemon's /gateway/requests forwards to.
+/// `mcpstore gateway`: a fault-isolated HTTP proxy. The daemon owns the MCP
+/// store, mounts, catalogs and every upstream connection; this process only
+/// applies the public guard chain and streams requests to the daemon.
 #[derive(Args, Debug)]
 pub struct GatewayArgs {
-    #[command(flatten)]
-    pub store: StoreSourceArgs,
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
     #[arg(long)]
-    pub port: Option<u16>,
-    #[arg(long, help = "URL path of the generic mount (default /mcp)")]
-    pub path: Option<String>,
-    #[arg(
-        long,
-        help = "Projection scope of the generic mount: store|agent (default store)"
-    )]
-    pub scope: Option<String>,
-    #[arg(long, requires = "scope")]
-    pub agent: Option<String>,
+    pub port: u16,
+    #[arg(long, default_value = "/mcp")]
+    pub path: String,
     #[arg(long)]
-    pub session_key: Option<String>,
-    #[arg(long)]
-    pub instance_id: Option<InstanceId>,
-    #[arg(long, default_value_t = false)]
-    pub expose_session_state_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_tool_override_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_prompt_override_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_resource_override_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_openapi_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_service_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_kv_tools: bool,
-    #[arg(long, default_value_t = false)]
-    pub expose_search_tools: bool,
+    pub upstream_url: String,
 }
 
-/// Panel role of the gateway process. The gateway is a serving surface, never
-/// a second control plane: on a shared store (shm/redis/valkey) the daemon owns
-/// the `@control` state column and the self-healing supervisor, so a second
-/// control panel would fight it CAS-for-CAS on the same column (the
-/// auth-transition panics at startup were exactly that) and double-connect
-/// every service. Shared stores therefore attach as a data panel with their
-/// own identity — suffixed so it can never collide with a real data-panel
-/// daemon defaulting to the same hostname; the suffix keeps their
-/// `{instance}@{panel}` state rows apart. A private memory store is the
-/// gateway's own universe and keeps the control panel. Explicit flags win —
-/// and `--control-panel` on a shared store is refused outright.
-fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs, BoxErr> {
-    // Probe the same config load_kernel will use: a --config run must judge
-    // its own store, not the default user-data-dir config.
-    let store_name = store_args.store.clone().unwrap_or_else(|| {
-        let manager = match store_args.config_path.as_deref() {
-            Some(path) => mcpstore::ConfigManager::with_path(path),
-            None => mcpstore::ConfigManager::new(),
-        };
-        manager
-            .load_app_config_or_default()
-            .map(|config| config.kv.store)
-            .unwrap_or_else(|_| "memory".to_string())
-    });
-    let shared = matches!(store_name.as_str(), "shm" | "redis" | "valkey");
-    if store_args.control_panel {
-        if shared {
-            return Err(
-                "the gateway cannot run as a control panel on a shared store \
-                (shm/redis/valkey): the daemon owns the @control column and supervision; \
-                attach with --data-panel instead"
-                    .into(),
-            );
-        }
-        return Ok(store_args);
-    }
-    if !store_args.data_panel && shared {
-        store_args.data_panel = true;
-        store_args.panel_id = Some(format!(
-            "{}-gateway",
-            mcpstore::PanelRole::default_panel_id()
-        ));
-    }
-    Ok(store_args)
+#[derive(Clone)]
+struct ProxyState {
+    client: reqwest::Client,
+    upstream: reqwest::Url,
+    token: Arc<String>,
 }
 
 pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
-    let store_args = gateway_panel_role(args.store)?;
-    let handle = crate::store_args::load_kernel(&store_args).await?;
-    let store = Arc::clone(handle.store());
-    let app_config = store.config_manager().load_app_config_or_default()?;
-    let port = args.port.unwrap_or(app_config.gateway.port);
-
-    let scope = match args.scope.as_deref().unwrap_or("store") {
-        "store" => ScopeRef::Store,
-        "agent" => ScopeRef::Agent {
-            agent_id: args
-                .agent
-                .clone()
-                .ok_or_else(|| err("--scope agent requires --agent"))?,
-        },
-        other => return Err(err(&format!("unsupported scope {other:?}"))),
-    };
-
-    let options = GatewayOptions {
-        scope,
-        instance_id: args.instance_id,
-        session_key: args.session_key.clone(),
-        host: args.host.clone(),
-        port,
-        path: args.path.clone().unwrap_or_else(|| "/mcp".into()),
-        expose_session_state_tools: args.expose_session_state_tools,
-        expose_tool_override_tools: args.expose_tool_override_tools,
-        expose_prompt_override_tools: args.expose_prompt_override_tools,
-        expose_resource_override_tools: args.expose_resource_override_tools,
-        expose_openapi_tools: args.expose_openapi_tools,
-        expose_service_tools: args.expose_service_tools,
-        expose_kv_tools: args.expose_kv_tools,
-        expose_search_tools: args.expose_search_tools,
-    };
-
-    let call_log = GatewayCallLog::new();
-    let wired_path = wired_ledger_path(&store);
-    // Subscribe before building mounts: Latest subscriptions can't see writes
-    // made before subscribing, so the projection bridge must exist first or a
-    // change landing during mount build is lost.
-    let replay_scopes = match store.subscribe_tool_projection_changes().await {
-        Ok((subscription, generation)) => {
-            // In shm mode overrides and policies propagate only through the
-            // shared KV + ChangeFeed; the scopes.toml writeback replay would
-            // resurrect stale file state behind the feed's back.
-            let shared = store.store_config().await.store == "shm";
-            crate::gateway::bridge::spawn_projection_bridge(
-                Arc::clone(&store),
-                subscription,
-                generation,
-            );
-            !shared
-        }
-        Err(error) => {
-            // Memory store (or any store without a feed): keep the 1s
-            // scopes replay; cross-process projection simply doesn't apply.
-            eprintln!("[GATEWAY] no shared change feed ({error}); keeping scopes replay");
-            true
-        }
-    };
-    let (generic_router, mount_set) =
-        build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
-    report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Mounting));
-    // Wired mounts live behind a shared registry so the reconciliation loop
-    // can add/rebuild/remove them while the listener keeps running.
-    let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
-    let generic_projection = mount_set.generic_projection;
-    // Cloned for the health route; the original moves into reconcile_loop.
-    let generic_catalog = mount_set.generic_catalog.clone();
-    let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
-    publish_projections(&mounts, &generic_projection, &projections);
-    let calls = axum::Router::new()
-        .route("/calls", axum::routing::get(calls_route))
-        .with_state(call_log.clone());
-    let projection = axum::Router::new()
-        .route("/projection", axum::routing::get(projection_route))
-        .with_state(Arc::clone(&projections));
-    let health = axum::Router::new()
-        .route("/health", axum::routing::get(health_route))
-        .with_state(HealthState {
-            mounts: Arc::clone(&mounts),
-            projections: Arc::clone(&projections),
-            generic_catalog,
-        });
-    let addr = format!("{}:{}", options.host, options.port);
+    let token = std::env::var("MCPSTORE_GATEWAY_TOKEN")
+        .map_err(|_| err("MCPSTORE_GATEWAY_TOKEN is required"))?;
+    let upstream = reqwest::Url::parse(&args.upstream_url)?;
+    if upstream.scheme() != "http"
+        || !upstream.username().is_empty()
+        || upstream.password().is_some()
+        || upstream.path() != "/"
+        || upstream.query().is_some()
+        || upstream.fragment().is_some()
+    {
+        return Err(err("--upstream-url must be a bare http origin"));
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let addr = format!("{}:{}", args.host, args.port);
     report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Binding));
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => listener,
@@ -201,52 +69,117 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
             return Err(error.into());
         }
     };
-    report_gateway_boot(GatewayBoot::new(GatewayBootPhase::Ready));
-    // Guard chain ( port): peer loopback, Host rebinding, Origin,
-    // POST-only, per-mount rate limit, 4 MiB body ceiling. See
-    // gateway::guards for the incident history behind each guard.
-    let limiter = std::sync::Arc::new(crate::gateway::guards::RateLimiter::new());
-    let generic_path = options.path.clone();
-    let app = generic_router
-        .merge(calls)
-        .merge(projection)
-        .merge(health)
-        .fallback(axum::routing::any(mount_dispatch).with_state(Arc::clone(&mounts)))
+    eprintln!("[GATEWAY] proxy listening on http://{addr} (upstream {upstream})");
+    let state = ProxyState {
+        client,
+        upstream,
+        token: Arc::new(token),
+    };
+    let limiter = Arc::new(crate::gateway::guards::RateLimiter::new());
+    let generic_path = args.path.clone();
+    let app = axum::Router::new()
+        .fallback(axum::routing::any(proxy_request))
+        .with_state(state)
         .layer(axum::middleware::from_fn(move |request, next| {
             crate::gateway::guards::guard_chain(
                 generic_path.clone(),
-                std::sync::Arc::clone(&limiter),
+                Arc::clone(&limiter),
                 request,
                 next,
             )
         }));
-    eprintln!(
-        "[GATEWAY] listening on http://{addr} (generic mount {})",
-        options.path
-    );
-    // Reconciliation: the wired ledger (CLI, panel, and manual edits are all
-    // writers) is re-read every 5s so a running gateway follows it without a
-    // restart ( hubPrune). An unreadable ledger leaves every mount
-    // exactly as it is — missing ≠ empty, corrupt ≠ absent. The same tick
-    // watches scopes.toml: daemon-side override writes land there via
-    // writeback, and the gateway's own KV only sees them through a replay.
-    tokio::spawn(reconcile_loop(
-        Arc::clone(&store),
-        options.clone(),
-        call_log,
-        wired_path,
-        Arc::clone(&mounts),
-        Arc::clone(&projections),
-        generic_projection,
-        mount_set.generic_catalog,
-        replay_scopes,
-    ));
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await?;
     Ok(())
+}
+
+async fn proxy_request(State(state): State<ProxyState>, request: Request<Body>) -> Response {
+    let (parts, body) = request.into_parts();
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    let mut upstream = state.upstream.clone();
+    let path = path_and_query.split('?').next().unwrap_or("/");
+    upstream.set_path(&format!("/internal/gateway{path}"));
+    upstream.set_query(parts.uri.query());
+    let mut builder = state
+        .client
+        .request(parts.method, upstream)
+        .bearer_auth(state.token.as_str());
+    let connection_headers = connection_header_names(&parts.headers);
+    for (name, value) in &parts.headers {
+        if is_hop_by_hop(name)
+            || connection_headers.contains(name)
+            || matches!(name.as_str(), "host" | "authorization" | "cookie")
+        {
+            continue;
+        }
+        builder = builder.header(name, value);
+    }
+    if body.size_hint().exact() != Some(0) {
+        builder = builder.body(reqwest::Body::wrap_stream(body.into_data_stream().map_err(
+            |error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()),
+        )));
+    }
+    match builder.send().await {
+        Ok(response) => proxy_response(response),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            format!("daemon gateway backend unavailable: {error}"),
+        )
+            .into_response(),
+    }
+}
+
+fn proxy_response(response: reqwest::Response) -> Response {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = Body::from_stream(
+        response
+            .bytes_stream()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string())),
+    );
+    let mut converted = Response::new(body);
+    *converted.status_mut() = status;
+    let connection_headers = connection_header_names(&headers);
+    for (name, value) in &headers {
+        if !is_hop_by_hop(name) && !connection_headers.contains(name) {
+            converted.headers_mut().append(name, value.clone());
+        }
+    }
+    converted
+}
+
+fn connection_header_names(
+    headers: &axum::http::HeaderMap,
+) -> std::collections::HashSet<HeaderName> {
+    headers
+        .get_all(header::CONNECTION)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .filter_map(|name| HeaderName::from_bytes(name.trim().as_bytes()).ok())
+        .collect()
+}
+
+fn is_hop_by_hop(name: &HeaderName) -> bool {
+    matches!(
+        name.as_str(),
+        "connection"
+            | "content-length"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+    )
 }
 
 fn err(message: &str) -> BoxErr {
@@ -259,6 +192,91 @@ fn wired_ledger_path(store: &MCPStore) -> std::path::PathBuf {
         .parent()
         .map(|dir| dir.join("gateway-wired.json"))
         .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
+}
+
+/// Daemon-owned MCP backend. Its lifetime is independent of proxy children,
+/// so stopping or restarting a gateway never rebuilds mounts or connections.
+pub(crate) struct GatewayRuntime {
+    options: GatewayOptions,
+    router: axum::Router,
+    reconcile: tokio::task::JoinHandle<()>,
+}
+
+impl GatewayRuntime {
+    pub(crate) async fn build(
+        store: Arc<MCPStore>,
+        options: GatewayOptions,
+        report: Option<GatewayBootReporter>,
+    ) -> Result<Arc<Self>, BoxErr> {
+        let call_log = GatewayCallLog::new();
+        let wired_path = wired_ledger_path(&store);
+        let (generic_router, mount_set) = build_mounts(
+            &store,
+            &options,
+            Arc::clone(&call_log),
+            &wired_path,
+            report.as_ref(),
+        )
+        .await?;
+        if let Some(report) = &report {
+            report(GatewayBoot::new(GatewayBootPhase::Mounting));
+        }
+        let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
+        let generic_projection = mount_set.generic_projection;
+        let generic_catalog = mount_set.generic_catalog.clone();
+        let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
+        publish_projections(&mounts, &generic_projection, &projections);
+        let calls = axum::Router::new()
+            .route("/calls", axum::routing::get(calls_route))
+            .with_state(call_log.clone());
+        let projection = axum::Router::new()
+            .route("/projection", axum::routing::get(projection_route))
+            .with_state(Arc::clone(&projections));
+        let health = axum::Router::new()
+            .route("/health", axum::routing::get(health_route))
+            .with_state(HealthState {
+                mounts: Arc::clone(&mounts),
+                projections: Arc::clone(&projections),
+                generic_catalog,
+            });
+        let router = generic_router
+            .merge(calls)
+            .merge(projection)
+            .merge(health)
+            .fallback(axum::routing::any(mount_dispatch).with_state(Arc::clone(&mounts)));
+        let reconcile = tokio::spawn(reconcile_loop(
+            store,
+            options.clone(),
+            call_log,
+            wired_path,
+            mounts,
+            projections,
+            generic_projection,
+        ));
+        Ok(Arc::new(Self {
+            options,
+            router,
+            reconcile,
+        }))
+    }
+
+    pub(crate) fn matches(&self, options: &GatewayOptions) -> bool {
+        &self.options == options
+    }
+
+    pub(crate) async fn handle(&self, request: Request<Body>) -> Response {
+        self.router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("gateway backend router is infallible")
+    }
+}
+
+impl Drop for GatewayRuntime {
+    fn drop(&mut self) {
+        self.reconcile.abort();
+    }
 }
 
 /// What a mount must match to stay as it is: the ledger's derived scope and
@@ -290,6 +308,7 @@ async fn build_mount(
     options: &GatewayOptions,
     shared_log: &Arc<GatewayCallLog>,
     entry: &client_wire::WiredEntry,
+    report: Option<&GatewayBootReporter>,
 ) -> Result<(String, LiveMount), BoxErr> {
     let scope = entry.effective_scope().map_err(|error| {
         err(&format!(
@@ -317,6 +336,7 @@ async fn build_mount(
         wired_options,
         caller.clone(),
         Arc::clone(shared_log),
+        report,
     )
     .await?;
     let projection = MountProjection {
@@ -345,11 +365,12 @@ async fn build_mounts(
     options: &GatewayOptions,
     shared_log: Arc<GatewayCallLog>,
     wired_path: &std::path::Path,
+    report: Option<&GatewayBootReporter>,
 ) -> Result<(axum::Router, MountSet), BoxErr> {
     let mut set = MountSet::default();
     let wired_state = client_wire::load_wired_state(wired_path)?;
     for entry in &wired_state.entries {
-        match build_mount(store, options, &shared_log, entry).await {
+        match build_mount(store, options, &shared_log, entry, report).await {
             Ok((path, mount)) => {
                 set.routers.insert(path, mount);
             }
@@ -361,7 +382,8 @@ async fn build_mounts(
 
     // Generic mount from the CLI options; its exposure is fixed for the
     // process lifetime, so reconciliation never touches it.
-    let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
+    let generic_server =
+        build_server(Arc::clone(store), options.clone(), None, shared_log, report).await?;
     let generic_projection = MountProjection {
         caller: generic_server.caller_name(),
         issues: generic_server.projection_handle(),
@@ -520,57 +542,10 @@ fn read_wired_ledger(path: &std::path::Path) -> LedgerRead {
 }
 
 const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-/// scopes.toml is a content-hash check (microseconds) on the daemon→gateway
-/// data channel; polled faster than the ledger tick so a daemon override
-/// write lands in the gateway within ~2s worst case, rebuild included.
-const SCOPES_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Cheap fingerprint of the shared scopes.toml: content hash, or a stable
-/// marker while the file is absent. A change means daemon-side override
-/// writes landed via writeback — the gateway's own KV (memory store) only
-/// sees them through a replay.
-fn scopes_fingerprint(store: &MCPStore) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    match store.scopes_config_path() {
-        Ok(path) => match std::fs::read(&path) {
-            Ok(bytes) => bytes.hash(&mut hasher),
-            Err(_) => path.display().to_string().hash(&mut hasher),
-        },
-        Err(_) => "unresolvable".hash(&mut hasher),
-    }
-    hasher.finish()
-}
-
-/// Replay scopes.toml into the gateway's KV and refresh every live mount's
-/// catalog (event + call-miss are the other two invalidation channels).
-async fn refresh_scopes_projection(
-    store: &Arc<MCPStore>,
-    mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
-    generic_catalog: Option<&Arc<GatewayCatalog>>,
-) {
-    if let Err(error) = store.load_scopes_config().await {
-        eprintln!("[GATEWAY] scopes.toml replay failed: {error}");
-    }
-    let catalogs = mounts
-        .read()
-        .map(|map| {
-            map.values()
-                .map(|mount| Arc::clone(&mount.catalog))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    for catalog in catalogs.into_iter().chain(generic_catalog.cloned()) {
-        catalog.invalidate();
-        let catalog = Arc::clone(&catalog);
-        tokio::spawn(async move {
-            let _ = catalog.ensure().await;
-        });
-    }
-}
-
-/// Every tick: refresh the scopes.toml projection when the file changed, then
-/// re-read the ledger and apply the diff to the live mounts.
+/// Re-read the wired ledger and apply the diff to the live mounts. Projection
+/// invalidation already rides the daemon's local event bus; no cross-process
+/// scopes replay is needed.
 /// Fail-safe per  hubPrune — a ledger that can't be read (parse
 /// failure or vanished file) means nothing is killed; the warning repeats
 /// only when the ledger state changes, not every 5s.
@@ -582,31 +557,14 @@ async fn reconcile_loop(
     mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     projections: Arc<std::sync::RwLock<ProjectionMounts>>,
     generic_projection: Option<MountProjection>,
-    generic_catalog: Option<Arc<GatewayCatalog>>,
-    replay_scopes: bool,
 ) {
-    let mut ticker = tokio::time::interval(SCOPES_POLL_INTERVAL);
+    let mut ticker = tokio::time::interval(RECONCILE_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // the first tick fires immediately; the mounts were just built
     ticker.tick().await;
-    // SHM mode: the projection bridge carries every scopes-relevant change;
-    // the file replay would resurrect stale writeback state behind the feed.
-    let mut last_scopes = replay_scopes.then(|| scopes_fingerprint(&store));
     let mut quiet = false;
-    let mut last_ledger = tokio::time::Instant::now();
     loop {
         ticker.tick().await;
-        if replay_scopes {
-            let scopes = scopes_fingerprint(&store);
-            if last_scopes != Some(scopes) {
-                last_scopes = Some(scopes);
-                refresh_scopes_projection(&store, &mounts, generic_catalog.as_ref()).await;
-            }
-        }
-        if last_ledger.elapsed() < RECONCILE_INTERVAL {
-            continue;
-        }
-        last_ledger = tokio::time::Instant::now();
         match read_wired_ledger(&wired_path) {
             LedgerRead::State(state) => {
                 quiet = false;
@@ -659,7 +617,7 @@ async fn reconcile_once(
         }
     }
     for entry in adds {
-        match build_mount(store, options, call_log, &entry).await {
+        match build_mount(store, options, call_log, &entry, None).await {
             Ok((path, mount)) => {
                 eprintln!("[GATEWAY] mounted {path}");
                 if let Ok(mut map) = mounts.write() {
@@ -676,7 +634,7 @@ async fn reconcile_once(
         }
     }
     for entry in rebuilds {
-        match build_mount(store, options, call_log, &entry).await {
+        match build_mount(store, options, call_log, &entry, None).await {
             Ok((path, mount)) => {
                 eprintln!("[GATEWAY] rebuilt mount {path}");
                 if let Ok(mut map) = mounts.write() {
@@ -762,8 +720,9 @@ async fn build_server(
     options: GatewayOptions,
     caller: Option<String>,
     call_log: Arc<GatewayCallLog>,
+    report: Option<&GatewayBootReporter>,
 ) -> Result<GatewayServer, BoxErr> {
-    GatewayServer::from_store(store, &options, caller, call_log)
+    GatewayServer::from_store(store, &options, caller, call_log, report)
         .await
         .map_err(|error| err(&format!("failed to build gateway server: {error}")))
 }
@@ -807,62 +766,30 @@ async fn calls_route(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store_args::SourceArg;
     use mcpstore::client_wire::{ExposeConfig, WiredState};
 
-    fn store_args(store: Option<&str>, control_panel: bool, data_panel: bool) -> StoreSourceArgs {
-        StoreSourceArgs {
-            control_panel,
-            data_panel,
-            config_path: None,
-            source: SourceArg::Local,
-            store: store.map(str::to_string),
-            store_config: None,
-            namespace: None,
-            panel_id: None,
-        }
-    }
-
-    #[test]
-    fn shared_stores_derive_a_data_panel_with_its_own_identity() {
-        for store_name in ["shm", "redis", "valkey"] {
-            let resolved = gateway_panel_role(store_args(Some(store_name), false, false)).unwrap();
-            assert!(!resolved.control_panel);
-            assert!(resolved.data_panel);
-            let mcpstore::PanelRole::DataPanel { panel_id } = resolved.panel_role() else {
-                panic!("{store_name} gateway must resolve to a data panel");
-            };
-            assert_ne!(
-                panel_id,
-                mcpstore::state::CONTROL_NODE_ID,
-                "the gateway must never write the @control column"
-            );
-        }
-    }
-
-    #[test]
-    fn control_panel_on_a_shared_store_is_refused() {
-        for store_name in ["shm", "redis", "valkey"] {
-            let error = gateway_panel_role(store_args(Some(store_name), true, false)).unwrap_err();
-            assert!(error.to_string().contains("--data-panel"));
-        }
-    }
-
-    #[test]
-    fn memory_keeps_the_control_panel_universe() {
-        let resolved = gateway_panel_role(store_args(Some("memory"), false, false)).unwrap();
-        assert!(matches!(
-            resolved.panel_role(),
-            mcpstore::PanelRole::ControlPanel
-        ));
-    }
-
-    #[test]
-    fn explicit_data_panel_flag_is_kept() {
-        let mut args = store_args(Some("shm"), false, true);
-        args.panel_id = Some("edge-01".into());
-        let resolved = gateway_panel_role(args).unwrap();
-        assert_eq!(resolved.panel_id.as_deref(), Some("edge-01"));
+    #[tokio::test]
+    async fn unavailable_daemon_is_a_loud_bad_gateway() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let state = ProxyState {
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_millis(100))
+                .build()
+                .unwrap(),
+            upstream: reqwest::Url::parse(&upstream).unwrap(),
+            token: Arc::new("test-token".to_string()),
+        };
+        let response = proxy_request(
+            State(state),
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     }
 
     fn entry(client_id: &str, expose_tool: bool) -> client_wire::WiredEntry {

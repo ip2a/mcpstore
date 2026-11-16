@@ -4,9 +4,11 @@ use super::*;
 use crate::gateway::{GatewayBootPhase, GATEWAY_BOOT_PREFIX};
 use axum::{
     extract::{Path, Query},
+    http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
-use mcpstore::{store::StoreSpec, ScopeRef};
+use mcpstore::ScopeRef;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -79,7 +81,7 @@ pub(super) async fn gateway_start(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
-    // Running check, migration, and spawn are serialized against stop and
+    // Running check, backend reuse, and spawn are serialized against stop and
     // concurrent starts. Readiness is supervised in the background.
     let _launch = state.gateway_launch.lock().await;
     let options = gateway_options(&state, &query)?;
@@ -118,17 +120,17 @@ pub(super) async fn gateway_start(
         }
     }
 
-    set_gateway_boot(&state, GatewayBoot::new(GatewayBootPhase::Migrating))?;
-    // First start on a private memory store promotes the daemon (and thereby
-    // the gateway child, which inherits the store config below) to the shared
-    // shm store. Failure leaves memory active and never spawns a child.
-    let store_migration = match ensure_gateway_store_shared(&state).await {
-        Ok(migration) => migration,
+    let upstream_url = match gateway_upstream_url(&state) {
+        Ok(url) => url,
         Err(error) => {
             set_gateway_boot(&state, GatewayBoot::failed(error.message().to_string()))?;
             return Err(error);
         }
     };
+    if let Err(error) = ensure_gateway_backend(&state, &options).await {
+        set_gateway_boot(&state, GatewayBoot::failed(error.message().to_string()))?;
+        return Err(error);
+    }
 
     set_gateway_boot(&state, GatewayBoot::new(GatewayBootPhase::Spawning))?;
     let mut command = tokio::process::Command::new(exe);
@@ -136,64 +138,10 @@ pub(super) async fn gateway_start(
         .arg("gateway")
         .args(["--host", &options.host])
         .args(["--port", &options.port.to_string()])
-        .args(["--path", &options.path]);
+        .args(["--path", &options.path])
+        .args(["--upstream-url", &upstream_url])
+        .env("MCPSTORE_GATEWAY_TOKEN", state.gateway_token.as_str());
 
-    // The gateway derives its own panel role from the store kind
-    // (gateway_cmd::gateway_panel_role): a shared store gets a data panel with
-    // its own identity — inheriting `--control-panel` would put a second
-    // control plane on the shared `@control` column (CAS-fight panics) and
-    // double-supervise every service. Store config stays inherited.
-    let store_cfg = state.store.store_config().await;
-    let store_config_json = match serde_json::to_string(&store_cfg.config) {
-        Ok(config) => config,
-        Err(error) => {
-            let api_error =
-                ApiError::internal(format!("Failed to serialize store config: {error}"));
-            set_gateway_boot(&state, GatewayBoot::failed(api_error.message().to_string()))?;
-            return Err(api_error);
-        }
-    };
-    command.args(["--store", &store_cfg.store]);
-    command.args(["--store-config", &store_config_json]);
-
-    let namespace = state.store.namespace();
-    command.args(["--namespace", &namespace]);
-
-    if let ScopeRef::Agent { agent_id } = &options.scope {
-        command.args(["--scope", "agent", "--agent", agent_id]);
-    }
-    if let Some(key) = &options.session_key {
-        command.args(["--session-key", key]);
-    }
-    if let Some(id) = &options.instance_id {
-        command.args(["--instance-id", &id.to_string()]);
-    }
-    for (flag, on) in [
-        (
-            "--expose-session-state-tools",
-            options.expose_session_state_tools,
-        ),
-        (
-            "--expose-tool-override-tools",
-            options.expose_tool_override_tools,
-        ),
-        (
-            "--expose-prompt-override-tools",
-            options.expose_prompt_override_tools,
-        ),
-        (
-            "--expose-resource-override-tools",
-            options.expose_resource_override_tools,
-        ),
-        ("--expose-openapi-tools", options.expose_openapi_tools),
-        ("--expose-service-tools", options.expose_service_tools),
-        ("--expose-kv-tools", options.expose_kv_tools),
-        ("--expose-search-tools", options.expose_search_tools),
-    ] {
-        if on {
-            command.arg(flag);
-        }
-    }
     let mut child = match command.stderr(Stdio::piped()).kill_on_drop(true).spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -250,15 +198,13 @@ pub(super) async fn gateway_start(
             "url": descriptor.url,
             "summary": gateway_summary(&options),
             "boot": boot,
-            "store_migration": serde_json::to_value(&store_migration)
-                .expect("SwapResult serializes by construction"),
         }),
     ))
 }
 
 pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResult {
-    // Held across the stop so a concurrent first start either fully migrates
-    // and spawns first, or observes the child already gone — never both.
+    // Stop only the proxy. The daemon backend and all upstream connections
+    // deliberately remain alive for the next launch.
     let _launch = state.gateway_launch.lock().await;
     let process = {
         let mut gateway = state
@@ -289,77 +235,123 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
     ))
 }
 
-/// Promote a private memory store to the default shared shm store before the
-/// first gateway start. Already-shared stores (redis/valkey/shm) return
-/// `Ok(None)`; a failed migration leaves memory active and the caller must not
-/// spawn the gateway child.
-pub(super) async fn ensure_gateway_store_shared(
+/// Build the backend once per daemon configuration. Proxy restarts reuse the
+/// same runtime, including its mounts and call log; a changed projection
+/// rebuilds only routers against the daemon's existing connection pool.
+pub(super) async fn ensure_gateway_backend(
     state: &ApiState,
-) -> Result<Option<mcpstore::SwapResult>, ApiError> {
-    let current = state.store.store_config().await;
-    if current.store != "memory" {
-        return Ok(None);
-    }
-    #[cfg(not(unix))]
+    options: &GatewayOptions,
+) -> Result<Arc<crate::commands::gateway_cmd::GatewayRuntime>, ApiError> {
+    if let Some(runtime) = state
+        .gateway_backend
+        .lock()
+        .map_err(|_| ApiError::internal("Gateway backend unavailable"))?
+        .as_ref()
+        .filter(|runtime| runtime.matches(options))
+        .cloned()
     {
-        Err(ApiError::invalid_request(
-            "the default shared gateway store (shm) requires Unix; configure redis or valkey before starting the gateway",
-        ))
+        return Ok(runtime);
     }
-    #[cfg(unix)]
-    {
-        let shm = default_gateway_shm_config(state)?;
-        let migration = state
-            .store
-            .swap_store(&shm)
-            .await
-            .map_err(ApiError::from_store)?;
-        Ok(Some(migration))
-    }
+    let reporter: crate::gateway::GatewayBootReporter = {
+        let state = Arc::new(state.clone());
+        Arc::new(move |boot| {
+            if let Ok(mut current) = state.gateway_boot.lock() {
+                *current = Some(boot);
+            }
+        })
+    };
+    let runtime = crate::commands::gateway_cmd::GatewayRuntime::build(
+        Arc::clone(&state.store),
+        options.clone(),
+        Some(reporter),
+    )
+    .await
+    .map_err(|error| ApiError::internal(format!("Failed to build gateway backend: {error}")))?;
+    *state
+        .gateway_backend
+        .lock()
+        .map_err(|_| ApiError::internal("Gateway backend unavailable"))? =
+        Some(Arc::clone(&runtime));
+    Ok(runtime)
 }
 
-/// The daemon-derived default shm backing: `<mcp.json parent>/run/shm/<blake3(namespace)[..16]>.shm`,
-/// created fresh on first migration. After the swap the stored config carries
-/// `mode=open`, so restarts and gateway children only ever attach.
-#[cfg(unix)]
-fn default_gateway_shm_config(
-    state: &ApiState,
-) -> Result<mcpstore::store::JsonStoreConfig, ApiError> {
-    let namespace = state.store.namespace();
-    let mcp_parent = state
+/// The child reaches only this daemon's authenticated internal MCP face.
+fn gateway_upstream_url(state: &ApiState) -> Result<String, ApiError> {
+    let config = state
         .store
         .config_manager()
-        .mcp_path()
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let directory = mcp_parent.join("run").join("shm");
-    std::fs::create_dir_all(&directory).map_err(|error| {
-        ApiError::internal(format!(
-            "Failed to create the shared store directory {}: {error}",
-            directory.display()
-        ))
-    })?;
-    let digest = blake3::hash(namespace.as_bytes()).to_hex();
-    let file = format!("{}.shm", &digest.to_string()[..16]);
-    let path = directory.join(file);
-    // Attach to a backing a previous migration already created — create would
-    // reset it, destroying every store-only write (panel states, session
-    // relations) the current daemon's memory does not hold. Create only when
-    // this namespace has no backing yet.
-    let shm = if path.exists() {
-        mcpstore::store::ShmStoreConfig::open(path)
-    } else {
-        mcpstore::store::ShmStoreConfig::create(path)
-            .with_capacity_bytes(268_435_456)
-            .with_index_entries(65_536)
-            .with_change_retention(10_000)
-    };
-    let openkeyv_config = shm.to_openkeyv_config();
-    Ok(mcpstore::store::JsonStoreConfig::new(
-        shm.store_name(),
-        openkeyv_config.config,
-    ))
+        .load_app_config_or_default()
+        .map_err(|error| {
+            ApiError::invalid_request(format!("Failed to load app configuration: {error}"))
+        })?;
+    if !config.server.core_enabled {
+        return Err(ApiError::invalid_request(
+            "The daemon core HTTP face is disabled; enable it before starting the gateway",
+        ));
+    }
+    let mut bind = crate::daemon::listeners::resolve_bind(&config.server.host, config.server.port)
+        .map_err(ApiError::from_store)?;
+    if bind.ip().is_unspecified() {
+        bind.set_ip(if bind.is_ipv4() {
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+        } else {
+            std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+        });
+    }
+    Ok(format!("http://{bind}"))
+}
+
+/// Authenticated, unprefixed MCP backend nested below /internal/gateway.
+pub(super) fn gateway_internal_router(state: Arc<ApiState>) -> axum::Router {
+    axum::Router::new().nest(
+        "/internal/gateway",
+        axum::Router::new()
+            .fallback(axum::routing::any(gateway_internal))
+            .with_state(Arc::clone(&state))
+            .layer(axum::middleware::from_fn_with_state(
+                state,
+                authorize_gateway_internal,
+            )),
+    )
+}
+
+async fn authorize_gateway_internal(
+    State(state): State<Arc<ApiState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    use subtle::ConstantTimeEq;
+    let expected = state.gateway_token.as_bytes();
+    let provided = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
+        .as_bytes();
+    if provided.len() != expected.len() || !bool::from(provided.ct_eq(expected)) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    next.run(request).await
+}
+
+async fn gateway_internal(
+    State(state): State<Arc<ApiState>>,
+    request: axum::extract::Request,
+) -> Response {
+    let runtime = state
+        .gateway_backend
+        .lock()
+        .ok()
+        .and_then(|backend| backend.clone());
+    match runtime {
+        Some(runtime) => runtime.handle(request).await,
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "gateway backend is not running; start it through the daemon",
+        )
+            .into_response(),
+    }
 }
 
 fn gateway_options(
@@ -525,8 +517,9 @@ async fn wait_for_gateway_ready(state: Arc<ApiState>, pid: u32, host: String, po
         "::" => "::1",
         value => value,
     };
-    // The gateway binds only after every mount is built. Each connect has its
-    // own 150s guard; this is the outer bound for the whole boot.
+    let health_url = format!("http://{probe_host}:{port}/health");
+    // The proxy binds before this check. Only its daemon-backed /health route
+    // proves that the authenticated internal backend is reachable.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
 
     loop {
@@ -562,13 +555,13 @@ async fn wait_for_gateway_ready(state: Arc<ApiState>, pid: u32, host: String, po
             return;
         }
 
-        if tokio::time::timeout(
-            Duration::from_millis(200),
-            tokio::net::TcpStream::connect((probe_host, port)),
+        let ready = tokio::time::timeout(
+            Duration::from_millis(500),
+            state.http_client.get(&health_url).send(),
         )
         .await
-        .is_ok_and(|result| result.is_ok())
-        {
+        .is_ok_and(|result| result.is_ok_and(|response| response.status().is_success()));
+        if ready {
             update_gateway_boot(&state, pid, GatewayBoot::new(GatewayBootPhase::Ready));
             return;
         }
@@ -576,7 +569,7 @@ async fn wait_for_gateway_ready(state: Arc<ApiState>, pid: u32, host: String, po
             let process = fail_gateway(
                 &state,
                 pid,
-                format!("Timed out waiting for gateway to listen on {probe_host}:{port}"),
+                format!("Timed out waiting for daemon-backed gateway health at {health_url}"),
             );
             if let Some(mut process) = process {
                 let _ = process.child.kill().await;

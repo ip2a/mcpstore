@@ -596,10 +596,15 @@ mod tests {
             scope: ScopeRef::Store,
             ..Default::default()
         };
-        let server =
-            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
-                .await
-                .expect("mount must build even when a service cannot connect");
+        let server = GatewayServer::from_store(
+            Arc::clone(&store),
+            &options,
+            None,
+            GatewayCallLog::new(),
+            None,
+        )
+        .await
+        .expect("mount must build even when a service cannot connect");
 
         let projection = server.projection_handle();
         let projection = projection.lock().unwrap();
@@ -688,10 +693,15 @@ mod tests {
             instance_id: Some(instance_id),
             ..Default::default()
         };
-        let server =
-            GatewayServer::from_store(Arc::clone(&store), &options, None, GatewayCallLog::new())
-                .await
-                .expect("per-instance mount must build on a down service");
+        let server = GatewayServer::from_store(
+            Arc::clone(&store),
+            &options,
+            None,
+            GatewayCallLog::new(),
+            None,
+        )
+        .await
+        .expect("per-instance mount must build on a down service");
         let catalog = server.catalog_handle();
         assert_eq!(catalog.rebuild_count(), 0);
 

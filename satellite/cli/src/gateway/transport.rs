@@ -22,6 +22,7 @@ pub(super) async fn connect_target_instances(
     store: &MCPStore,
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
+    report: Option<&GatewayBootReporter>,
 ) -> Result<HashMap<InstanceId, DownService>, BoxErr> {
     const BOOT_CONNECT_GUARD_SECS: u64 = 150;
 
@@ -55,7 +56,12 @@ pub(super) async fn connect_target_instances(
         });
     }
     let total = connects.len();
-    report_gateway_boot(GatewayBoot {
+    let report = |boot| {
+        if let Some(report) = report {
+            report(boot);
+        }
+    };
+    report(GatewayBoot {
         phase: GatewayBootPhase::Connecting,
         done: Some(0),
         total: Some(total),
@@ -66,7 +72,7 @@ pub(super) async fn connect_target_instances(
     let mut done = 0;
     while let Some((instance, outcome)) = connects.next().await {
         done += 1;
-        report_gateway_boot(GatewayBoot {
+        report(GatewayBoot {
             phase: GatewayBootPhase::Connecting,
             done: Some(done),
             total: Some(total),

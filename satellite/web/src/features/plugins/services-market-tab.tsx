@@ -338,11 +338,7 @@ function ServiceMarketCard({
               {t("serviceMarketAddressMatch")}
             </Badge>
           ) : null}
-          {item.sign_in ? (
-            <Badge variant="outline" className="text-[10px]">
-              {t("serviceMarketSignIn")}
-            </Badge>
-          ) : null}
+          {item.sign_in ? <span>{t("serviceMarketSignIn")}</span> : null}
           <span className="font-mono tabular-nums">{item.transport}</span>
         </div>
       }

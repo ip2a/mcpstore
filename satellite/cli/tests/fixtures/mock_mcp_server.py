@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
@@ -38,4 +39,6 @@ def explain(topic: str = "overview") -> str:
 
 
 if __name__ == "__main__":
+    if pid_file := os.getenv("MCPSTORE_FIXTURE_PID_FILE"):
+        Path(pid_file).write_text(str(os.getpid()), encoding="utf-8")
     mcp.run("stdio")

@@ -217,6 +217,28 @@ async fn app_and_core_routers_expose_the_expected_faces() {
         axum::http::StatusCode::OK
     );
 
+    // The internal MCP face is never public: no token is 401, and a valid
+    // token without a started backend is a loud 503 rather than a fallback.
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/internal/gateway/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/internal/gateway/health"))
+            .bearer_auth(state.gateway_token.as_str())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+
     app_handle.abort();
     core_handle.abort();
     let _ = std::fs::remove_file(store_path);
@@ -254,14 +276,11 @@ async fn gateway_routes_report_http_configuration() {
     let _ = std::fs::remove_file(store_path);
 }
 
-/// The first gateway start promotes a private memory store to the default
-/// shm backing; a second call must be a no-op (already shared). Exercises the
-/// real migration path — no test alias, no child spawn. (The cli always builds
-/// mcpstore with the shm feature; only the platform gate applies.)
-#[cfg(unix)]
+/// Backend construction never changes the daemon's store and is reused across
+/// proxy launches. No child process is needed to verify this ownership boundary.
 #[tokio::test]
-async fn first_gateway_start_promotes_memory_to_shm_once() {
-    let base = unique_temp_dir_path("gateway-shm-migration");
+async fn gateway_backend_preserves_memory_store_and_is_reused() {
+    let base = unique_temp_dir_path("gateway-daemon-backend");
     std::fs::create_dir_all(&base).unwrap();
     let mcp_json = base.join("mcp.json");
     std::fs::write(&mcp_json, b"{}").unwrap();
@@ -273,32 +292,18 @@ async fn first_gateway_start_promotes_memory_to_shm_once() {
     })
     .unwrap();
     let state = state_for_store(store.clone());
+    let options = GatewayOptions::default();
 
-    let migration = client::ensure_gateway_store_shared(&state)
+    let first = client::ensure_gateway_backend(&state, &options)
         .await
-        .unwrap()
-        .expect("first gateway start migrates memory to shm");
-    assert_eq!(migration.source_store, "memory");
-    assert_eq!(migration.target_store, "shm");
-    assert!(migration.online);
+        .unwrap();
+    assert_eq!(store.store_config().await.store, "memory");
+    assert!(!base.join("run").join("shm").exists());
 
-    let stored = store.store_config().await;
-    assert_eq!(stored.store, "shm");
-    assert_eq!(stored.config["mode"], json!("open"));
-
-    let backing_dir = base.join("run").join("shm");
-    let backings = std::fs::read_dir(&backing_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "shm"))
-        .count();
-    assert_eq!(
-        backings, 1,
-        "exactly one shm backing file derived from the namespace"
-    );
-
-    let second = client::ensure_gateway_store_shared(&state).await.unwrap();
-    assert!(second.is_none(), "already shared: no repeated migration");
+    let second = client::ensure_gateway_backend(&state, &options)
+        .await
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
 
     drop(state);
     drop(store);

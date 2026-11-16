@@ -63,11 +63,14 @@ pub(crate) trait PanelCtx: Send + Sync + 'static {
 pub struct ApiState {
     store: Arc<MCPStore>,
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
+    /// The only MCP backend. Proxy children borrow it through the internal
+    /// authenticated HTTP face; their lifetime never owns this runtime.
+    gateway_backend: Arc<Mutex<Option<Arc<crate::commands::gateway_cmd::GatewayRuntime>>>>,
+    gateway_token: Arc<String>,
     /// Boot progress outlives the child handle so failures remain visible to status polls.
     gateway_boot: Arc<Mutex<Option<GatewayBoot>>>,
-    /// Serializes gateway start/stop so the first start's automatic
-    /// memory→shm migration can never race a concurrent stop or a second
-    /// start. Status/descriptor reads stay outside.
+    /// Serializes gateway start/stop and backend creation. Status/descriptor
+    /// reads stay outside.
     gateway_launch: Arc<tokio::sync::Mutex<()>>,
     /// Host-side telemetry persistence for history/detail/stats queries. The
     /// recording path goes through the store's sink; queries need the concrete type.
@@ -139,8 +142,8 @@ fn host_http_client() -> reqwest::Client {
         .expect("host routing HTTP client configuration is valid")
 }
 
-/// A gateway child process (`mcpstore gateway`) spawned by POST /gateway/start.
-/// The routed-call log lives inside the child; /gateway/requests forwards to it.
+/// A thin gateway proxy child (`mcpstore gateway`) spawned by POST /gateway/start.
+/// The routed-call log stays in the daemon backend and is read through the proxy.
 struct GatewayProcess {
     child: tokio::process::Child,
     pid: u32,
@@ -185,11 +188,20 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        gateway_backend: Arc::new(Mutex::new(None)),
+        gateway_token: Arc::new(random_gateway_token()),
         gateway_boot: Arc::new(Mutex::new(None)),
         gateway_launch: Arc::new(tokio::sync::Mutex::new(())),
         telemetry: Arc::new(Mutex::new(None)),
         http_client: host_http_client(),
     })
+}
+
+fn random_gateway_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 impl ApiState {
@@ -259,6 +271,7 @@ pub fn core_router(state: Arc<ApiState>) -> Router {
         .route("/health", get(app::health))
         .route("/v1/daemon/meta", get(app::daemon_meta))
         .with_state(state.clone())
+        .merge(client::gateway_internal_router(Arc::clone(&state)))
         .merge(resource_routes(Arc::clone(&state)))
         .merge(core_routes(state))
         .fallback(not_found_fallback)

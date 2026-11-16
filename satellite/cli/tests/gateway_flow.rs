@@ -14,7 +14,6 @@ use rmcp::{
         streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
     },
 };
-use tokio::io::AsyncReadExt;
 
 use mcpstore::{
     CreateSessionRequest, JsonStoreConfig, MCPStore, ScopeRef, ServiceInstanceKey,
@@ -129,6 +128,11 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
             "--env".to_string(),
             format!("PYTHONPATH={pythonpath}"),
             "--env".to_string(),
+            format!(
+                "MCPSTORE_FIXTURE_PID_FILE={}",
+                temp_dir.join(format!("{service_name}.pid")).display()
+            ),
+            "--env".to_string(),
             format!("MCPSTORE_FIXTURE_LABEL={label}"),
             "--env".to_string(),
             "MCPSTORE_FIXTURE_TEMPLATE=1".to_string(),
@@ -150,11 +154,13 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
     let first_prompt_namespace = format!("first__{first_id}");
     let second_prompt_namespace = format!("second__{second_id}");
 
-    let gateway_child = spawn_gateway(&[
+    let store_args = vec![
         "--config-path".to_string(),
         config_path.display().to_string(),
-    ])
-    .await?;
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    let daemon_pid = daemon.pid();
+    let gateway_child = spawn_gateway(&daemon, &[]).await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
@@ -291,15 +297,22 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
         .map(|resource| resource.uri.clone())
         .collect::<Vec<_>>();
     client.cancel().await?;
+    let upstream_pids = ["first", "second"].map(|name| {
+        std::fs::read_to_string(temp_dir.join(format!("{name}.pid"))).expect("upstream fixture pid")
+    });
     let _ = gateway_child.shutdown().await;
 
-    let gateway_child = spawn_gateway(&[
-        "--config-path".to_string(),
-        config_path.display().to_string(),
-    ])
-    .await?;
+    let gateway_child = spawn_gateway(&daemon, &[]).await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = connect_http_client(&base_url).await?;
+    assert_eq!(daemon.pid(), daemon_pid, "proxy restart killed the daemon");
+    for (name, previous) in ["first", "second"].into_iter().zip(upstream_pids) {
+        assert_eq!(
+            std::fs::read_to_string(temp_dir.join(format!("{name}.pid")))?,
+            previous,
+            "proxy restart reconnected upstream {name}"
+        );
+    }
 
     assert_eq!(
         client
@@ -371,12 +384,15 @@ async fn gateway_command_exposes_only_selected_instance_over_stdio_inner() -> Te
     }
 
     let instance_id = ServiceInstanceKey::new("selected", ScopeRef::Store).instance_id();
-    let gateway_child = spawn_gateway(&[
+    let store_args = vec![
         "--config-path".to_string(),
         config_path.display().to_string(),
-        "--instance-id".to_string(),
-        instance_id.to_string(),
-    ])
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    let gateway_child = spawn_gateway(
+        &daemon,
+        &["--instance-id".to_string(), instance_id.to_string()],
+    )
     .await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
@@ -526,10 +542,16 @@ async fn gateway_command_exposes_session_scope_over_stdio_inner(redis_url: Strin
         }])
         .await?;
 
-    let mut gateway_args: Vec<String> = store_args.iter().map(|arg| (*arg).to_string()).collect();
-    gateway_args.push("--session-key".to_string());
-    gateway_args.push("store:aggregate-e2e".to_string());
-    let gateway_child = spawn_gateway(&gateway_args).await?;
+    let daemon_args: Vec<String> = store_args.iter().map(|arg| (*arg).to_string()).collect();
+    let daemon = TestDaemon::start(&daemon_args).await?;
+    let gateway_child = spawn_gateway(
+        &daemon,
+        &[
+            "--session-key".to_string(),
+            "store:aggregate-e2e".to_string(),
+        ],
+    )
+    .await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
@@ -633,12 +655,12 @@ async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
 
-    let gateway_child = spawn_gateway(&[
+    let store_args = vec![
         "--config-path".to_string(),
         config_path.display().to_string(),
-        "--expose-search-tools".to_string(),
-    ])
-    .await?;
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    let gateway_child = spawn_gateway(&daemon, &["--expose-search-tools".to_string()]).await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
@@ -747,14 +769,20 @@ async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
     assert!(add_stdout.contains("[Success] Service added: demo"));
     let tool_name = "demo__greet".to_string();
 
-    let gateway_child = spawn_gateway(&[
-        "--scope".to_string(),
-        "agent".to_string(),
-        "--agent".to_string(),
-        "agent-a".to_string(),
+    let store_args = vec![
         "--config-path".to_string(),
         config_path.display().to_string(),
-    ])
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    let gateway_child = spawn_gateway(
+        &daemon,
+        &[
+            "--scope".to_string(),
+            "agent".to_string(),
+            "--agent".to_string(),
+            "agent-a".to_string(),
+        ],
+    )
     .await?;
     let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
@@ -822,7 +850,6 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
         repo_root().join("satellite/cli/tests/fixtures").display()
     );
     let fixture = fixture_script();
-    let port = reserve_local_port();
 
     let add_args = vec![
         "add".to_string(),
@@ -841,35 +868,20 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
     assert!(add_stdout.contains("[Success] Service added: demo"));
     let tool_name = "demo__greet".to_string();
 
-    let mut child = tokio::process::Command::new(cli_bin())
-        .arg("gateway")
-        .arg("--host")
-        .arg("127.0.0.1")
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--config-path")
-        .arg(config_path.display().to_string())
-        .current_dir(repo_root())
-        .kill_on_drop(true)
-        .stderr(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .spawn()?;
+    let store_args = vec![
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    let gateway_child = spawn_gateway(&daemon, &[]).await?;
 
-    let mut stderr = child.stderr.take().expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-
-    let base_url = format!("http://127.0.0.1:{port}/mcp");
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
     let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let _ = child.kill().await;
-            let stderr_output = stderr_task.await??;
+            let details = gateway_child.shutdown().await;
             return Err(format!(
-                "streamable-http MCP server 连接失败: {error}; stderr:\n{stderr_output}"
+                "streamable-http gateway handshake failed: {error}; stop response:\n{details}"
             )
             .into());
         }
@@ -938,49 +950,156 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
     assert_eq!(text, "Hello, Rust!");
 
     client.cancel().await?;
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
-/// A spawned `mcpstore gateway` child; `port` is a pre-reserved local port.
-struct GatewayChild {
+/// One isolated daemon per test. Gateway children are owned by this daemon;
+/// dropping the fixture kills only that daemon, never the user's real one.
+struct TestDaemon {
     child: tokio::process::Child,
+    core_url: String,
+}
+
+impl TestDaemon {
+    async fn start(
+        store_args: &[String],
+    ) -> Result<std::sync::Arc<Self>, Box<dyn std::error::Error>> {
+        let config_path = store_args
+            .windows(2)
+            .find(|pair| pair[0] == "--config-path")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .ok_or("test daemon requires --config-path")?;
+        let dir = config_path.parent().ok_or("config path has no parent")?;
+        let core_port = reserve_local_port();
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("[server]\nhost = \"127.0.0.1\"\nport = {core_port}\ncore_enabled = true\nweb_enabled = false\nrpc_port = 0\n"),
+        )?;
+        // Keep the Unix socket below SUN_LEN even when macOS gives the test a
+        // long per-user temp directory.
+        let socket = PathBuf::from(format!(
+            "/tmp/mcpstore-gw-{}-{core_port}.sock",
+            std::process::id()
+        ));
+        let pid = dir.join("kernel.pid");
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home)?;
+        let mut child = tokio::process::Command::new(cli_bin())
+            .arg("start")
+            .args(store_args)
+            .current_dir(repo_root())
+            .env("MCPSTORE_SOCKET", &socket)
+            .env("MCPSTORE_PID", &pid)
+            .env("HOME", &home)
+            .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
+            .kill_on_drop(true)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        let core_url = format!("http://127.0.0.1:{core_port}");
+        let client = reqwest::Client::new();
+        for _ in 0..100 {
+            if let Some(status) = child.try_wait()? {
+                return Err(format!("test daemon exited with {status}").into());
+            }
+            if client
+                .get(format!("{core_url}/health"))
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success())
+            {
+                return Ok(std::sync::Arc::new(Self { child, core_url }));
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Err("test daemon did not become ready".into())
+    }
+
+    fn pid(&self) -> u32 {
+        self.child.id().expect("daemon pid")
+    }
+}
+
+struct GatewayChild {
+    daemon: std::sync::Arc<TestDaemon>,
     port: u16,
 }
 
-async fn spawn_gateway(args: &[String]) -> Result<GatewayChild, Box<dyn std::error::Error>> {
+async fn spawn_gateway(
+    daemon: &std::sync::Arc<TestDaemon>,
+    args: &[String],
+) -> Result<GatewayChild, Box<dyn std::error::Error>> {
     let port = reserve_local_port();
-    let child = tokio::process::Command::new(cli_bin())
-        .arg("gateway")
-        .arg("--host")
-        .arg("127.0.0.1")
-        .arg("--port")
-        .arg(port.to_string())
-        .args(args)
-        .current_dir(repo_root())
-        .kill_on_drop(true)
-        .stderr(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .spawn()?;
-    Ok(GatewayChild { child, port })
+    let mut url = reqwest::Url::parse(&format!("{}/gateway/start", daemon.core_url))?;
+    let mut query = vec![("port", port.to_string())];
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        let value = if flag.starts_with("--expose-") {
+            index += 1;
+            None
+        } else {
+            index += 1;
+            let value = args.get(index).ok_or("missing gateway test argument")?;
+            index += 1;
+            Some(value.as_str())
+        };
+        let key = match flag {
+            "--scope" => "scope",
+            "--agent" => "agent_id",
+            "--instance-id" => "instance_id",
+            "--session-key" => "session_key",
+            "--expose-session-state-tools" => "expose_session_state",
+            "--expose-tool-override-tools" => "expose_tool",
+            "--expose-prompt-override-tools" => "expose_prompt",
+            "--expose-resource-override-tools" => "expose_resource",
+            "--expose-openapi-tools" => "expose_openapi",
+            "--expose-service-tools" => "expose_service",
+            "--expose-kv-tools" => "expose_kv",
+            "--expose-search-tools" => "expose_search",
+            other => return Err(format!("unsupported gateway test argument: {other}").into()),
+        };
+        query.push((key, value.unwrap_or("true").to_string()));
+    }
+    url.query_pairs_mut().extend_pairs(query);
+    let client = reqwest::Client::new();
+    let response = client.post(url).send().await?;
+    if !response.status().is_success() {
+        return Err(format!("gateway start failed: {}", response.text().await?).into());
+    }
+    for _ in 0..200 {
+        let status: serde_json::Value = client
+            .get(format!("{}/gateway/status?port={port}", daemon.core_url))
+            .send()
+            .await?
+            .json()
+            .await?;
+        if status["data"]["running"] == true {
+            return Ok(GatewayChild {
+                daemon: std::sync::Arc::clone(daemon),
+                port,
+            });
+        }
+        if status["data"]["boot"]["phase"] == "failed" {
+            return Err(format!("gateway boot failed: {status}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err("gateway proxy did not become ready".into())
 }
 
 impl GatewayChild {
-    /// Collect stderr (bounded), terminate the child, and reap it.
-    async fn shutdown(mut self) -> String {
-        let mut text = String::new();
-        if let Some(mut stderr) = self.child.stderr.take() {
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                stderr.read_to_string(&mut text),
-            )
-            .await;
+    async fn shutdown(self) -> String {
+        match reqwest::Client::new()
+            .post(format!("{}/gateway/stop", self.daemon.core_url))
+            .send()
+            .await
+        {
+            Ok(response) => response.text().await.unwrap_or_default(),
+            Err(error) => error.to_string(),
         }
-        let _ = self.child.kill().await;
-        let _ = self.child.wait().await;
-        text
     }
 }
 

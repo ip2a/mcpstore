@@ -42,7 +42,7 @@ pub type BoxErr = Box<dyn std::error::Error>;
 
 /// Gateway exposure setup: which scope/instance is projected, where it binds (HTTP only),
 /// and which management tool families are visible.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GatewayOptions {
     pub scope: ScopeRef,
     pub instance_id: Option<InstanceId>,
@@ -140,6 +140,8 @@ impl GatewayBoot {
         }
     }
 }
+
+pub type GatewayBootReporter = Arc<dyn Fn(GatewayBoot) + Send + Sync>;
 
 /// Machine-readable child boot progress on stderr; the daemon consumes these
 /// lines. Runtime mount reconciliation must not reopen the completed boot.
@@ -670,7 +672,6 @@ impl GatewayCatalog {
     }
 }
 
-pub(crate) mod bridge;
 mod catalog;
 pub(crate) mod guards;
 mod handler;
