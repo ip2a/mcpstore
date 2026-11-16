@@ -663,7 +663,7 @@ pub(super) async fn gateway_requests(
             json!({ "running": false, "requests": [], "latest_seq": 0 }),
         ));
     };
-    // Forward to the child's /calls route; it owns the call log and the same
+    // Read the daemon-owned call log through the proxy, preserving the same
     // `after` + `wait_ms` long-poll semantics.
     let mut url = reqwest::Url::parse(&calls_url)
         .map_err(|error| ApiError::internal(format!("Invalid gateway management URL: {error}")))?;

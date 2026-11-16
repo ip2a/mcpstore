@@ -432,6 +432,7 @@ export function PathBrowser({
   const listing = useQuery({
     queryKey: ["filesystem", "directories", activePath],
     queryFn: () => listDirectories(activePath),
+    enabled: active,
     placeholderData: keepPreviousData,
   });
 
@@ -440,7 +441,7 @@ export function PathBrowser({
   const parentListing = useQuery({
     queryKey: ["filesystem", "directories", parentPath],
     queryFn: () => listDirectories(parentPath),
-    enabled: Boolean(parentPath),
+    enabled: active && Boolean(parentPath),
     placeholderData: keepPreviousData,
   });
 

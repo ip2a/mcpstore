@@ -18,7 +18,6 @@ export type ClientInventory = {
 }
 
 export type GatewayBootPhase =
-  | "migrating"
   | "spawning"
   | "connecting"
   | "mounting"

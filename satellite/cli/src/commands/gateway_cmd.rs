@@ -356,8 +356,8 @@ async fn build_mount(
     ))
 }
 
-/// Initial mount construction: fail loud on an unreadable ledger (the child
-/// process is starting — there is nothing to preserve), skip-with-warning on
+/// Initial mount construction: fail loud on an unreadable ledger (there is no
+/// previous runtime to preserve), skip-with-warning on
 /// a mount that individually fails to build so one bad client doesn't take
 /// down the rest of the gateway (projection resilience, M2).
 async fn build_mounts(

@@ -8,14 +8,13 @@ import {
   PlusIcon,
   StoreIcon,
   TerminalIcon,
-  UploadIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
 import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
+import { PathBrowser } from "@/components/shared/path-browser"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -714,24 +713,18 @@ function AddAgentDialog({
   onBrowseMarket: () => void
 }) {
   const { t } = useI18n()
+  const [path, setPath] = useState<string | null>(null)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t("clientsAddTitle")}</DialogTitle>
           <DialogDescription>{t("clientsAddDescription")}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-8 text-center transition-colors hover:border-border hover:bg-muted/40"
-            onClick={() => toast.message(t("clientsAddImportSoon"))}
-          >
-            <UploadIcon className="size-6 text-muted-foreground" />
-            <span className="text-sm font-medium">{t("clientsAddImport")}</span>
-            <span className="text-xs text-muted-foreground">{t("clientsAddImportHint")}</span>
-          </button>
-          <Button variant="outline" onClick={onBrowseMarket}>
+        <div className="flex h-[min(60vh,28rem)] min-h-0 flex-col gap-3">
+          <PathBrowser active={open} initialPath={path} onPathChange={setPath} />
+          <Button variant="outline" className="shrink-0" onClick={onBrowseMarket}>
             <StoreIcon data-icon="inline-start" />
             {t("clientsAddMarket")}
           </Button>

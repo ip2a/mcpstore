@@ -335,19 +335,17 @@ function ProjectionRow({ issue }: { issue: GatewayProjectionIssue }) {
 }
 
 const BOOT_STEP_LABEL_KEYS = [
-  "gatewayBootPrepare",
   "gatewayBootSpawn",
   "gatewayBootConnect",
   "gatewayBootMounts",
   "gatewayBootReady",
 ] as const
 const BOOT_STEP_INDEX = {
-  migrating: 0,
-  spawning: 1,
-  connecting: 2,
-  mounting: 3,
-  binding: 4,
-  ready: 4,
+  spawning: 0,
+  connecting: 1,
+  mounting: 2,
+  binding: 3,
+  ready: 3,
   failed: 0,
 } as const
 
