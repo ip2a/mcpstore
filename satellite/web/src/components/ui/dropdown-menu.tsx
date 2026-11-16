@@ -6,6 +6,14 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+/** Dialog RemoveScroll preventDefaults wheel on body-portaled menus; restore scroll manually. */
+function onPortaledMenuWheel(event: React.WheelEvent<HTMLElement>) {
+  if (!event.defaultPrevented) return
+  const node = event.currentTarget
+  if (node.scrollHeight <= node.clientHeight) return
+  node.scrollTop += event.deltaY
+}
+
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -25,6 +33,7 @@ function DropdownMenuTrigger({
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  onWheel,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -37,6 +46,10 @@ function DropdownMenuContent({
           className,
         )}
         {...props}
+        onWheel={(event) => {
+          onPortaledMenuWheel(event)
+          onWheel?.(event)
+        }}
       />
     </DropdownMenuPrimitive.Portal>
   )
