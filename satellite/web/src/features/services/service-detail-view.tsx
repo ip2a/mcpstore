@@ -19,7 +19,6 @@ import {
   ToolPlaygroundAside,
 } from "@/components/shared/tool-detail-playground"
 import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
-import { Badge } from "@/components/ui/badge"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -474,10 +473,6 @@ export function ServiceDetailView(props: {
                 instanceId={service.instance_id}
                 toolArgs={toolArgs}
                 toolArgsSchema={toolArgsSchema}
-                running={runningSelectedTool}
-                onRun={() =>
-                  props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
-                }
               />
             ) : null}
           </div>
@@ -549,16 +544,66 @@ export function ServiceDetailView(props: {
         ? service.scope.agent_id
         : t("filterAll"),
   )
+  const headerCrumbs = useMemo(() => {
+    const crumbs: Array<{ label: string; onClick?: () => void }> = [
+      { label: t("servicesWorkspaceTitle"), onClick: props.onBack },
+      { label: scopeLabel, onClick: props.onBack },
+      {
+        label: service.service_name,
+        onClick: activeTab === "service" ? undefined : () => setActiveTab("service"),
+      },
+    ]
+
+    if (activeTab === "tools") {
+      crumbs.push({ label: breadcrumbUppercase(t("tools")) })
+      if (selectedTool) crumbs.push({ label: selectedTool.name })
+      return crumbs
+    }
+
+    if (activeTab === "prompts") {
+      crumbs.push({ label: breadcrumbUppercase(t("prompts")) })
+      if (selectedPrompt) {
+        crumbs.push({ label: selectedPrompt.title || selectedPrompt.name })
+      }
+      return crumbs
+    }
+
+    if (activeTab === "resources") {
+      crumbs.push({ label: breadcrumbUppercase(t("resources")) })
+      if (resourceSubTab === "templates" && selectedTemplate) {
+        crumbs.push({
+          label:
+            selectedTemplate.title ||
+            selectedTemplate.name ||
+            resourceTemplateUri(selectedTemplate),
+        })
+      } else if (selectedResource) {
+        crumbs.push({
+          label: selectedResource.title || selectedResource.name || selectedResource.uri,
+        })
+      }
+      return crumbs
+    }
+
+    return crumbs
+  }, [
+    activeTab,
+    props.onBack,
+    resourceSubTab,
+    scopeLabel,
+    selectedPrompt,
+    selectedResource,
+    selectedTemplate,
+    selectedTool,
+    service.service_name,
+    t,
+  ])
 
   return (
     <>
       <WorkspaceBreadcrumb
         ariaLabel={t("serviceDetail")}
-        crumbs={[
-          { label: t("servicesWorkspaceTitle"), onClick: props.onBack },
-          { label: scopeLabel, onClick: props.onBack },
-          { label: service.service_name },
-        ]}
+        crumbs={headerCrumbs}
         subtitle={headerSubtitle || undefined}
       />
 
@@ -720,7 +765,6 @@ export function ServiceDetailView(props: {
                             key === resourceTemplateKey(selectedTemplate || template)
                           }
                           title={template.title || template.name || uriTemplate}
-                          trailing={<Badge variant="outline">{t("templates")}</Badge>}
                         />
                       )
                     })}

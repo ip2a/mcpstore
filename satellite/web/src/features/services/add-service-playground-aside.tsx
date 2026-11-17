@@ -1,34 +1,20 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { buildAddServiceCliCommand } from "@/features/services/build-add-service-cli"
-import { ConfigPreviewEditor } from "@/features/services/config-preview-editor"
 import {
   ServiceRestartPolicySelect,
   ServiceStartupPolicySelect,
 } from "@/features/services/service-lifecycle-fields"
 import {
-  configToFields,
   HANDSHAKE_MODES,
-  parseImportedServiceConfig,
-  serializeConfigFields,
   type HandshakeMode,
   type ServiceConfigFields,
   type ServiceConfigFormat,
 } from "@/features/services/service-config-draft"
+import { ServiceConfigPreviewCard } from "@/features/services/service-config-preview-card"
 import type { AddServiceScope } from "@/features/services/use-add-service-form"
-import {
-  CodeBlock,
-  CodeBlockActions,
-  CodeBlockBody,
-  CodeBlockCopyButton,
-  CodeBlockFooter,
-  CodeBlockHeader,
-  CodeBlockMethod,
-  CodeBlockString,
-  CodeBlockTitle,
-} from "@/components/ui/code-block"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -38,7 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceRestartPolicy, ServiceStartupPolicy } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -68,49 +53,10 @@ export function ServiceConfigPreviewPane({
   scope: AddServiceScope
   showCli?: boolean
 }) {
-  const { t } = useI18n()
   const cliCommand = useMemo(
     () => buildAddServiceCliCommand({ name, scope, agentId, fields }),
     [agentId, fields, name, scope],
   )
-  const serialized = useMemo(
-    () => serializeConfigFields(fields, previewFormat),
-    [fields, previewFormat],
-  )
-  const [previewText, setPreviewText] = useState(serialized)
-  const [parseError, setParseError] = useState<string | null>(null)
-  const [previewDirty, setPreviewDirty] = useState(false)
-
-  useEffect(() => {
-    if (!previewDirty) {
-      setPreviewText(serialized)
-      setParseError(null)
-    }
-  }, [previewDirty, serialized])
-
-  useEffect(() => {
-    setPreviewDirty(false)
-  }, [previewFormat])
-
-  function onPreviewChange(text: string) {
-    setPreviewText(text)
-    setPreviewDirty(true)
-    try {
-      const imported = parseImportedServiceConfig(previewFormat, text)
-      onFieldsChange(configToFields(imported.config))
-      if (imported.name?.trim()) {
-        onNameChange?.(imported.name.trim())
-      }
-      setParseError(null)
-      setPreviewDirty(false)
-    } catch (err) {
-      setParseError(err instanceof Error ? err.message : "Invalid config")
-    }
-  }
-
-  const serviceName = name.trim() || "github"
-  const previewHint =
-    parseError || (previewFormat === "json" ? t("fieldHelpJson") : t("fieldHelpToml"))
 
   return (
     <div
@@ -119,83 +65,15 @@ export function ServiceConfigPreviewPane({
         className,
       )}
     >
-      {showCli ? (
-        <CodeBlock variant="request" className="flex shrink-0 flex-col">
-          <CodeBlockHeader variant="request">
-            <CodeBlockTitle>
-              <CodeBlockMethod className="bg-sky-500/15 text-sky-300">ADD</CodeBlockMethod>
-              <span className="truncate text-zinc-300">{serviceName}</span>
-            </CodeBlockTitle>
-            <CodeBlockActions>
-              <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">
-                {t("cliRequestLabel")}
-              </span>
-              <CodeBlockCopyButton
-                value={cliCommand}
-                className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
-              />
-            </CodeBlockActions>
-          </CodeBlockHeader>
-          <CodeBlockBody variant="request" maxHeight="9rem">
-            <CodeBlockString lines={cliCommand.split("\n")} />
-          </CodeBlockBody>
-        </CodeBlock>
-      ) : null}
-
-      {/* Trial chrome from /linshi2.js editor tokens */}
-      <CodeBlock
-        variant="response"
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-0 bg-[#1d1e22] p-0.5 text-white shadow-[0_4px_30px_rgba(0,0,0,0.5)]"
-      >
-        <CodeBlockHeader
-          variant="response"
-          className="shrink-0 border-0 bg-transparent px-2.5 py-2.5 text-[#d4d4d4]"
-        >
-          <Tabs
-            value={previewFormat}
-            onValueChange={(value) => onPreviewFormatChange(value as ServiceConfigFormat)}
-            className="gap-0"
-          >
-            <TabsList className="h-8 w-fit bg-white/5">
-              <TabsTrigger
-                value="json"
-                className="text-[#d4d4d4] data-[state=active]:bg-white/10 data-[state=active]:text-white"
-              >
-                JSON
-              </TabsTrigger>
-              <TabsTrigger
-                value="toml"
-                className="text-[#d4d4d4] data-[state=active]:bg-white/10 data-[state=active]:text-white"
-              >
-                TOML
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <CodeBlockActions>
-            <CodeBlockCopyButton
-              value={previewText}
-              className="text-[#d4d4d4] hover:bg-[#6e7281] hover:text-white"
-            />
-          </CodeBlockActions>
-        </CodeBlockHeader>
-        <CodeBlockBody variant="response" fill bare className="bg-transparent p-0 text-white">
-          <ConfigPreviewEditor
-            value={previewText}
-            format={previewFormat}
-            onChange={onPreviewChange}
-          />
-        </CodeBlockBody>
-        <CodeBlockFooter
-          variant="response"
-          className="shrink-0 border-0 border-t border-white/10 bg-transparent px-2.5 py-2 text-[#d4d4d4]"
-        >
-          <TypographyLead
-            className={cn("m-0 text-xs", parseError ? "text-red-400" : "text-[#a1a1aa]")}
-          >
-            {previewHint}
-          </TypographyLead>
-        </CodeBlockFooter>
-      </CodeBlock>
+      <ServiceConfigPreviewCard
+        cliCommand={cliCommand}
+        fields={fields}
+        previewFormat={previewFormat}
+        showCli={showCli}
+        onFieldsChange={onFieldsChange}
+        onNameChange={onNameChange}
+        onPreviewFormatChange={onPreviewFormatChange}
+      />
     </div>
   )
 }
@@ -212,8 +90,9 @@ export function ServiceConfigDescriptionPane({
   return (
     <Field>
       <FieldLabel htmlFor="aside-config-description">{t("description")}</FieldLabel>
-      <Input
+      <Textarea
         id="aside-config-description"
+        rows={2}
         value={fields.description}
         placeholder={t("optionalDescription")}
         onChange={(event) => onFieldsChange({ ...fields, description: event.target.value })}

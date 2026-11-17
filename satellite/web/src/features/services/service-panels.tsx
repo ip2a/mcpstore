@@ -3,12 +3,9 @@ import { useEffect, useState, type ReactNode } from "react"
 import {
   ClipboardIcon,
   EyeIcon,
-  FileIcon,
   LayoutTemplateIcon,
   PanelRightCloseIcon,
   PanelRightIcon,
-  ScrollTextIcon,
-  WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { JsonBlock } from "@/components/shared/json-block"
@@ -168,11 +165,7 @@ export function ServicePreviewActions({
       ) : null}
       {activeTab === "tools" && onRun ? (
         <Button size="sm" onClick={onRun} disabled={runningTool}>
-          {runningTool ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <WrenchIcon data-icon="inline-start" />
-          )}
+          {runningTool ? <Spinner data-icon="inline-start" /> : null}
           {runningTool ? t("executing") : t("call")}
         </Button>
       ) : null}
@@ -187,25 +180,17 @@ export function ServicePreviewActions({
       selectedResource &&
       onReadResource ? (
         <Button size="sm" onClick={onReadResource} disabled={readingResource}>
-          {readingResource ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <FileIcon data-icon="inline-start" />
-          )}
+          {readingResource ? <Spinner data-icon="inline-start" /> : null}
           {readingResource ? t("reading") : t("read")}
         </Button>
       ) : null}
       {activeTab === "prompts" && selectedPrompt && onGetPrompt ? (
         <Button size="sm" onClick={onGetPrompt} disabled={gettingPrompt}>
-          {gettingPrompt ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <ScrollTextIcon data-icon="inline-start" />
-          )}
+          {gettingPrompt ? <Spinner data-icon="inline-start" /> : null}
           {gettingPrompt ? t("executing") : t("get")}
         </Button>
       ) : null}
-      {copyPayload ? (
+      {activeTab === "service" && copyPayload ? (
         <Button size="sm" variant="outline" onClick={onCopy}>
           <ClipboardIcon data-icon="inline-start" />
           {t("copy")}

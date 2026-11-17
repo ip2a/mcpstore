@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
 import type { ScopeRef, ServiceOverrideRule } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -16,29 +22,47 @@ import {
   useSetServiceOverride,
 } from "@/features/overrides/queries"
 
+export type ServiceOverridePaneHandle = {
+  save: () => Promise<void>
+  discard: () => void
+}
+
+type GatewayVisibility = "show" | "hide"
+
 /**
- * Gateway-facing projection editor for one service instance: what the
- * aggregated MCP surface exposes (display name / description / icons) or
- * whether it exposes the service at all. No rule = pass-through.
+ * Gateway-facing projection editor for one service instance: rename / hide
+ * (and preserve icons etc.). No rule = pass-through. Service-level description
+ * is not edited here — it is not exposed on the MCP client catalog.
  */
-export function ServiceOverridePane({
-  serviceName,
-  scope,
-}: {
-  serviceName: string
-  scope: ScopeRef
-}) {
+export const ServiceOverridePane = forwardRef<
+  ServiceOverridePaneHandle,
+  {
+    serviceName: string
+    scope: ScopeRef
+    /** When true, Save/Cancel live in the parent dialog footer. */
+    hideActions?: boolean
+    onBusyChange?: (busy: boolean) => void
+  }
+>(function ServiceOverridePane(
+  { serviceName, scope, hideActions = false, onBusyChange },
+  ref,
+) {
   const { t } = useI18n()
   const client = useQueryClient()
   const overrideQuery = useServiceOverrideQuery(serviceName, scope)
   const rule: ServiceOverrideRule | undefined = overrideQuery.data?.override ?? undefined
   const [displayName, setDisplayName] = useState("")
-  const [description, setDescription] = useState("")
-  const [enabled, setEnabled] = useState(false)
+  const [visibility, setVisibility] = useState<GatewayVisibility>("show")
+  const draftRef = useRef({ displayName, visibility, rule })
+  draftRef.current = { displayName, visibility, rule }
+
+  function syncFromRule(next: ServiceOverrideRule | undefined) {
+    setDisplayName(next?.display_name || "")
+    setVisibility(next?.enabled === false ? "hide" : "show")
+  }
+
   useEffect(() => {
-    setDisplayName(rule?.display_name || "")
-    setDescription(rule?.description || "")
-    setEnabled(rule?.enabled === false)
+    syncFromRule(rule)
   }, [rule])
 
   const setOverride = useSetServiceOverride(serviceName, scope)
@@ -46,6 +70,10 @@ export function ServiceOverridePane({
   const busy = setOverride.isPending || deleteOverride.isPending
   // Full-replace semantics: saving before the existing rule loads would wipe its fields.
   const loading = overrideQuery.isPending
+
+  useEffect(() => {
+    onBusyChange?.(busy || loading)
+  }, [busy, loading, onBusyChange])
 
   async function refresh() {
     await client.invalidateQueries({ queryKey: queryKeys.serviceOverride(serviceName, scope) })
@@ -57,17 +85,19 @@ export function ServiceOverridePane({
     await client.invalidateQueries({ queryKey: ["scopes"] })
   }
 
-  async function save() {
+  async function saveDraft() {
+    if (overrideQuery.isPending) return
+    const draft = draftRef.current
     const body: Record<string, unknown> = {}
-    if (rule) {
-      for (const field of ["meta", "annotations", "icons", "tags"] as const) {
-        if (field in rule) body[field] = (rule as Record<string, unknown>)[field]
+    // Full-replace common: keep fields the UI does not edit.
+    if (draft.rule) {
+      for (const field of ["meta", "annotations", "icons", "tags", "description"] as const) {
+        if (field in draft.rule) body[field] = (draft.rule as Record<string, unknown>)[field]
       }
     }
-    if (displayName) body.display_name = displayName
-    if (description) body.description = description
-    // The switch means "disabled"; only enabled=Some(false) on the backend hides the service.
-    body.enabled = !enabled
+    if (draft.displayName) body.display_name = draft.displayName
+    // Backend: enabled=false hides the service from the gateway catalog.
+    body.enabled = draft.visibility === "show"
     await setOverride.mutateAsync(body)
     await refresh()
     toast.success(t("saved"))
@@ -79,52 +109,96 @@ export function ServiceOverridePane({
     toast.success(t("saved"))
   }
 
+  useImperativeHandle(ref, () => ({
+    save: saveDraft,
+    discard: () => syncFromRule(draftRef.current.rule),
+  }))
+
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-xs text-muted-foreground">{t("serviceOverrideDescription")}</p>
-      {!rule ? (
-        <p className="text-xs text-muted-foreground">{t("serviceOverridePassthroughHint")}</p>
-      ) : null}
-      <div className="grid gap-1.5">
-        <Label htmlFor="service-override-name">{t("overrideDisplayName")}</Label>
-        <Input
-          id="service-override-name"
-          value={displayName}
-          placeholder={serviceName}
-          onChange={(event) => setDisplayName(event.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">{t("serviceOverrideDisplayNameHint")}</p>
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="service-override-description">{t("overrideDescription")}</Label>
-        <Textarea
-          id="service-override-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-      </div>
-      <div className="flex items-center justify-between rounded-md border px-3 py-2">
-        <div className="grid gap-0.5">
-          <Label htmlFor="service-override-enabled">{t("serviceOverrideDisabled")}</Label>
-          <p className="text-xs text-muted-foreground">{t("serviceOverrideDisabledHint")}</p>
-        </div>
-        <Switch id="service-override-enabled" checked={enabled} onCheckedChange={setEnabled} />
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => void save()} disabled={busy || loading}>
-          {busy ? t("saving") : t("saveOverride")}
-        </Button>
-        {rule ? (
+    <div className="flex flex-col gap-5">
+      <FieldGroup className="gap-2">
+        <Field
+          orientation="horizontal"
+          className="justify-between [&>[data-slot=field-label]]:flex-none"
+        >
+          <FieldLabel htmlFor="service-override-name">{t("overrideDisplayName")}</FieldLabel>
+          <Input
+            id="service-override-name"
+            className="w-52 max-w-[13rem]"
+            value={displayName}
+            placeholder={serviceName}
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
+        </Field>
+        <span className="text-xs text-muted-foreground">{t("serviceOverrideDisplayNameHint")}</span>
+      </FieldGroup>
+
+      <FieldGroup className="gap-2">
+        <Field
+          orientation="horizontal"
+          className="justify-between [&>[data-slot=field-label]]:flex-none"
+        >
+          <FieldLabel htmlFor="service-override-visibility">
+            {t("serviceOverrideVisibility")}
+          </FieldLabel>
+          <Select
+            value={visibility}
+            onValueChange={(value) => setVisibility(value as GatewayVisibility)}
+          >
+            <SelectTrigger id="service-override-visibility" className="w-52 max-w-[13rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="show">{t("serviceOverrideShow")}</SelectItem>
+                <SelectItem value="hide">{t("serviceOverrideHide")}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <span className="text-xs text-muted-foreground">
+          {visibility === "hide"
+            ? t("serviceOverrideHideHint")
+            : t("serviceOverrideShowHint")}
+        </span>
+      </FieldGroup>
+
+      {hideActions ? (
+        rule ? (
           <Button
+            type="button"
             size="sm"
             variant="outline"
+            className="w-fit"
             onClick={() => void resetToPassthrough()}
             disabled={busy}
           >
             {t("serviceOverrideReset")}
           </Button>
-        ) : null}
-      </div>
+        ) : null
+      ) : (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void saveDraft()}
+            disabled={busy || loading}
+          >
+            {busy ? t("saving") : t("saveOverride")}
+          </Button>
+          {rule ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void resetToPassthrough()}
+              disabled={busy}
+            >
+              {t("serviceOverrideReset")}
+            </Button>
+          ) : null}
+        </div>
+      )}
     </div>
   )
-}
+})

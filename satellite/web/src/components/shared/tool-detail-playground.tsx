@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react"
-import { PlayIcon } from "lucide-react"
+import { useMemo } from "react"
 
 import {
   CodeBlock,
@@ -14,16 +13,6 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block"
 import { ToolParameterDocList } from "@/components/shared/tool-parameter-doc-list"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
 import {
   ToolAnnotationsSection,
@@ -35,17 +24,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Spinner } from "@/components/ui/spinner"
-import { Switch } from "@/components/ui/switch"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import type { ScopeRef, ServiceState, ToolInfo } from "@/lib/api"
 import { OverrideEditor } from "@/features/overrides/override-editor"
-import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
-import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
+import { buildToolCliCommand } from "@/lib/tool-schema-preview"
+import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
 import {
   getOriginalToolName,
   getToolOutputSchema,
@@ -91,15 +76,6 @@ function useToolPlaygroundData({
     [instanceId, tool.name, toolArgs, toolArgsSchema],
   )
 
-  const exampleResponse = useMemo(() => buildSchemaExampleValue(outputSchema), [outputSchema])
-  const responseText = useMemo(
-    () =>
-      hasOutputSchema
-        ? JSON.stringify(exampleResponse, null, 2)
-        : JSON.stringify({ content: [{ type: "text", text: "..." }] }, null, 2),
-    [exampleResponse, hasOutputSchema],
-  )
-
   const requestArgsText = useMemo(
     () => JSON.stringify(serializeToolArgs(toolArgs, toolArgsSchema), null, 2),
     [toolArgs, toolArgsSchema],
@@ -113,7 +89,6 @@ function useToolPlaygroundData({
     outputParams,
     outputSchema,
     requestArgsText,
-    responseText,
   }
 }
 
@@ -240,101 +215,36 @@ export function ToolPlaygroundAside({
   instanceId,
   toolArgs,
   toolArgsSchema,
-  onRun,
-  running,
   className,
 }: {
   tool: ToolInfo
   instanceId: string
   toolArgs: Record<string, unknown>
   toolArgsSchema: ToolSchema
-  onRun?: () => void
-  running?: boolean
   className?: string
 }) {
-  const { t } = useI18n()
-  const [missingRequired, setMissingRequired] = useState<string[]>([])
-  const { cliCommand, hasOutputSchema, outputSchema, requestArgsText, responseText } =
-    useToolPlaygroundData({
-      tool,
-      instanceId,
-      toolArgs,
-      toolArgsSchema,
-    })
-
-  function requestRun() {
-    const missing = getMissingRequiredArgs(
-      serializeToolArgs(toolArgs, toolArgsSchema),
-      toolArgsSchema,
-    )
-    if (missing.length) {
-      setMissingRequired(missing)
-      return
-    }
-    onRun?.()
-  }
+  const { cliCommand, requestArgsText } = useToolPlaygroundData({
+    tool,
+    instanceId,
+    toolArgs,
+    toolArgsSchema,
+  })
 
   return (
-    <>
-      <aside
-        className={cn(
-          toolDetailPlaygroundAside,
-          "h-full min-h-0 min-w-0 w-full flex-col gap-4",
-          className,
-        )}
-      >
-        <ToolRequestPanel
-          command={cliCommand}
-          toolName={tool.name}
-          onRun={requestRun}
-          running={running}
-        />
-        <ToolResponsePanel
-          requestArgsText={requestArgsText}
-          responseText={responseText}
-          schema={outputSchema}
-          hasOutputSchema={hasOutputSchema}
-        />
-      </aside>
-      <AlertDialog
-        open={missingRequired.length > 0}
-        onOpenChange={(open) => !open && setMissingRequired([])}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("missingRequiredTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("missingRequiredDescription", { fields: missingRequired.join(", ") })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setMissingRequired([])
-                onRun?.()
-              }}
-            >
-              {t("knownContinue")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <aside
+      className={cn(
+        toolDetailPlaygroundAside,
+        "h-full min-h-0 min-w-0 w-full flex-col gap-4",
+        className,
+      )}
+    >
+      <ToolRequestPanel command={cliCommand} toolName={tool.name} />
+      <ToolResponsePanel requestArgsText={requestArgsText} />
+    </aside>
   )
 }
 
-function ToolRequestPanel({
-  command,
-  toolName,
-  onRun,
-  running,
-}: {
-  command: string
-  toolName: string
-  onRun?: () => void
-  running?: boolean
-}) {
+function ToolRequestPanel({ command, toolName }: { command: string; toolName: string }) {
   const { t } = useI18n()
 
   return (
@@ -357,67 +267,29 @@ function ToolRequestPanel({
       <CodeBlockBody variant="request" maxHeight="11rem">
         <CodeBlockString lines={command.split("\n")} />
       </CodeBlockBody>
-      <CodeBlockFooter variant="request" className="justify-end">
-        {onRun ? (
-          <Button
-            size="sm"
-            className="h-8 bg-zinc-100 text-zinc-900 hover:bg-white"
-            onClick={onRun}
-            disabled={running}
-          >
-            {running ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
-            {running ? t("executing") : t("testRequest")}
-          </Button>
-        ) : null}
-      </CodeBlockFooter>
     </CodeBlock>
   )
 }
 
-function ToolResponsePanel({
-  requestArgsText,
-  responseText,
-  schema,
-  hasOutputSchema,
-}: {
-  requestArgsText: string
-  responseText: string
-  schema: JsonSchema
-  hasOutputSchema: boolean
-}) {
+function ToolResponsePanel({ requestArgsText }: { requestArgsText: string }) {
   const { t } = useI18n()
-  const [showSchema, setShowSchema] = useState(false)
-  const displayText = showSchema && hasOutputSchema ? responseText : requestArgsText
 
   return (
     <CodeBlock variant="response" className="flex min-h-0 flex-1 flex-col">
       <CodeBlockHeader variant="response" className="shrink-0">
         <CodeBlockTitle>
-          <span className="font-semibold text-foreground">
-            {showSchema && hasOutputSchema ? "200" : t("dynamicValue")}
-          </span>
+          <span className="font-semibold text-foreground">{t("dynamicValue")}</span>
         </CodeBlockTitle>
         <CodeBlockActions>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="show-schema"
-              checked={showSchema}
-              onCheckedChange={setShowSchema}
-              disabled={!hasOutputSchema}
-            />
-            <Label htmlFor="show-schema" className="text-xs font-normal text-muted-foreground">
-              {t("showSchema")}
-            </Label>
-          </div>
-          <CodeBlockCopyButton value={displayText} />
+          <CodeBlockCopyButton value={requestArgsText} />
         </CodeBlockActions>
       </CodeBlockHeader>
       <CodeBlockBody variant="response" fill nativeScroll>
-        <CodeBlockJson text={displayText} />
+        <CodeBlockJson text={requestArgsText} />
       </CodeBlockBody>
       <CodeBlockFooter variant="response" className="shrink-0">
         <TypographyLead className="m-0 text-xs text-muted-foreground">
-          {showSchema && hasOutputSchema ? t("responseOk") : t("requestPreview")}
+          {t("requestPreview")}
         </TypographyLead>
       </CodeBlockFooter>
     </CodeBlock>

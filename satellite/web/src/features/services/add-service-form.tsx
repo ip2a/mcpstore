@@ -121,8 +121,8 @@ export function AddServiceForm({
 
   return (
     <form className={cn("@container flex min-h-0 flex-1 flex-col", className)} onSubmit={onSubmit}>
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[minmax(0,25rem)_minmax(280px,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
-        <ScrollPane className="min-h-0 @min-[640px]:min-h-0">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 pb-4 pt-0 @min-[640px]:grid-cols-[minmax(0,25rem)_minmax(280px,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:pb-4">
+        <ScrollPane className="min-h-0 pt-4 @min-[640px]:min-h-0">
           <FieldGroup className="gap-5 pr-1">
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <Field>
@@ -158,7 +158,7 @@ export function AddServiceForm({
 
         <AddServicePlaygroundAside
           agentId={agentId}
-          className="min-h-0 max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none"
+          className="min-h-0 max-h-[min(40dvh,20rem)] overflow-hidden pt-2 @min-[640px]:h-full @min-[640px]:max-h-none"
           fields={configFields}
           name={serviceName}
           previewFormat={previewFormat}

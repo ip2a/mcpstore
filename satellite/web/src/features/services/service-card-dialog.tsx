@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type FormEvent, type ReactNode } from "react"
 import { EyeIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
@@ -24,7 +24,10 @@ import {
 } from "@/features/services/add-service-playground-aside"
 import { useServiceDetailQuery } from "@/features/services/queries"
 import { useServiceOverrideQuery } from "@/features/overrides/queries"
-import { ServiceOverridePane } from "@/features/services/service-override-pane"
+import {
+  ServiceOverridePane,
+  type ServiceOverridePaneHandle,
+} from "@/features/services/service-override-pane"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
 import {
   isServiceRunning,
@@ -119,6 +122,8 @@ function ServiceCardDialogBody({
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<DetailAsideTab>("preview")
+  const [gatewayBusy, setGatewayBusy] = useState(false)
+  const overridePaneRef = useRef<ServiceOverridePaneHandle>(null)
   const detailQuery = useServiceDetailQuery(listService, open)
   const service = detailQuery.data || listService
   const { configFields, onSubmit, previewFormat, setConfigFields, setPreviewFormat, submitting } =
@@ -140,12 +145,32 @@ function ServiceCardDialogBody({
   const scopeLabel =
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const isEditTab = EDIT_TABS.has(activeTab)
+  const isGatewayTab = activeTab === "gateway"
+  const showSaveFooter = isEditTab || isGatewayTab
   const editScope = service.scope.type === "store" ? "store" : "agent"
   const editAgentId = service.scope.type === "agent" ? service.scope.agent_id : ""
 
   function closeThen(action: () => void) {
     onOpenChange(false)
     action()
+  }
+
+  function cancelEditing() {
+    if (isGatewayTab) overridePaneRef.current?.discard()
+    setActiveTab("preview")
+  }
+
+  async function onFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (isGatewayTab) {
+      event.preventDefault()
+      await overridePaneRef.current?.save()
+      return
+    }
+    if (isEditTab) {
+      await onSubmit(event)
+      return
+    }
+    event.preventDefault()
   }
 
   return (
@@ -163,12 +188,9 @@ function ServiceCardDialogBody({
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          className="flex min-h-0 flex-1 flex-col"
-          onSubmit={isEditTab ? onSubmit : (event) => event.preventDefault()}
-        >
-          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
-            <QuietScroll className="flex min-h-0 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => void onFormSubmit(event)}>
+          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 pb-4 pt-0 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:pb-4">
+            <QuietScroll className="flex min-h-0 pt-4 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
               <button
                 type="button"
                 className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -206,7 +228,7 @@ function ServiceCardDialogBody({
               </button>
             </QuietScroll>
 
-            <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none">
+            <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden pt-2 @min-[640px]:h-full @min-[640px]:max-h-none">
               <Tabs
                 value={activeTab}
                 onValueChange={(value) => setActiveTab(value as DetailAsideTab)}
@@ -260,15 +282,23 @@ function ServiceCardDialogBody({
                 <TabsContent value="profile" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
                     <div className="flex flex-col gap-5">
-                      <Field>
+                      <Field
+                        orientation="horizontal"
+                        className="justify-between [&>[data-slot=field-label]]:flex-none"
+                      >
                         <FieldLabel htmlFor="card-service-scope">{t("scope")}</FieldLabel>
-                        <Input id="card-service-scope" value={scopeLabel} readOnly />
+                        <Input
+                          id="card-service-scope"
+                          className="w-40 max-w-[10rem]"
+                          value={scopeLabel}
+                          readOnly
+                        />
                       </Field>
-                      <ServiceConfigDescriptionPane
+                      <ServiceConfigHandshakePane
                         fields={configFields}
                         onFieldsChange={setConfigFields}
                       />
-                      <ServiceConfigHandshakePane
+                      <ServiceConfigDescriptionPane
                         fields={configFields}
                         onFieldsChange={setConfigFields}
                       />
@@ -278,7 +308,13 @@ function ServiceCardDialogBody({
 
                 <TabsContent value="gateway" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
-                    <ServiceOverridePane serviceName={service.service_name} scope={service.scope} />
+                    <ServiceOverridePane
+                      ref={overridePaneRef}
+                      hideActions
+                      serviceName={service.service_name}
+                      scope={service.scope}
+                      onBusyChange={setGatewayBusy}
+                    />
                   </QuietScroll>
                 </TabsContent>
               </Tabs>
@@ -307,14 +343,19 @@ function ServiceCardDialogBody({
                   {t("delete")}
                 </Button>
               </div>
-              {isEditTab ? (
+              {showSaveFooter ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                  <Button type="button" variant="outline" onClick={() => setActiveTab("preview")}>
+                  <Button type="button" variant="outline" onClick={cancelEditing}>
                     {t("cancel")}
                   </Button>
-                  <Button type="submit" disabled={submitting}>
-                    {submitting ? <Spinner data-icon="inline-start" /> : null}
-                    {submitting ? t("saving") : t("save")}
+                  <Button
+                    type="submit"
+                    disabled={isGatewayTab ? gatewayBusy : submitting}
+                  >
+                    {(isGatewayTab ? gatewayBusy : submitting) ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : null}
+                    {(isGatewayTab ? gatewayBusy : submitting) ? t("saving") : t("save")}
                   </Button>
                 </div>
               ) : (
