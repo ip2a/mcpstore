@@ -41,6 +41,13 @@ export type GatewayStatus = {
 
 export type GatewayRequestRecord = {
   seq: number
+  call_id: string
+  phase: "routing" | "calling_upstream" | "succeeded" | "failed"
+  upstream_name: string | null
+  namespace_applied: boolean
+  name_mapped: boolean
+  error: string | null
+  routing_ms: number | null
   at_unix_ms: number
   caller: string | null
   kind: "tool" | "prompt" | "resource"

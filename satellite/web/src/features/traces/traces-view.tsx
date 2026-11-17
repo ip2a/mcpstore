@@ -8,6 +8,7 @@ import {
   normalizeFrameView,
   type FrameViewMode,
 } from "@/features/traces/frame-stream-card"
+import { ProjectionPanel } from "@/features/traces/projection-panel"
 import { RoutedCallsPanel } from "@/features/traces/routed-calls-panel"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -42,6 +43,7 @@ export function TracesView({
         kvSlot={(search) => <KvPanel search={search} />}
         callsSlot={<RoutedCallsPanel />}
         historySlot={<HistoryPanel />}
+        projectionSlot={<ProjectionPanel />}
         initialView={normalizeFrameView(initialTab) ?? "outbound"}
         onOpenSession={onOpenSession}
       />

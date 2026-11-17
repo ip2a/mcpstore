@@ -12,9 +12,7 @@ import { clientIconUrls } from "@/assets/icons/clients"
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { MarkIcon } from "@/components/shared/mark-icon"
 import { PanelCard } from "@/components/shared/panel-card"
-import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
-import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import {
   WORKSPACE_LIST_INSET_CLASSNAME,
   WORKSPACE_PANEL_CLASSNAME,
@@ -25,7 +23,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -45,7 +42,6 @@ import {
 import { Switch } from "@/components/ui/switch"
 import {
   useClientsQuery,
-  useGatewayProjectionQuery,
   useGatewayStatusQuery,
   useWiredClientsQuery,
 } from "@/features/clients/queries"
@@ -56,7 +52,6 @@ import {
   startMcpHub,
   stopMcpHub,
   type GatewayBoot,
-  type GatewayProjectionIssue,
   type GatewayRequestRecord,
   type GatewayStatus,
   type McpHubOptions,
@@ -71,8 +66,6 @@ const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
   path: "/mcp",
 }
 
-type GatewayPanelTab = "calls" | "projection"
-
 export function GatewayView({
   onOpenScope,
 }: {
@@ -83,13 +76,11 @@ export function GatewayView({
   const clients = useClientsQuery()
   const wired = useWiredClientsQuery()
   const records = useGatewayRequestFlow()
-  const projection = useGatewayProjectionQuery(status.data?.running === true)
   const meta = useSettingsMetaQuery()
   const updateSettings = useUpdateSettingsMutation()
   const [busy, setBusy] = useState<"start" | "stop" | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [launchOptions, setLaunchOptions] = useState<McpHubOptions>(DEFAULT_LAUNCH_OPTIONS)
-  const [panelTab, setPanelTab] = useState<GatewayPanelTab>("calls")
   const boot = status.data?.boot
   const starting = status.data?.starting === true
   const failed = boot?.phase === "failed" && !starting && status.data?.running !== true
@@ -153,8 +144,6 @@ export function GatewayView({
     }
   }
 
-  const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-
   return (
     <>
       <WorkspacePageHeader
@@ -172,20 +161,11 @@ export function GatewayView({
       />
 
       <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
-        <Tabs
-          value={panelTab}
-          onValueChange={(value) => setPanelTab(value as GatewayPanelTab)}
-          className={WORKSPACE_TABS_CLASSNAME}
-        >
+        <div className={WORKSPACE_TABS_CLASSNAME}>
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-            <WorkspaceTabsList value={panelTab}>
-              <TabsTrigger value="calls" className="flex-none">
-                {t("gatewayRequestsTitle")}
-              </TabsTrigger>
-              <TabsTrigger value="projection" className="flex-none">
-                {t("gatewayProjectionTitle")}
-              </TabsTrigger>
-            </WorkspaceTabsList>
+            <span className="text-sm font-medium uppercase text-foreground/60">
+              {t("gatewayRequestsTitle")}
+            </span>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               {status.data?.running ? (
                 <Badge variant="default">{t("homeRunning")}</Badge>
@@ -225,126 +205,65 @@ export function GatewayView({
 
           {starting || failed ? <GatewayBootProgress boot={boot} failed={failed} /> : null}
 
-          <TabsContent value="calls" className={tabContentClassName}>
-            <div
-              className={cn(
-                WORKSPACE_LIST_INSET_CLASSNAME,
-                "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden",
-              )}
-            >
-              <CallFlowDiagram
-                labelById={labelById}
-                onOpenScope={onOpenScope}
-                recent={[...records].slice(-5).reverse()}
-                status={status.data ?? null}
-                wired={wired.data ?? []}
-              />
+          <div
+            className={cn(
+              WORKSPACE_LIST_INSET_CLASSNAME,
+              "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden",
+            )}
+          >
+            <CallFlowDiagram
+              labelById={labelById}
+              onOpenScope={onOpenScope}
+              recent={[...records].slice(-5).reverse()}
+              status={status.data ?? null}
+              wired={wired.data ?? []}
+            />
 
-              <div className="shrink-0 border-t border-border/50" />
+            <div className="shrink-0 border-t border-border/50" />
 
-              <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 py-2">
-                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                  {t("gatewayFlowOverviewBlurb")}
-                </p>
-                <div className="flex shrink-0 items-end gap-6 sm:gap-8">
-                  {(
-                    [
-                      {
-                        value: records.length,
-                        label: t("gatewayFlowStatRequests"),
-                      },
-                      {
-                        value: new Set(records.map((r) => r.service_name)).size,
-                        label: t("gatewayFlowStatServices"),
-                      },
-                      {
-                        value: records.filter((r) => r.success).length,
-                        label: t("gatewayFlowStatSuccess"),
-                      },
-                    ] as const
-                  ).map((stat) => (
-                    <div key={stat.label} className="flex flex-col items-center gap-0.5">
-                      <span className="text-2xl font-semibold tabular-nums leading-none">
-                        {stat.value}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{stat.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="shrink-0 border-t border-border/50" />
-
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden py-1">
-                <h3 className="shrink-0 text-sm font-semibold">{t("gatewayFlowLatestTitle")}</h3>
-                <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  <LatestCallNarrative />
-                </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 py-2">
+              <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                {t("gatewayFlowOverviewBlurb")}
+              </p>
+              <div className="flex shrink-0 items-end gap-6 sm:gap-8">
+                {(
+                  [
+                    {
+                      value: records.length,
+                      label: t("gatewayFlowStatRequests"),
+                    },
+                    {
+                      value: new Set(records.map((r) => r.service_name)).size,
+                      label: t("gatewayFlowStatServices"),
+                    },
+                    {
+                      value: records.filter((r) => r.success).length,
+                      label: t("gatewayFlowStatSuccess"),
+                    },
+                  ] as const
+                ).map((stat) => (
+                  <div key={stat.label} className="flex flex-col items-center gap-0.5">
+                    <span className="text-2xl font-semibold tabular-nums leading-none">
+                      {stat.value}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{stat.label}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </TabsContent>
 
-          <TabsContent value="projection" className={tabContentClassName}>
-            <ScrollPane
-              className="min-h-0 flex-1"
-              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex flex-col gap-2")}
-            >
-              {!projection.data ||
-              projection.data.mounts.every((mount) => mount.issues.length === 0) ? (
-                <p className="text-sm text-muted-foreground">{t("gatewayProjectionEmpty")}</p>
-              ) : (
-                projection.data.mounts
-                  .filter((mount) => mount.issues.length > 0)
-                  .map((mount) => (
-                    <div key={mount.caller ?? "generic"} className="flex flex-col gap-1">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        {mount.caller ?? t("gatewayProjectionGenericMount")}
-                      </div>
-                      {mount.issues.map((issue, index) => (
-                        <ProjectionRow key={index} issue={issue} />
-                      ))}
-                    </div>
-                  ))
-              )}
-            </ScrollPane>
-          </TabsContent>
-        </Tabs>
+            <div className="shrink-0 border-t border-border/50" />
+
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden py-1">
+              <h3 className="shrink-0 text-sm font-semibold">{t("gatewayFlowLatestTitle")}</h3>
+              <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <LatestCallNarrative />
+              </div>
+            </div>
+          </div>
+        </div>
       </PanelCard>
     </>
-  )
-}
-
-/** One projection defect: what was hidden or degraded, and why (human-facing truth). */
-function ProjectionRow({ issue }: { issue: GatewayProjectionIssue }) {
-  const { t } = useI18n()
-  if ("Down" in issue) {
-    return (
-      <div className="flex items-start gap-2 text-xs">
-        <Badge variant="destructive">{t("gatewayProjectionIssueDown")}</Badge>
-        <span className="text-muted-foreground">
-          {issue.Down.service}: {issue.Down.reason}
-        </span>
-      </div>
-    )
-  }
-  if ("SkippedTool" in issue) {
-    return (
-      <div className="flex items-start gap-2 text-xs">
-        <Badge variant="outline">{t("gatewayProjectionIssueSkipped")}</Badge>
-        <span className="text-muted-foreground">
-          {issue.SkippedTool.tool ?? "?"} @ {issue.SkippedTool.service ?? "?"}:{" "}
-          {issue.SkippedTool.reason}
-        </span>
-      </div>
-    )
-  }
-  return (
-    <div className="flex items-start gap-2 text-xs">
-      <Badge variant="secondary">{t("gatewayProjectionIssueDegraded")}</Badge>
-      <span className="text-muted-foreground">
-        {issue.DegradedTool.tool} @ {issue.DegradedTool.service}
-      </span>
-    </div>
   )
 }
 

@@ -167,10 +167,27 @@ pub enum GatewayCallKind {
     Resource,
 }
 
+/// Actual lifecycle state; a recent completion is never "calling".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayCallPhase {
+    Routing,
+    CallingUpstream,
+    Succeeded,
+    Failed,
+}
+
 /// One routed business call through the gateway (management tools excluded).
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct GatewayCallRecord {
     pub seq: u64,
+    pub call_id: String,
+    pub phase: GatewayCallPhase,
+    pub upstream_name: Option<String>,
+    pub namespace_applied: bool,
+    pub name_mapped: bool,
+    pub error: Option<String>,
+    pub routing_ms: Option<u64>,
     pub at_unix_ms: u64,
     /// Mount the call came through (`/mcp/<id>`); None = the generic `/mcp`.
     pub caller: Option<String>,
@@ -188,6 +205,7 @@ pub struct GatewayCallRecord {
 pub struct GatewayCallLog {
     records: std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>,
     latest: std::sync::atomic::AtomicU64,
+    next_call_id: std::sync::atomic::AtomicU64,
     changed: tokio::sync::watch::Sender<u64>,
 }
 
@@ -199,6 +217,7 @@ impl GatewayCallLog {
         Arc::new(Self {
             records: std::sync::Mutex::new(std::collections::VecDeque::new()),
             latest: std::sync::atomic::AtomicU64::new(0),
+            next_call_id: std::sync::atomic::AtomicU64::new(0),
             changed,
         })
     }
@@ -215,20 +234,54 @@ impl GatewayCallLog {
         duration: std::time::Duration,
         success: bool,
     ) {
-        self.push(GatewayCallRecord {
+        let mut record = self.begin(caller, kind, name, instance_id, service_name);
+        record.phase = if success { GatewayCallPhase::Succeeded } else { GatewayCallPhase::Failed };
+        record.duration_ms = duration.as_millis() as u64;
+        record.success = success;
+        self.update(record);
+    }
+
+    fn begin(
+        &self,
+        caller: Option<&str>,
+        kind: GatewayCallKind,
+        name: &str,
+        instance_id: InstanceId,
+        service_name: &str,
+    ) -> GatewayCallRecord {
+        GatewayCallRecord {
             seq: 0,
+            call_id: format!(
+                "{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                self.next_call_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ),
+            phase: GatewayCallPhase::Routing,
+            upstream_name: None,
+            namespace_applied: false,
+            name_mapped: false,
+            error: None,
+            routing_ms: None,
             at_unix_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .as_millis() as u64,
             caller: caller.map(str::to_string),
             kind,
             name: name.to_string(),
             instance_id,
             service_name: service_name.to_string(),
-            duration_ms: duration.as_millis() as u64,
-            success,
-        });
+            duration_ms: 0,
+            success: false,
+        }
+    }
+
+    fn update(&self, record: GatewayCallRecord) {
+        self.push(record);
     }
 
     /// Push at the ring tail, dropping the oldest past the cap, and wake waiters.
@@ -325,6 +378,8 @@ struct ToolBinding {
     instance_id: InstanceId,
     tool_name: String,
     service_name: String,
+    namespace_applied: bool,
+    name_mapped: bool,
 }
 
 struct GatewayToolsChangedNotification {

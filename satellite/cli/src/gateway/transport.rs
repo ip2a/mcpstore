@@ -177,6 +177,8 @@ pub(super) async fn build_tool_bindings(
             ToolBinding {
                 tool,
                 instance_id,
+                name_mapped: original_name != canonical_tool_name,
+                namespace_applied: exposed_name != original_name,
                 tool_name: canonical_tool_name,
                 service_name: record_service_name,
             },

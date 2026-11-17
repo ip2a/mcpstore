@@ -120,6 +120,7 @@ function viewFromPath(pathname: string, search: string): AppView {
       tab === "table" ||
       tab === "kv" ||
       tab === "calls" ||
+      tab === "projection" ||
       tab === "inbound" ||
       tab === "outbound"
     ) {

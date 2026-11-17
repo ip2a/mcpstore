@@ -22,7 +22,11 @@ export function useGatewayRequestFlow(): GatewayRequestRecord[] {
           }
           if (page.requests.length > 0) {
             after = page.latest_seq
-            setRecords((prev) => [...prev, ...page.requests].slice(-200))
+            setRecords((prev) => {
+              const byId = new Map(prev.map((record) => [record.call_id, record]))
+              for (const record of page.requests) byId.set(record.call_id, record)
+              return [...byId.values()].sort((a, b) => a.seq - b.seq).slice(-200)
+            })
           } else if (!page.running) {
             // When the gateway is not running the backend returns immediately
             // (no 25s long wait); throttle here or it spins at full speed.

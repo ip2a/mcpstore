@@ -842,12 +842,17 @@ gatewayFlowTimingMs: "{ms} 毫秒"
 
 
 
-gatewayProjectionTitle: "投影状态"
+gatewayProjectionTitle: "投影"
 gatewayProjectionEmpty: "所有服务投影正常，没有隐藏或降级的工具。"
 gatewayProjectionGenericMount: "通用挂载"
 gatewayProjectionIssueDown: "不可达"
 gatewayProjectionIssueSkipped: "已跳过"
 gatewayProjectionIssueDegraded: "已降级"
+gatewayProjectionColKind: "类型"
+gatewayProjectionColMount: "挂载"
+gatewayProjectionColService: "服务"
+gatewayProjectionColTool: "工具"
+gatewayProjectionColReason: "原因"
 gatewayCallDirect: "直连"
 gatewayCallKindTool: "工具"
 gatewayCallKindPrompt: "提示词"

@@ -564,6 +564,7 @@ impl ServerHandler for GatewayServer {
                 return self.call_search_tool(arguments).await.map(Into::into);
             }
 
+            let route_start = std::time::Instant::now();
             let (args, session_key) = extract_business_session_key(
                 meta.as_ref(),
                 arguments,
@@ -601,8 +602,20 @@ impl ServerHandler for GatewayServer {
                     }
                 }
             };
-            let call_start = std::time::Instant::now();
-            let record_binding = binding.clone();
+            let mut call = self.call_log.begin(
+                self.caller.as_deref(),
+                GatewayCallKind::Tool,
+                &tool_name,
+                binding.instance_id,
+                &binding.service_name,
+            );
+            call.upstream_name = Some(binding.tool_name.clone());
+            call.namespace_applied = binding.namespace_applied;
+            call.name_mapped = binding.name_mapped;
+            call.routing_ms = Some(route_start.elapsed().as_millis() as u64);
+            self.call_log.update(call.clone());
+            call.phase = super::GatewayCallPhase::CallingUpstream;
+            self.call_log.update(call.clone());
             let mut execution_options = McpExecutionOptions::default();
             if let Some(caller) = self.caller.clone() {
                 execution_options = execution_options.with_caller(caller);
@@ -698,15 +711,24 @@ impl ServerHandler for GatewayServer {
                 Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
                 _ => false,
             };
-            self.call_log.record(
-                self.caller.as_deref(),
-                GatewayCallKind::Tool,
-                &tool_name,
-                record_binding.instance_id,
-                &record_binding.service_name,
-                call_start.elapsed(),
-                success,
-            );
+            call.duration_ms = route_start.elapsed().as_millis() as u64;
+            call.success = success;
+            call.phase = if success {
+                super::GatewayCallPhase::Succeeded
+            } else {
+                super::GatewayCallPhase::Failed
+            };
+            if !success {
+                call.error = match &response {
+                    Ok(CallToolResponse::Complete(result)) => result
+                        .content
+                        .iter()
+                        .find_map(|item| item.as_text().map(|text| text.text.to_string())),
+                    Err(error) => Some(error.to_string()),
+                    _ => None,
+                };
+            }
+            self.call_log.update(call);
             if management_tool {
                 record_management_call(
                     &management_store,

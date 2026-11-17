@@ -15,7 +15,13 @@ import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 import type { FrameSessionSummary } from "@/lib/api"
 
-export type FrameViewMode = "inbound" | "outbound" | "history" | "kv" | "calls"
+export type FrameViewMode =
+  | "inbound"
+  | "outbound"
+  | "history"
+  | "kv"
+  | "calls"
+  | "projection"
 
 /** Normalize legacy `table` bookmarks to outbound sessions. */
 export function normalizeFrameView(view?: string | null): FrameViewMode | undefined {
@@ -25,14 +31,15 @@ export function normalizeFrameView(view?: string | null): FrameViewMode | undefi
     view === "outbound" ||
     view === "history" ||
     view === "kv" ||
-    view === "calls"
+    view === "calls" ||
+    view === "projection"
   ) {
     return view
   }
   return undefined
 }
 
-/** Traces workspace: inbound/outbound sessions + optional history / routed calls / KV. */
+/** Traces workspace: inbound/outbound sessions + optional history / routed calls / projection / KV. */
 export function FrameStreamCard(props: {
   /** Fill parent height (Tools-style); table scrolls inside, page chrome stays put. */
   fill?: boolean
@@ -40,6 +47,8 @@ export function FrameStreamCard(props: {
   historySlot?: ReactNode
   /** Optional Routed-calls tab content. */
   callsSlot?: ReactNode
+  /** Optional Projection-health tab content. */
+  projectionSlot?: ReactNode
   /** Optional KV tab content. */
   kvSlot?: (search: string) => ReactNode
   initialView?: FrameViewMode | "table"
@@ -59,6 +68,7 @@ export function FrameStreamCard(props: {
   }, [props.initialView])
 
   const historyFetching = useIsFetching({ queryKey: queryKeys.gatewayHistory }) > 0
+  const projectionFetching = useIsFetching({ queryKey: queryKeys.gatewayProjection }) > 0
   const kvHealthFetching = useIsFetching({ queryKey: queryKeys.kvHealth })
   const kvInspectFetching = useIsFetching({ queryKey: queryKeys.kvInspect })
   const kvFetching = kvHealthFetching + kvInspectFetching > 0
@@ -67,6 +77,10 @@ export function FrameStreamCard(props: {
   function refresh() {
     if (view === "history") {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayHistory })
+      return
+    }
+    if (view === "projection") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayProjection })
       return
     }
     if (view === "kv") {
@@ -86,11 +100,13 @@ export function FrameStreamCard(props: {
   const refreshSpinning =
     view === "history"
       ? historyFetching
-      : view === "kv"
-        ? kvFetching
-        : view === "inbound" || view === "outbound"
-          ? sessionsFetching
-          : false
+      : view === "projection"
+        ? projectionFetching
+        : view === "kv"
+          ? kvFetching
+          : view === "inbound" || view === "outbound"
+            ? sessionsFetching
+            : false
 
   const tabContentClassName = fill
     ? "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -132,6 +148,11 @@ export function FrameStreamCard(props: {
                 {t("gatewayFramesTabLog")}
               </TabsTrigger>
             ) : null}
+            {props.projectionSlot ? (
+              <TabsTrigger value="projection" className="flex-none">
+                {t("gatewayProjectionTitle")}
+              </TabsTrigger>
+            ) : null}
             <TabsTrigger value="inbound" className="flex-none">
               {t("gatewayFramesTabInbound")}
             </TabsTrigger>
@@ -168,6 +189,11 @@ export function FrameStreamCard(props: {
         {props.historySlot ? (
           <TabsContent value="history" className={tabContentClassName}>
             {props.historySlot}
+          </TabsContent>
+        ) : null}
+        {props.projectionSlot ? (
+          <TabsContent value="projection" className={tabContentClassName}>
+            {props.projectionSlot}
           </TabsContent>
         ) : null}
         <TabsContent value="inbound" className={tabContentClassName}>

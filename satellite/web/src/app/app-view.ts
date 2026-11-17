@@ -31,7 +31,7 @@ export type AppView =
   | { name: "gateway" }
   | {
       name: "traces"
-      tab?: "inbound" | "outbound" | "table" | "history" | "kv" | "calls"
+      tab?: "inbound" | "outbound" | "table" | "history" | "kv" | "calls" | "projection"
     }
   | { name: "traceSession"; sessionId: string; face: "gateway" | "upstream" }
   | { name: "settings" }

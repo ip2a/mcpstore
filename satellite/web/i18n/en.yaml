@@ -842,12 +842,17 @@ gatewayFlowTimingMs: "{ms} ms"
 
 
 
-gatewayProjectionTitle: "Projection health"
+gatewayProjectionTitle: "Projection"
 gatewayProjectionEmpty: "All services are projecting cleanly — no hidden or degraded tools."
 gatewayProjectionGenericMount: "generic mount"
 gatewayProjectionIssueDown: "down"
 gatewayProjectionIssueSkipped: "skipped"
 gatewayProjectionIssueDegraded: "degraded"
+gatewayProjectionColKind: "Kind"
+gatewayProjectionColMount: "Mount"
+gatewayProjectionColService: "Service"
+gatewayProjectionColTool: "Tool"
+gatewayProjectionColReason: "Reason"
 gatewayCallDirect: "direct"
 gatewayCallKindTool: "Tool"
 gatewayCallKindPrompt: "Prompt"
