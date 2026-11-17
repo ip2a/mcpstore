@@ -55,9 +55,7 @@ export function useAppView(services: ServiceInstance[]) {
       return
     }
     if (view.name === "traceSession") {
-      navigate(view.face === "gateway" ? "/gateway" : "/traces", {
-        replace: location.key === "default",
-      })
+      navigate("/traces", { replace: location.key === "default" })
       return
     }
     if (location.key !== "default") navigate(-1)
@@ -117,7 +115,14 @@ function viewFromPath(pathname: string, search: string): AppView {
   }
   if (pathname === "/traces") {
     const tab = new URLSearchParams(search).get("tab")
-    if (tab === "history" || tab === "table" || tab === "kv" || tab === "calls") {
+    if (
+      tab === "history" ||
+      tab === "table" ||
+      tab === "kv" ||
+      tab === "calls" ||
+      tab === "inbound" ||
+      tab === "outbound"
+    ) {
       return { name: "traces", tab }
     }
     return { name: "traces" }

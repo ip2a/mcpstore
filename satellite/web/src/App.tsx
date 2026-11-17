@@ -199,16 +199,7 @@ export function App() {
                 ) : view.name === "plugins" ? (
                   <PluginsView initialTab={view.tab} />
                 ) : view.name === "gateway" ? (
-                  <GatewayView
-                    onOpenSession={(session) =>
-                      setView({
-                        name: "traceSession",
-                        sessionId: session.session_id,
-                        face: "gateway",
-                      })
-                    }
-                    onOpenScope={(scopeId) => setView({ name: "scope", scopeId })}
-                  />
+                  <GatewayView onOpenScope={(scopeId) => setView({ name: "scope", scopeId })} />
                 ) : view.name === "traces" ? (
                   <TracesView
                     initialTab={view.tab}
@@ -216,7 +207,7 @@ export function App() {
                       setView({
                         name: "traceSession",
                         sessionId: session.session_id,
-                        face: "upstream",
+                        face: session.face,
                       })
                     }
                   />

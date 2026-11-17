@@ -53,9 +53,7 @@ function isItemActive(view: AppView, viewName: AppView["name"]): boolean {
     (view.name === "tool" && viewName === "tools") ||
     (view.name === "resource" && viewName === "resources") ||
     (view.name === "prompt" && viewName === "prompts") ||
-    (view.name === "traceSession" &&
-      ((view.face === "upstream" && viewName === "traces") ||
-        (view.face === "gateway" && viewName === "gateway")))
+    (view.name === "traceSession" && viewName === "traces")
   )
 }
 

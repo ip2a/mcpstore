@@ -51,12 +51,10 @@ import {
 } from "@/features/clients/queries"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { useGatewayRequestFlow } from "@/features/gateway/use-gateway-request-flow"
-import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import {
   startMcpHub,
   stopMcpHub,
-  type FrameSessionSummary,
   type GatewayBoot,
   type GatewayProjectionIssue,
   type GatewayRequestRecord,
@@ -73,13 +71,11 @@ const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
   path: "/mcp",
 }
 
-type GatewayPanelTab = "calls" | "projection" | "table"
+type GatewayPanelTab = "calls" | "projection"
 
 export function GatewayView({
-  onOpenSession,
   onOpenScope,
 }: {
-  onOpenSession?: (session: FrameSessionSummary) => void
   onOpenScope?: (scopeId: string) => void
 } = {}) {
   const { t } = useI18n()
@@ -188,9 +184,6 @@ export function GatewayView({
               </TabsTrigger>
               <TabsTrigger value="projection" className="flex-none">
                 {t("gatewayProjectionTitle")}
-              </TabsTrigger>
-              <TabsTrigger value="table" className="flex-none">
-                {t("gatewayFramesTabTable")}
               </TabsTrigger>
             </WorkspaceTabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
@@ -314,17 +307,6 @@ export function GatewayView({
                   ))
               )}
             </ScrollPane>
-          </TabsContent>
-
-          <TabsContent value="table" className={tabContentClassName}>
-            {panelTab === "table" ? (
-              <FrameStreamCard
-                face="gateway"
-                embedView="table"
-                fill
-                onOpenSession={onOpenSession}
-              />
-            ) : null}
           </TabsContent>
         </Tabs>
       </PanelCard>

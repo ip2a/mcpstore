@@ -66,8 +66,7 @@ export function TraceSessionDetailView(props: {
   const shortId = props.sessionId.slice(0, 8)
   const faceLabel =
     props.face === "gateway" ? t("gatewayFramesFaceGateway") : t("gatewayFramesFaceUpstream")
-  const parentLabel =
-    props.face === "gateway" ? t("gatewayWorkspaceTitle") : t("tracesWorkspaceTitle")
+  const parentLabel = t("tracesWorkspaceTitle")
   const headerSubtitle = [faceLabel, peer, props.sessionId].filter(Boolean).join(" · ")
 
   function refresh() {

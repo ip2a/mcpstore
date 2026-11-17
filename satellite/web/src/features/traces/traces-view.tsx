@@ -3,15 +3,19 @@ import { useQuery } from "@tanstack/react-query"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { KvPanel } from "@/features/kv/kv-view"
 import { HistoryPanel } from "@/features/history/history-view"
-import { FrameStreamCard } from "@/features/traces/frame-stream-card"
+import {
+  FrameStreamCard,
+  normalizeFrameView,
+  type FrameViewMode,
+} from "@/features/traces/frame-stream-card"
 import { RoutedCallsPanel } from "@/features/traces/routed-calls-panel"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
-type TracesTab = "table" | "history" | "kv" | "calls"
+export type TracesTab = FrameViewMode | "table"
 
-/** Insights → Traces: outbound MCP frames + request history + KV. */
+/** Insights → Traces: inbound/outbound MCP frames + request history + routed calls + KV. */
 export function TracesView({
   initialTab,
   onOpenSession,
@@ -34,12 +38,11 @@ export function TracesView({
         })}
       />
       <FrameStreamCard
-        face="upstream"
         fill
         kvSlot={(search) => <KvPanel search={search} />}
         callsSlot={<RoutedCallsPanel />}
         historySlot={<HistoryPanel />}
-        initialView={initialTab}
+        initialView={normalizeFrameView(initialTab) ?? "outbound"}
         onOpenSession={onOpenSession}
       />
     </>
