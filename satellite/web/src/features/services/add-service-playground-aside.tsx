@@ -209,8 +209,11 @@ export function ServiceConfigHandshakePane({
   const { t } = useI18n()
 
   return (
-    <FieldGroup>
-      <Field orientation="responsive">
+    <FieldGroup className="gap-2">
+      <Field
+        orientation="horizontal"
+        className="justify-between [&>[data-slot=field-label]]:flex-none"
+      >
         <FieldLabel htmlFor="aside-config-handshake-mode">{t("handshakeMode")}</FieldLabel>
         <Select
           value={fields.handshakeMode}
@@ -218,7 +221,7 @@ export function ServiceConfigHandshakePane({
             onFieldsChange({ ...fields, handshakeMode: value as HandshakeMode })
           }
         >
-          <SelectTrigger id="aside-config-handshake-mode" className="w-full">
+          <SelectTrigger id="aside-config-handshake-mode" className="w-52 max-w-[13rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -232,7 +235,11 @@ export function ServiceConfigHandshakePane({
           </SelectContent>
         </Select>
       </Field>
-      <span className="text-xs text-muted-foreground">{t("handshakeModeHint")}</span>
+      <span className="text-xs text-muted-foreground">
+        {t(
+          `handshake${fields.handshakeMode.charAt(0).toUpperCase()}${fields.handshakeMode.slice(1)}Hint`,
+        )}
+      </span>
     </FieldGroup>
   )
 }
@@ -329,36 +336,45 @@ export function AddServicePlaygroundAside({
         <TabsContent value="profile" className="min-h-0 flex-1 overflow-hidden">
           <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {showScopeTab ? (
-              <Field>
-                <FieldLabel htmlFor="aside-add-service-scope">{t("scope")}</FieldLabel>
-                <Select
-                  value={scopeValue}
-                  onValueChange={(value) => {
-                    if (value === "store") {
-                      onScopeChange?.("store")
-                      onAgentIdChange?.("")
-                      return
-                    }
-                    onScopeChange?.("agent")
-                    onAgentIdChange?.(value)
-                  }}
+              <FieldGroup className="gap-2">
+                <Field
+                  orientation="horizontal"
+                  className="justify-between [&>[data-slot=field-label]]:flex-none"
                 >
-                  <SelectTrigger id="aside-add-service-scope" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {resolvedScopeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <FieldLabel htmlFor="aside-add-service-scope">{t("scope")}</FieldLabel>
+                  <Select
+                    value={scopeValue}
+                    onValueChange={(value) => {
+                      if (value === "store") {
+                        onScopeChange?.("store")
+                        onAgentIdChange?.("")
+                        return
+                      }
+                      onScopeChange?.("agent")
+                      onAgentIdChange?.(value)
+                    }}
+                  >
+                    <SelectTrigger id="aside-add-service-scope" className="w-40 max-w-[10rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {resolvedScopeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <span className="text-xs text-muted-foreground">
+                  {scopeValue === "store"
+                    ? t("scopeStoreHint")
+                    : t("scopeAgentHint", { scope: scopeValue })}
+                </span>
+              </FieldGroup>
             ) : null}
-            <ServiceConfigDescriptionPane fields={fields} onFieldsChange={onFieldsChange} />
             <ServiceConfigHandshakePane fields={fields} onFieldsChange={onFieldsChange} />
             {showLifecycleTab && startupPolicy && restartPolicy ? (
               <FieldGroup className="gap-4">
@@ -372,6 +388,7 @@ export function AddServicePlaygroundAside({
                 />
               </FieldGroup>
             ) : null}
+            <ServiceConfigDescriptionPane fields={fields} onFieldsChange={onFieldsChange} />
           </div>
         </TabsContent>
       </Tabs>

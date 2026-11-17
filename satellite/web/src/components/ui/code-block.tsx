@@ -116,7 +116,7 @@ export function CodeBlockBody({
       >
         <pre
           className={cn(
-            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre",
             hideScrollbar,
             styles.code,
           )}
@@ -158,7 +158,7 @@ export function CodeBlockBody({
         {...props}
       >
         <pre
-          className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}
+          className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre", styles.code)}
         >
           {children}
         </pre>
@@ -181,7 +181,7 @@ export function CodeBlockBody({
       >
         <pre
           className={cn(
-            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre",
             hideScrollbar,
             styles.code,
           )}
@@ -245,7 +245,7 @@ export function CodeBlockString({ lines }: { lines: string[] }) {
   return (
     <>
       {lines.map((line, index) => (
-        <span key={`${index}-${line}`} className="block">
+        <span key={`${index}-${line}`} className="block whitespace-nowrap">
           {line || "\u00a0"}
         </span>
       ))}
