@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { AlertCircleIcon, CheckIcon, CircleIcon, SettingsIcon, WaypointsIcon } from "lucide-react"
+import {
+  AlertCircleIcon,
+  CheckIcon,
+  CircleIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
@@ -37,7 +43,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { EXPOSE_KEYS } from "@/features/clients/clients-view"
 import {
   useClientsQuery,
   useGatewayProjectionQuery,
@@ -45,10 +50,10 @@ import {
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
+import { useGatewayRequestFlow } from "@/features/gateway/use-gateway-request-flow"
 import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import {
-  getGatewayRequests,
   startMcpHub,
   stopMcpHub,
   type FrameSessionSummary,
@@ -228,35 +233,62 @@ export function GatewayView({
           {starting || failed ? <GatewayBootProgress boot={boot} failed={failed} /> : null}
 
           <TabsContent value="calls" className={tabContentClassName}>
-            <ScrollPane
-              className="min-h-0 flex-1"
-              innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, "flex min-w-0 flex-col gap-3")}
+            <div
+              className={cn(
+                WORKSPACE_LIST_INSET_CLASSNAME,
+                "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden",
+              )}
             >
-              <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
-                <span className="truncate">
-                  {t("gatewayUrl")}: {status.data?.url ?? "—"}
-                </span>
-                <span className="truncate">
-                  {t("clientsWired")}: {wiredLabels.length > 0 ? wiredLabels.join(", ") : "—"}
-                </span>
-              </div>
               <CallFlowDiagram
                 labelById={labelById}
-                latest={records.length > 0 ? records[records.length - 1]! : null}
                 onOpenScope={onOpenScope}
+                recent={[...records].slice(-5).reverse()}
                 status={status.data ?? null}
                 wired={wired.data ?? []}
               />
-              {records.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {[...records].reverse().map((record) => (
-                    <FlowRow key={record.seq} record={record} />
+
+              <div className="shrink-0 border-t border-border/50" />
+
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 py-2">
+                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  {t("gatewayFlowOverviewBlurb")}
+                </p>
+                <div className="flex shrink-0 items-end gap-6 sm:gap-8">
+                  {(
+                    [
+                      {
+                        value: records.length,
+                        label: t("gatewayFlowStatRequests"),
+                      },
+                      {
+                        value: new Set(records.map((r) => r.service_name)).size,
+                        label: t("gatewayFlowStatServices"),
+                      },
+                      {
+                        value: records.filter((r) => r.success).length,
+                        label: t("gatewayFlowStatSuccess"),
+                      },
+                    ] as const
+                  ).map((stat) => (
+                    <div key={stat.label} className="flex flex-col items-center gap-0.5">
+                      <span className="text-2xl font-semibold tabular-nums leading-none">
+                        {stat.value}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{stat.label}</span>
+                    </div>
                   ))}
                 </div>
-              )}
-            </ScrollPane>
+              </div>
+
+              <div className="shrink-0 border-t border-border/50" />
+
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden py-1">
+                <h3 className="shrink-0 text-sm font-semibold">{t("gatewayFlowLatestTitle")}</h3>
+                <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <LatestCallNarrative />
+                </div>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="projection" className={tabContentClassName}>
@@ -567,25 +599,11 @@ function LaunchSettingsDialog({
             />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label>{t("clientsExpose")}</Label>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {EXPOSE_KEYS.map((key) => (
-                <div key={key} className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Switch
-                    checked={options.expose?.[key] ?? false}
-                    onCheckedChange={(checked) =>
-                      setOptions((prev) => ({
-                        ...prev,
-                        expose: { ...prev.expose, [key]: checked },
-                      }))
-                    }
-                  />
-                  <span className="font-mono text-xs">{key}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/*
+            Management-tool expose toggles used to live here. That capability is NOT
+            part of the gateway: it belongs to a future standalone "mcpstore management
+            MCP" (Settings → Management MCP). Do not re-attach expose flags to hub start.
+          */}
         </div>
         <DialogFooter>
           <Button disabled={busy} onClick={() => onStart(options, isHttp && persistPort)}>
@@ -598,67 +616,136 @@ function LaunchSettingsDialog({
   )
 }
 
-/** Long-polling loop: waits for new records or the 25s timeout, then continues; resets and re-fetches on backend restart (seq goes backwards). */
-function useGatewayRequestFlow() {
-  const [records, setRecords] = useState<GatewayRequestRecord[]>([])
-  useEffect(() => {
-    let cancelled = false
-    let after = 0
-    void (async () => {
-      while (!cancelled) {
-        try {
-          const page = await getGatewayRequests(after, 25_000)
-          if (cancelled) return
-          if (page.latest_seq < after) {
-            after = 0
-            setRecords([])
-          }
-          if (page.requests.length > 0) {
-            after = page.latest_seq
-            setRecords((prev) => [...prev, ...page.requests].slice(-200))
-          } else if (!page.running) {
-            // When the gateway is not running the backend returns immediately (no 25s long wait); throttle here or it spins at full speed
-            await new Promise((resolve) => setTimeout(resolve, 3_000))
-          }
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 3_000))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  return records
+/** Narrative narrative markers for the latest-call story. */
+type NarrativeKind = "muted" | "emphasis" | "ok" | "error" | "detail"
+
+/** Temporary mock — replace with real latest-call narrative later. */
+const MOCK_LATEST_NARRATIVE: { kind: NarrativeKind; text: string }[] = [
+  { kind: "muted", text: "Claude Code call 工具：demo1_add" },
+  { kind: "emphasis", text: "mcpstore 路由给服务 demo1 的工具 demo1__add" },
+  { kind: "muted", text: "没有映射，直接透传" },
+  { kind: "ok", text: "上游返回成功 · 24ms" },
+  { kind: "detail", text: "原话：demo1.demo1__add ok" },
+]
+
+/** Temporary mock timing segments — Narrative latency breakdown. */
+const MOCK_TIMING_SEGMENTS: { key: string; label: string; detail: string; ms: number; color: string }[] =
+  [
+    {
+      key: "hub",
+      label: "mcpstore",
+      detail: "mcpstore 内耗时",
+      ms: 2,
+      color: "bg-sky-500",
+    },
+    {
+      key: "net",
+      label: "网络",
+      detail: "发送请求",
+      ms: 8,
+      color: "bg-amber-700",
+    },
+    {
+      key: "svc",
+      label: "服务",
+      detail: "demo1（首字节）",
+      ms: 12,
+      color: "bg-zinc-700",
+    },
+    {
+      key: "read",
+      label: "读取回复",
+      detail: "读取回复",
+      ms: 2,
+      color: "bg-zinc-400",
+    },
+  ]
+
+function NarrativeMarker({ kind }: { kind: NarrativeKind }) {
+  if (kind === "error") {
+    return <XIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
+  }
+  if (kind === "detail") {
+    return (
+      <span
+        aria-hidden
+        className="mt-1 size-2.5 shrink-0 rounded-full border border-muted-foreground/70"
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "mt-1 size-2.5 shrink-0 rounded-full",
+        kind === "muted" && "bg-muted-foreground/50",
+        kind === "emphasis" && "bg-foreground",
+        kind === "ok" && "bg-emerald-500",
+      )}
+    />
+  )
 }
 
-const KIND_LABEL_KEYS = {
-  tool: "gatewayCallKindTool",
-  prompt: "gatewayCallKindPrompt",
-  resource: "gatewayCallKindResource",
-} as const
-
-function FlowRow({ record }: { record: GatewayRequestRecord }) {
+function TimingBreakdown() {
   const { t } = useI18n()
+  const total = MOCK_TIMING_SEGMENTS.reduce((sum, seg) => sum + seg.ms, 0) || 1
+
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
-      <Badge variant="outline" className="shrink-0 font-mono">
-        {record.caller ?? t("gatewayCallDirect")}
-      </Badge>
-      <Badge variant="secondary" className="shrink-0 text-[11px] uppercase">
-        {t(KIND_LABEL_KEYS[record.kind])}
-      </Badge>
-      <WaypointsIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate font-mono text-sm">
-        {record.kind === "resource" ? record.name : `${record.service_name}.${record.name}`}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        <Badge variant={record.success ? "secondary" : "destructive"}>
-          {record.success ? "OK" : "ERR"}
-        </Badge>
-        <span className="text-xs text-muted-foreground">{record.duration_ms}ms</span>
-      </span>
-    </div>
+    <li className="flex items-start gap-2.5">
+      <NarrativeMarker kind="detail" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <span className="text-sm font-medium">{t("gatewayFlowTimingTitle")}</span>
+        <div className="flex h-2 w-full overflow-hidden rounded-sm bg-muted">
+          {MOCK_TIMING_SEGMENTS.map((seg) => (
+            <div
+              key={seg.key}
+              className={cn("h-full", seg.color)}
+              style={{ width: `${(seg.ms / total) * 100}%` }}
+              title={`${seg.detail} ${seg.ms}ms`}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {MOCK_TIMING_SEGMENTS.map((seg) => (
+            <span key={seg.key} className="inline-flex items-center gap-1.5">
+              <span className={cn("size-2.5 shrink-0 rounded-sm", seg.color)} aria-hidden />
+              {seg.detail} {t("gatewayFlowTimingMs", { ms: seg.ms })}
+            </span>
+          ))}
+        </div>
+      </div>
+    </li>
+  )
+}
+
+function LatestCallNarrative() {
+  const stepsBeforeRaw = MOCK_LATEST_NARRATIVE.slice(0, -1)
+  const rawStep = MOCK_LATEST_NARRATIVE[MOCK_LATEST_NARRATIVE.length - 1]!
+
+  return (
+    <ul className="flex flex-col gap-2.5 text-sm">
+      {stepsBeforeRaw.map((step, index) => (
+        <li key={index} className="flex items-start gap-2.5">
+          <NarrativeMarker kind={step.kind} />
+          <span
+            className={cn(
+              "min-w-0 leading-snug",
+              step.kind === "detail" && "font-mono text-xs text-muted-foreground",
+              step.kind === "error" && "text-destructive",
+            )}
+          >
+            {step.text}
+          </span>
+        </li>
+      ))}
+      <TimingBreakdown />
+      <li className="flex items-start gap-2.5">
+        <NarrativeMarker kind={rawStep.kind} />
+        <span className="min-w-0 font-mono text-xs leading-snug text-muted-foreground">
+          {rawStep.text}
+        </span>
+      </li>
+    </ul>
   )
 }
 
@@ -669,26 +756,29 @@ function scopeIdFromWired(entry: WiredEntry): string {
 /** Agent → mcpstore → MCP three-column call topology. */
 function CallFlowDiagram({
   labelById,
-  latest,
   onOpenScope,
+  recent,
   status,
   wired,
 }: {
   labelById: Map<string, string>
-  latest: GatewayRequestRecord | null
   onOpenScope?: (scopeId: string) => void
+  recent: GatewayRequestRecord[]
   status: GatewayStatus | null
   wired: WiredEntry[]
 }) {
   const { t } = useI18n()
+  const latest = recent[0] ?? null
   const activeCaller = latest?.caller ?? null
-  const hubEndpoint =
-    status?.host && status.port ? `${status.host}:${status.port}` : (status?.url ?? "—")
+  const activeWired = activeCaller
+    ? wired.find((entry) => entry.client_id === activeCaller)
+    : undefined
+  const hubUrl = activeWired?.url ?? status?.url ?? "—"
   const fresh = latest != null && Date.now() - latest.at_unix_ms < 4_000
 
   return (
     <div className="flex w-full min-w-0 items-stretch gap-0">
-      <div className="flex min-w-0 flex-[0.9] basis-0 flex-col justify-center gap-2">
+      <div className="flex min-w-0 flex-[0.65] basis-0 flex-col justify-center gap-2">
         {wired.length === 0 ? (
           <FlowNodeCard className="border-dashed">
             <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyAgent")}</p>
@@ -712,13 +802,13 @@ function CallFlowDiagram({
       />
 
       <div className="flex min-w-0 flex-[0.9] basis-0 flex-col justify-center">
-        <HubFlowCard endpoint={hubEndpoint} running={Boolean(status?.running)} />
+        <HubFlowCard endpoint={hubUrl} running={Boolean(status?.running)} />
       </div>
 
       <FlowConnector accent={Boolean(latest)} endDot from={1} />
 
       <div className="flex min-w-0 flex-[1.3] basis-0 flex-col justify-center">
-        <ServiceFlowCard fresh={fresh} record={latest} />
+        <ServiceFlowCard fresh={fresh} recent={recent} />
       </div>
     </div>
   )
@@ -870,7 +960,10 @@ function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean
         />
         <strong className="truncate font-mono text-sm font-semibold">mcpstore</strong>
       </div>
-      <span className="max-w-full truncate font-mono text-[11px] text-muted-foreground">
+      <span
+        className="max-w-full truncate font-mono text-[11px] text-muted-foreground"
+        title={running ? endpoint : undefined}
+      >
         {running ? endpoint : t("gatewayStopped")}
       </span>
     </FlowNodeCard>
@@ -879,14 +972,15 @@ function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean
 
 function ServiceFlowCard({
   fresh,
-  record,
+  recent,
 }: {
   fresh: boolean
-  record: GatewayRequestRecord | null
+  recent: GatewayRequestRecord[]
 }) {
   const { t } = useI18n()
+  const latest = recent[0] ?? null
 
-  if (!record) {
+  if (!latest) {
     return (
       <FlowNodeCard className="min-h-[88px] justify-center border-dashed">
         <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyService")}</p>
@@ -902,7 +996,7 @@ function ServiceFlowCard({
             "size-1.5 shrink-0 rounded-full",
             fresh
               ? "animate-pulse bg-orange-500"
-              : record.success
+              : latest.success
                 ? "bg-emerald-500"
                 : "bg-destructive",
           )}
@@ -910,24 +1004,29 @@ function ServiceFlowCard({
         <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
           <DefaultServiceIcon className="size-7" />
         </span>
-        <span className="min-w-0 truncate text-sm font-semibold">{record.service_name}</span>
+        <span className="min-w-0 truncate text-sm font-semibold">{latest.service_name}</span>
         <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate font-mono text-[11px]">
-          {record.name}
+          {latest.name}
         </Badge>
       </div>
-      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-        <span className="truncate">
-          {fresh
-            ? t("gatewayFlowCalling")
-            : record.success
-              ? `${t("gatewayFlowLastCall")} · OK · ${record.duration_ms}ms`
-              : `${t("gatewayFlowLastCall")} · ERR · ${record.duration_ms}ms`}
-        </span>
-        {record.caller ? (
-          <span className="ml-auto shrink-0 truncate font-mono text-[11px]">{record.caller}</span>
-        ) : (
-          <span className="ml-auto shrink-0 font-mono text-[11px]">{t("gatewayCallDirect")}</span>
-        )}
+      <div className="border-t border-border/50" />
+      <div className="flex min-w-0 flex-col gap-1">
+        {recent.map((record, index) => (
+          <div
+            key={record.seq}
+            className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+          >
+            <span className="min-w-0 truncate font-mono text-[11px]">{record.name}</span>
+            <span className="shrink-0">
+              {index === 0 && fresh
+                ? t("gatewayFlowCalling")
+                : `${record.success ? "OK" : "ERR"} · ${record.duration_ms}ms`}
+            </span>
+            <span className="ml-auto shrink-0 truncate font-mono text-[11px]">
+              {record.caller ?? t("gatewayCallDirect")}
+            </span>
+          </div>
+        ))}
       </div>
     </FlowNodeCard>
   )

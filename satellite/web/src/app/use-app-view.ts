@@ -117,7 +117,7 @@ function viewFromPath(pathname: string, search: string): AppView {
   }
   if (pathname === "/traces") {
     const tab = new URLSearchParams(search).get("tab")
-    if (tab === "history" || tab === "table" || tab === "kv") {
+    if (tab === "history" || tab === "table" || tab === "kv" || tab === "calls") {
       return { name: "traces", tab }
     }
     return { name: "traces" }

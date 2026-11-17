@@ -58,6 +58,11 @@ import { cn } from "@/lib/utils"
 
 type ClientTab = "active" | "inactive" | "all"
 
+/**
+ * Families that a future standalone "mcpstore management MCP" would expose.
+ * Not gateway surface — kept for Settings preview / later wiring. Do not attach
+ * these to gateway start or client wire UI.
+ */
 export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "tool",
   "prompt",
@@ -69,6 +74,7 @@ export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "session_state",
 ]
 
+/** All-off; wire always sends this. Per-mount management expose is retired from UI. */
 const DEFAULT_EXPOSE: ExposeConfig = {
   session_state: false,
   tool: false,
@@ -82,47 +88,27 @@ const DEFAULT_EXPOSE: ExposeConfig = {
 
 const EMPTY_CLIENTS: ClientInventory[] = []
 
-/** Form fields for scope + the 8 expose toggles, shared by the wire dialog and the gateway page edit dialog. */
+/** Wire dialog scope toggle only. Management-tool expose is a separate MCP (Settings). */
 export function WireOptionsFields({
   dedicatedScope,
   dedicatedScopeLabel,
-  expose,
   onDedicatedScopeChange,
-  onExposeChange,
 }: {
   dedicatedScope: boolean
   dedicatedScopeLabel: string
-  expose: ExposeConfig
   onDedicatedScopeChange: (dedicated: boolean) => void
-  onExposeChange: (expose: ExposeConfig) => void
 }) {
   const { t } = useI18n()
   return (
-    <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
-          <span className="font-mono text-xs text-muted-foreground">
-            {dedicatedScope ? dedicatedScopeLabel : t("gatewayScopeStore")}
-          </span>
-        </div>
-        <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={onDedicatedScopeChange} />
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-0.5">
+        <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
+        <span className="font-mono text-xs text-muted-foreground">
+          {dedicatedScope ? dedicatedScopeLabel : t("gatewayScopeStore")}
+        </span>
       </div>
-      <div className="flex flex-col gap-2">
-        <Label>{t("clientsExpose")}</Label>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          {EXPOSE_KEYS.map((key) => (
-            <div key={key} className="flex cursor-pointer items-center gap-2 text-sm">
-              <Switch
-                checked={expose[key]}
-                onCheckedChange={(on) => onExposeChange({ ...expose, [key]: on })}
-              />
-              <span className="font-mono text-xs">{key}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
+      <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={onDedicatedScopeChange} />
+    </div>
   )
 }
 
@@ -398,7 +384,7 @@ type WireConflictState = {
   result: Extract<WireResult, { outcome: "conflict" }>
 }
 
-/** Wire / edit an existing wiring: scope + expose toggles; edit mode prefills effective values from /gateway/wired. */
+/** Wire / edit an existing wiring: scope only. Management expose is not a gateway concern. */
 function WireDialog({
   state,
   busy,
@@ -412,7 +398,6 @@ function WireDialog({
 }) {
   const { t } = useI18n()
   const [dedicatedScope, setDedicatedScope] = useState(true)
-  const [expose, setExpose] = useState<ExposeConfig>(DEFAULT_EXPOSE)
   const client = state?.client ?? null
   const editing = state?.mode === "edit"
 
@@ -420,11 +405,9 @@ function WireDialog({
     if (!state) return
     if (state.mode === "edit") {
       setDedicatedScope(state.entry.scope.type === "agent")
-      setExpose(state.entry.expose)
       return
     }
     setDedicatedScope(true)
-    setExpose(DEFAULT_EXPOSE)
   }, [state])
 
   if (!client || !state) return null
@@ -451,9 +434,7 @@ function WireDialog({
           <WireOptionsFields
             dedicatedScope={dedicatedScope}
             dedicatedScopeLabel={`Agent:${agentId}`}
-            expose={expose}
             onDedicatedScopeChange={setDedicatedScope}
-            onExposeChange={setExpose}
           />
         </div>
         <DialogFooter>
@@ -466,7 +447,8 @@ function WireDialog({
               onConfirm(client, {
                 scope: dedicatedScope ? "agent" : "store",
                 agentId: dedicatedScope ? agentId : undefined,
-                expose,
+                // Always all-off: management tools are a future separate MCP, not wire/gateway.
+                expose: DEFAULT_EXPOSE,
               })
             }
           >

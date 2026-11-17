@@ -4,11 +4,12 @@ import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { KvPanel } from "@/features/kv/kv-view"
 import { HistoryPanel } from "@/features/history/history-view"
 import { FrameStreamCard } from "@/features/traces/frame-stream-card"
+import { RoutedCallsPanel } from "@/features/traces/routed-calls-panel"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
-type TracesTab = "table" | "history" | "kv"
+type TracesTab = "table" | "history" | "kv" | "calls"
 
 /** Insights → Traces: outbound MCP frames + request history + KV. */
 export function TracesView({
@@ -36,6 +37,7 @@ export function TracesView({
         face="upstream"
         fill
         kvSlot={(search) => <KvPanel search={search} />}
+        callsSlot={<RoutedCallsPanel />}
         historySlot={<HistoryPanel />}
         initialView={initialTab}
         onOpenSession={onOpenSession}

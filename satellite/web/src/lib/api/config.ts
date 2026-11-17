@@ -58,6 +58,10 @@ export type McpHubOptions = {
   path?: string
   instanceId?: string
   sessionKey?: string
+  /**
+   * Legacy hub query flags. UI no longer sets these — management tools belong to a
+   * future standalone mcpstore management MCP (not the gateway). Kept for API compat.
+   */
   expose?: Partial<ExposeConfig>
 }
 

@@ -73,6 +73,7 @@ import {
   useAppUpdater,
   useAppVersionLabel,
 } from "@/features/settings/updater"
+import { EXPOSE_KEYS } from "@/features/clients/clients-view"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { useKvHealthQuery } from "@/features/kv/queries"
 import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
@@ -281,6 +282,50 @@ export function SettingsView() {
                     <div className="flex flex-col gap-3">
                       <h4 className="text-sm font-medium">{t("coreBackend")}</h4>
                       <BackendFields draft={draft} patchDraft={patchDraft} />
+                    </div>
+                  </section>
+                </ScrollPane>
+              </TabsContent>
+
+              {/*
+                Placeholder for a future standalone "mcpstore management MCP".
+                This is NOT a gateway feature: it will wrap panel/API management
+                capabilities (services, KV, search, overrides, …) as their own MCP
+                server. UI stays disabled until that server is implemented.
+              */}
+              <TabsContent
+                value="managementMcp"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                  <section className="flex flex-col gap-5">
+                    <FieldGroup>
+                      <ToggleField
+                        title={t("managementMcpEnabled")}
+                        description={t("managementMcpEnabledDescription")}
+                        checked={false}
+                        disabled
+                        onCheckedChange={() => {}}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("managementMcpUnavailable")}
+                      </p>
+                    </FieldGroup>
+                    <div className="flex flex-col gap-2">
+                      <h4 className="text-sm font-medium">{t("managementMcpFamilies")}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {t("managementMcpFamiliesDescription")}
+                      </p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+                        {EXPOSE_KEYS.map((key) => (
+                          <span
+                            key={key}
+                            className="rounded-md border border-border/60 px-2 py-1.5 font-mono text-xs text-muted-foreground"
+                          >
+                            {key}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </section>
                 </ScrollPane>

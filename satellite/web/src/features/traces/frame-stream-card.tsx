@@ -50,7 +50,7 @@ import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
 type FrameFace = FrameSessionSummary["face"]
-type FrameViewMode = "table" | "history" | "kv"
+type FrameViewMode = "table" | "history" | "kv" | "calls"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -167,6 +167,8 @@ export function FrameStreamCard(props: {
   fill?: boolean
   /** Optional History tab content (Traces page only; Gateway omits this). */
   historySlot?: ReactNode
+  /** Optional Routed-calls tab content (Traces page only; Gateway omits this). */
+  callsSlot?: ReactNode
   /** Optional KV tab content (Traces page only; Gateway omits this). */
   kvSlot?: (search: string) => ReactNode
   initialView?: FrameViewMode
@@ -448,6 +450,8 @@ export function FrameStreamCard(props: {
   const body =
     view === "history" && props.historySlot ? (
       props.historySlot
+    ) : view === "calls" && props.callsSlot ? (
+      props.callsSlot
     ) : view === "kv" && props.kvSlot ? (
       props.kvSlot(kvQuery)
     ) : (
@@ -501,6 +505,11 @@ export function FrameStreamCard(props: {
                     {t("kv")}
                   </TabsTrigger>
                 ) : null}
+                {props.callsSlot ? (
+                  <TabsTrigger value="calls" className="flex-none">
+                    {t("gatewayCallsLogTitle")}
+                  </TabsTrigger>
+                ) : null}
                 {props.historySlot ? (
                   <TabsTrigger value="history" className="flex-none">
                     {t("gatewayFramesTabLog")}
@@ -516,6 +525,11 @@ export function FrameStreamCard(props: {
             {props.kvSlot ? (
               <TabsContent value="kv" className={tabContentClassName}>
                 {props.kvSlot(kvQuery)}
+              </TabsContent>
+            ) : null}
+            {props.callsSlot ? (
+              <TabsContent value="calls" className={tabContentClassName}>
+                {props.callsSlot}
               </TabsContent>
             ) : null}
             {props.historySlot ? (
