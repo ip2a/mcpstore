@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { buildAddServiceCliCommand } from "@/features/services/build-add-service-cli"
+import { ConfigPreviewEditor } from "@/features/services/config-preview-editor"
 import {
   ServiceRestartPolicySelect,
   ServiceStartupPolicySelect,
@@ -141,33 +142,55 @@ export function ServiceConfigPreviewPane({
         </CodeBlock>
       ) : null}
 
-      <CodeBlock variant="response" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <CodeBlockHeader variant="response" className="shrink-0">
+      {/* Trial chrome from /linshi2.js editor tokens */}
+      <CodeBlock
+        variant="response"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-0 bg-[#1d1e22] p-0.5 text-white shadow-[0_4px_30px_rgba(0,0,0,0.5)]"
+      >
+        <CodeBlockHeader
+          variant="response"
+          className="shrink-0 border-0 bg-transparent px-2.5 py-2.5 text-[#d4d4d4]"
+        >
           <Tabs
             value={previewFormat}
             onValueChange={(value) => onPreviewFormatChange(value as ServiceConfigFormat)}
             className="gap-0"
           >
-            <TabsList className="h-8 w-fit">
-              <TabsTrigger value="json">json</TabsTrigger>
-              <TabsTrigger value="toml">toml</TabsTrigger>
+            <TabsList className="h-8 w-fit bg-white/5">
+              <TabsTrigger
+                value="json"
+                className="text-[#d4d4d4] data-[state=active]:bg-white/10 data-[state=active]:text-white"
+              >
+                JSON
+              </TabsTrigger>
+              <TabsTrigger
+                value="toml"
+                className="text-[#d4d4d4] data-[state=active]:bg-white/10 data-[state=active]:text-white"
+              >
+                TOML
+              </TabsTrigger>
             </TabsList>
           </Tabs>
           <CodeBlockActions>
-            <CodeBlockCopyButton value={previewText} />
+            <CodeBlockCopyButton
+              value={previewText}
+              className="text-[#d4d4d4] hover:bg-[#6e7281] hover:text-white"
+            />
           </CodeBlockActions>
         </CodeBlockHeader>
-        <CodeBlockBody variant="response" fill bare className="p-0">
-          <textarea
+        <CodeBlockBody variant="response" fill bare className="bg-transparent p-0 text-white">
+          <ConfigPreviewEditor
             value={previewText}
-            spellCheck={false}
-            className="block h-full min-h-0 w-full flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground outline-none"
-            onChange={(event) => onPreviewChange(event.target.value)}
+            format={previewFormat}
+            onChange={onPreviewChange}
           />
         </CodeBlockBody>
-        <CodeBlockFooter variant="response" className="shrink-0">
+        <CodeBlockFooter
+          variant="response"
+          className="shrink-0 border-0 border-t border-white/10 bg-transparent px-2.5 py-2 text-[#d4d4d4]"
+        >
           <TypographyLead
-            className={cn("m-0 text-xs", parseError ? "text-destructive" : "text-muted-foreground")}
+            className={cn("m-0 text-xs", parseError ? "text-red-400" : "text-[#a1a1aa]")}
           >
             {previewHint}
           </TypographyLead>
