@@ -193,13 +193,6 @@ export function ToolDetailView(props: {
                 instanceId={instance.instance_id}
                 toolArgs={toolArgs}
                 toolArgsSchema={toolArgsSchema}
-                running={running}
-                onRun={() =>
-                  props.onRunTool({
-                    ...makeRunner(tool, instance),
-                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                  })
-                }
               />
             ) : null}
           </div>
