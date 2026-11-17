@@ -121,10 +121,14 @@ export function listRegistryMarketServices(input: { q: string; offset: number; l
 
 /** The item's config with the user's input values filled in, ready to POST. */
 export function fillMarketServiceConfig(
-  item: Pick<MarketServiceItem, "config" | "inputs">,
+  item: Pick<MarketServiceItem, "config" | "inputs" | "description">,
   values: Record<string, string>,
 ) {
   const config: Record<string, unknown> = JSON.parse(JSON.stringify(item.config))
+  const description = item.description?.trim()
+  if (description) {
+    config.description = description
+  }
   for (const input of item.inputs) {
     const value = (values[input.key] ?? "").trim()
     if (!value) continue

@@ -76,6 +76,7 @@ export function GatewayView({
   const clients = useClientsQuery()
   const wired = useWiredClientsQuery()
   const records = useGatewayRequestFlow()
+  const latest = records.at(-1) ?? null
   const meta = useSettingsMetaQuery()
   const updateSettings = useUpdateSettingsMutation()
   const [busy, setBusy] = useState<"start" | "stop" | null>(null)
@@ -257,7 +258,10 @@ export function GatewayView({
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden py-1">
               <h3 className="shrink-0 text-sm font-semibold">{t("gatewayFlowLatestTitle")}</h3>
               <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                <LatestCallNarrative />
+                <LatestCallNarrative
+                  callerLabel={latest?.caller ? labelById.get(latest.caller) : undefined}
+                  record={latest}
+                />
               </div>
             </div>
           </div>
@@ -675,7 +679,7 @@ function CallFlowDiagram({
     ? wired.find((entry) => entry.client_id === activeCaller)
     : undefined
   const hubUrl = activeWired?.url ?? status?.url ?? "—"
-  const fresh = latest != null && Date.now() - latest.at_unix_ms < 4_000
+  const fresh = latest?.phase === "routing" || latest?.phase === "calling_upstream"
 
   return (
     <div className="flex w-full min-w-0 items-stretch gap-0">
@@ -914,12 +918,12 @@ function ServiceFlowCard({
       <div className="flex min-w-0 flex-col gap-1">
         {recent.map((record, index) => (
           <div
-            key={record.seq}
+            key={record.call_id}
             className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
           >
             <span className="min-w-0 truncate font-mono text-[11px]">{record.name}</span>
             <span className="shrink-0">
-              {index === 0 && fresh
+              {record.phase === "routing" || record.phase === "calling_upstream"
                 ? t("gatewayFlowCalling")
                 : `${record.success ? "OK" : "ERR"} · ${record.duration_ms}ms`}
             </span>
