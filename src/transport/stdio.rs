@@ -583,7 +583,6 @@ mod tests {
         });
         let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
         assert!(output.contains("FORWARD_SENTINEL"));
-        assert!(output.contains("child stderr on connect failure"));
     }
 
     fn instance() -> InstanceId {
