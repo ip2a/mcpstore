@@ -39,25 +39,37 @@ pub fn spawn_detached_daemon() -> io::Result<()> {
     use std::process::{Command, Stdio};
 
     let restart_args = restore_start_args()?;
+    let manager = restart_args
+        .as_ref()
+        .and_then(|args| args.config_path.as_deref())
+        .map(ConfigManager::with_path)
+        .unwrap_or_else(ConfigManager::new);
+    let app_config = manager
+        .load_app_config_or_default()
+        .map_err(io::Error::other)?;
 
-    let log_path = daemon_log_path();
-    if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)?;
     let exe = std::env::current_exe()?;
     let mut command = Command::new(exe);
     command.arg("start");
     if let Some(args) = restart_args {
         append_start_args(&mut command, &args);
     }
-    command
-        .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log);
+    command.stdin(Stdio::null());
+    if app_config.diagnostics.daemon_output.enabled {
+        let log_path = daemon_log_path(&manager);
+        if let Some(parent) = log_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)?;
+        command
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log));
+    } else {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -129,8 +141,8 @@ fn default_runtime_path() -> PathBuf {
     crate::daemon::protocol::default_pid_path().with_extension("runtime.json")
 }
 
-fn daemon_log_path() -> PathBuf {
-    ConfigManager::new()
+fn daemon_log_path(manager: &ConfigManager) -> PathBuf {
+    manager
         .mcp_path()
         .parent()
         .map(|parent| parent.join("logs").join("daemon.out"))

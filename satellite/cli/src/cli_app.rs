@@ -226,7 +226,7 @@ pub fn run() -> Result<(), BoxErr> {
     let app_config = config_manager.load_app_config_or_default();
     let operation = cli.command.operation_name();
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let result = run_inner(cli, app_config.as_ref().ok());
+    let result = run_inner(cli, app_config.as_ref().ok(), &config_manager);
     audit_cli_command(
         started,
         &result,
@@ -281,7 +281,11 @@ fn audit_cli_command(
     }
 }
 
-fn run_inner(cli: Cli, app_config: Option<&mcpstore::AppConfig>) -> Result<(), BoxErr> {
+fn run_inner(
+    cli: Cli,
+    app_config: Option<&mcpstore::AppConfig>,
+    config_manager: &ConfigManager,
+) -> Result<(), BoxErr> {
     // TUI runs its own blocking event loop and creates its own runtime,
     // so it must be handled outside the async block to avoid nested runtimes.
     if let Commands::Tui(mut args) = cli.command {
@@ -293,7 +297,13 @@ fn run_inner(cli: Cli, app_config: Option<&mcpstore::AppConfig>) -> Result<(), B
     if output_format.is_machine() {
         bootstrap::init_tracing_silent("mcpstore=info");
     } else {
-        bootstrap::init_tracing_from_config(app_config);
+        let log_path = config_manager
+            .mcp_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("logs")
+            .join("daemon.log");
+        bootstrap::init_tracing_from_config_with_path(app_config, log_path);
     }
 
     let endpoint = cli.daemon_endpoint();
