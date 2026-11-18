@@ -226,7 +226,7 @@ pub fn run() -> Result<(), BoxErr> {
     let app_config = config_manager.load_app_config_or_default();
     let operation = cli.command.operation_name();
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let result = run_inner(cli, app_config.as_ref().ok(), &config_manager);
+    let result = run_inner(cli, &app_config, &config_manager);
     audit_cli_command(
         started,
         &result,
@@ -283,7 +283,7 @@ fn audit_cli_command(
 
 fn run_inner(
     cli: Cli,
-    app_config: Option<&mcpstore::AppConfig>,
+    app_config: &Result<mcpstore::AppConfig, mcpstore::config::ConfigError>,
     config_manager: &ConfigManager,
 ) -> Result<(), BoxErr> {
     // TUI runs its own blocking event loop and creates its own runtime,
@@ -296,14 +296,17 @@ fn run_inner(
     let output_format = output_format(&cli.command);
     if output_format.is_machine() {
         bootstrap::init_tracing_silent("mcpstore=info");
-    } else {
+    } else if let Ok(config) = app_config {
         let log_path = config_manager
             .mcp_path()
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("logs")
             .join("daemon.log");
-        bootstrap::init_tracing_from_config_with_path(app_config, log_path);
+        bootstrap::init_tracing_from_config_with_path(Some(config), log_path);
+    } else {
+        // Invalid configuration must not create a default log before the command fails.
+        bootstrap::init_tracing("mcpstore=info");
     }
 
     let endpoint = cli.daemon_endpoint();
