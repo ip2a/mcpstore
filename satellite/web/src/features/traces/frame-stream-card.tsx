@@ -16,19 +16,17 @@ import { cn } from "@/lib/utils"
 import type { FrameSessionSummary } from "@/lib/api"
 
 export type FrameViewMode =
-  | "inbound"
-  | "outbound"
+  | "sessions"
   | "history"
   | "kv"
   | "calls"
   | "projection"
 
-/** Normalize legacy `table` bookmarks to outbound sessions. */
+/** Normalize legacy inbound/outbound/table bookmarks to the unified sessions tab. */
 export function normalizeFrameView(view?: string | null): FrameViewMode | undefined {
-  if (view === "table") return "outbound"
+  if (view === "table" || view === "inbound" || view === "outbound") return "sessions"
   if (
-    view === "inbound" ||
-    view === "outbound" ||
+    view === "sessions" ||
     view === "history" ||
     view === "kv" ||
     view === "calls" ||
@@ -39,7 +37,7 @@ export function normalizeFrameView(view?: string | null): FrameViewMode | undefi
   return undefined
 }
 
-/** Traces workspace: inbound/outbound sessions + optional history / routed calls / projection / KV. */
+/** Traces workspace: sessions + optional history / routed calls / projection / KV. */
 export function FrameStreamCard(props: {
   /** Fill parent height (Tools-style); table scrolls inside, page chrome stays put. */
   fill?: boolean
@@ -51,7 +49,7 @@ export function FrameStreamCard(props: {
   projectionSlot?: ReactNode
   /** Optional KV tab content. */
   kvSlot?: (search: string) => ReactNode
-  initialView?: FrameViewMode | "table"
+  initialView?: FrameViewMode | "table" | "inbound" | "outbound"
   /** Open shared session detail page. */
   onOpenSession?: (session: FrameSessionSummary) => void
 }) {
@@ -59,12 +57,12 @@ export function FrameStreamCard(props: {
   const queryClient = useQueryClient()
   const fill = props.fill ?? false
   const [view, setView] = useState<FrameViewMode>(
-    normalizeFrameView(props.initialView) ?? "outbound",
+    normalizeFrameView(props.initialView) ?? "sessions",
   )
   const [kvQuery, setKvQuery] = useState("")
 
   useEffect(() => {
-    setView(normalizeFrameView(props.initialView) ?? "outbound")
+    setView(normalizeFrameView(props.initialView) ?? "sessions")
   }, [props.initialView])
 
   const historyFetching = useIsFetching({ queryKey: queryKeys.gatewayHistory }) > 0
@@ -88,7 +86,7 @@ export function FrameStreamCard(props: {
       void queryClient.invalidateQueries({ queryKey: queryKeys.kvInspect })
       return
     }
-    if (view === "inbound" || view === "outbound") {
+    if (view === "sessions") {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.gatewayFrameSessions,
       })
@@ -104,7 +102,7 @@ export function FrameStreamCard(props: {
         ? projectionFetching
         : view === "kv"
           ? kvFetching
-          : view === "inbound" || view === "outbound"
+          : view === "sessions"
             ? sessionsFetching
             : false
 
@@ -153,11 +151,8 @@ export function FrameStreamCard(props: {
                 {t("gatewayProjectionTitle")}
               </TabsTrigger>
             ) : null}
-            <TabsTrigger value="inbound" className="flex-none">
-              {t("gatewayFramesTabInbound")}
-            </TabsTrigger>
-            <TabsTrigger value="outbound" className="flex-none">
-              {t("gatewayFramesTabOutbound")}
+            <TabsTrigger value="sessions" className="flex-none">
+              {t("gatewayFramesTabSessions")}
             </TabsTrigger>
           </WorkspaceTabsList>
           <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
@@ -196,11 +191,8 @@ export function FrameStreamCard(props: {
             {props.projectionSlot}
           </TabsContent>
         ) : null}
-        <TabsContent value="inbound" className={tabContentClassName}>
-          <FrameSessionsPanel face="gateway" onOpenSession={props.onOpenSession} />
-        </TabsContent>
-        <TabsContent value="outbound" className={tabContentClassName}>
-          <FrameSessionsPanel face="upstream" onOpenSession={props.onOpenSession} />
+        <TabsContent value="sessions" className={tabContentClassName}>
+          <FrameSessionsPanel onOpenSession={props.onOpenSession} />
         </TabsContent>
       </Tabs>
     </PanelCard>

@@ -37,7 +37,6 @@ import {
   TRACE_COL_TAGS_CLASSNAME,
   TRACE_TABLE_CLASSNAME,
 } from "@/features/traces/trace-table-layout"
-import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
@@ -152,12 +151,15 @@ function SessionActiveRange({
   )
 }
 
-/** One face (inbound gateway / outbound upstream) of the frame-session table. */
+/** Face badge text stays English (input / output), no i18n. */
+function faceTag(face: FrameFace): string {
+  return face === "gateway" ? "input" : "output"
+}
+
+/** Unified inbound + outbound frame-session table; direction shows in the tags column. */
 export function FrameSessionsPanel({
-  face,
   onOpenSession,
 }: {
-  face: FrameFace
   onOpenSession?: (session: FrameSessionSummary) => void
 }) {
   const { t } = useI18n()
@@ -169,10 +171,9 @@ export function FrameSessionsPanel({
 
   const offset = page * pageSize
   const sessions = useQuery({
-    queryKey: queryKeys.gatewayFrameSessionsPage(face, pageSize, offset),
+    queryKey: queryKeys.gatewayFrameSessionsPage("all", pageSize, offset),
     queryFn: () =>
       getFrameSessions({
-        face,
         hours: 24,
         limit: pageSize,
         offset,
@@ -188,8 +189,6 @@ export function FrameSessionsPanel({
   const total = sessions.data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const activeFilterCount = scopeFilter !== "all" ? 1 : 0
-  const emptyKey: I18nKey =
-    face === "gateway" ? "gatewayFramesEmptyGateway" : "gatewayFramesEmptyUpstream"
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + items.length, total)
 
@@ -254,7 +253,7 @@ export function FrameSessionsPanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
         <UiverseSearchInput
-          id={`frame-session-list-search-${face}`}
+          id="frame-session-list-search"
           placeholder={t("searchSessions")}
           value={query}
           onChange={changeQuery}
@@ -269,7 +268,7 @@ export function FrameSessionsPanel({
         />
       </div>
       {total === 0 && !sessions.isLoading ? (
-        <p className="px-4 py-3 text-sm text-muted-foreground">{t(emptyKey)}</p>
+        <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayFramesEmpty")}</p>
       ) : (
         <>
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
@@ -293,27 +292,26 @@ export function FrameSessionsPanel({
               </TableHeader>
               <TableBody>
                 {visibleItems.map((session) => (
-                  <TableRow key={session.session_id}>
+                  <TableRow key={`${session.face}:${session.session_id}`}>
                     <TableCell className={TRACE_COL1_CELL_CLASSNAME} title={session.session_id}>
                       {session.session_id.slice(0, 8)}
                     </TableCell>
                     <TableCell className={TRACE_COL2_CELL_CLASSNAME}>
-                      {session.service_name || session.scope ? (
-                        <div className={TRACE_COL_TAGS_CLASSNAME}>
-                          {session.service_name ? (
-                            <Badge variant="secondary" className="shrink-0">
-                              {session.service_name}
-                            </Badge>
-                          ) : null}
-                          {session.scope ? (
-                            <Badge variant="outline" className="shrink-0">
-                              {session.scope}
-                            </Badge>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <div className={TRACE_COL_TAGS_CLASSNAME}>
+                        <Badge variant="outline" className="shrink-0">
+                          {faceTag(session.face)}
+                        </Badge>
+                        {session.service_name ? (
+                          <Badge variant="secondary" className="shrink-0">
+                            {session.service_name}
+                          </Badge>
+                        ) : null}
+                        {session.scope ? (
+                          <Badge variant="outline" className="shrink-0">
+                            {session.scope}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs tabular-nums text-muted-foreground">
                       <SessionActiveRange

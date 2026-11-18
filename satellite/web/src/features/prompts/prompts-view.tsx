@@ -2,7 +2,6 @@ import { useMemo, useState } from "react"
 
 import { PromptListCard } from "@/components/shared/prompt-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
-import { PartialLoadNotice } from "@/features/mcp-registry/partial-load-notice"
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
@@ -42,7 +41,6 @@ export function PromptsView(props: {
     agentIds,
     error,
     errorMessage,
-    failedInstanceCount,
     instanceId,
     loadPrompts,
     loading,
@@ -167,7 +165,6 @@ export function PromptsView(props: {
                 <PromptsTabContent
                   error={error}
                   errorMessage={errorMessage}
-                  failedInstanceCount={failedInstanceCount}
                   loading={loading}
                   loadPrompts={loadPrompts}
                   onOpenPrompt={props.onOpenPrompt}
@@ -185,7 +182,6 @@ export function PromptsView(props: {
 function PromptsTabContent({
   error,
   errorMessage,
-  failedInstanceCount,
   loadPrompts,
   loading,
   onOpenPrompt,
@@ -193,7 +189,6 @@ function PromptsTabContent({
 }: {
   error: unknown
   errorMessage: string
-  failedInstanceCount: number
   loadPrompts: () => void
   loading: boolean
   onOpenPrompt: (instanceId: string, promptName: string) => void
@@ -234,21 +229,18 @@ function PromptsTabContent({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PartialLoadNotice count={failedInstanceCount} onRefresh={loadPrompts} />
-      <ScrollPane
-        className="min-h-0 flex-1"
-        innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
-      >
-        {prompts.map(({ instance, prompt }) => (
-          <PromptListCard
-            key={`${instance.instance_id}:${prompt.name}`}
-            instance={instance}
-            prompt={prompt}
-            onSelect={() => onOpenPrompt(instance.instance_id, prompt.name)}
-          />
-        ))}
-      </ScrollPane>
-    </div>
+    <ScrollPane
+      className="min-h-0 flex-1"
+      innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+    >
+      {prompts.map(({ instance, prompt }) => (
+        <PromptListCard
+          key={`${instance.instance_id}:${prompt.name}`}
+          instance={instance}
+          prompt={prompt}
+          onSelect={() => onOpenPrompt(instance.instance_id, prompt.name)}
+        />
+      ))}
+    </ScrollPane>
   )
 }

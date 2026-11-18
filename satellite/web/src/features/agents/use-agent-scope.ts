@@ -53,6 +53,8 @@ export function useAgentScope({
   }, [addableServiceNames, scopeServiceName])
 
   async function loadAgentScope() {
+    // refetch() ignores enabled:false — skip agent views without agent_id.
+    if (selectedScope.type === "agent" && !selectedScope.agent_id) return
     try {
       const servicesResult = await scopeServicesQuery.refetch()
       if (servicesResult.error) throw servicesResult.error

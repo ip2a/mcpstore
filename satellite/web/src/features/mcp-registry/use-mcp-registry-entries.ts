@@ -43,23 +43,28 @@ export function useMcpRegistryEntries<T extends { instance_id: string }>({
   )
 
   // Only show error if the catalog query or the service list itself failed.
-  // Instances the backend skipped surface as a count (their listings can fail
-  // for good reasons — disconnected service, OAuth pending) so a partial
-  // catalog is at least visible.
-  const queryError = entryQuery.error ?? scopeState.agentServicesQuery.error
-  const failedInstanceCount = entryQuery.data?.skippedInstances ?? 0
+  // Backend may skip individual instances (disconnected / auth pending); those
+  // are expected and not surfaced as a page warning.
+  // Agent services are only meaningful under agent scope; ignore their error /
+  // fetching state while on store so a disabled-query force-refetch cannot
+  // paint a Missing agent_id failure over a healthy store catalog.
+  const agentScopeActive = scopeState.scope === "agent" && Boolean(scopeState.agentId)
+  const queryError =
+    entryQuery.error ?? (agentScopeActive ? scopeState.agentServicesQuery.error : null)
   const errorMessage = queryError
     ? queryError instanceof Error
       ? queryError.message
       : String(queryError)
     : `Failed to load ${noun}`
-  const loading = entryQuery.isFetching || scopeState.agentServicesQuery.isFetching
+  const loading =
+    entryQuery.isFetching || (agentScopeActive && scopeState.agentServicesQuery.isFetching)
 
   async function reload() {
     try {
+      // refetch() ignores enabled:false — never force agent-scoped calls without an id.
       const results = await Promise.allSettled([
-        scopeState.agentServicesQuery.refetch(),
-        entryQuery.refetch(),
+        ...(agentScopeActive ? [scopeState.agentServicesQuery.refetch()] : []),
+        ...(agentScopeActive || scopeState.scope === "store" ? [entryQuery.refetch()] : []),
       ])
       const rejected = results.find(
         (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -85,7 +90,6 @@ export function useMcpRegistryEntries<T extends { instance_id: string }>({
     entries,
     error: queryError,
     errorMessage,
-    failedInstanceCount,
     loading,
     reload,
     visibleEntries,

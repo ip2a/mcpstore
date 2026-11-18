@@ -168,10 +168,14 @@ export function ScopeView(props: {
     : ""
 
   async function handleRefresh() {
+    // refetch() ignores enabled:false — only pull services when the view is fetchable.
+    const canRefetchServices =
+      selectedScope != null &&
+      (selectedScope.type !== "agent" || Boolean(selectedScope.agent_id))
     await Promise.all([
       scopesQuery.refetch(),
       toolOverridesQuery.refetch(),
-      selectedScope ? liveServicesQuery.refetch() : Promise.resolve(),
+      canRefetchServices ? liveServicesQuery.refetch() : Promise.resolve(),
     ])
   }
 

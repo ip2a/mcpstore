@@ -18,6 +18,7 @@ export function useInstancePromptsQueries(instances: ServiceInstance[]) {
 /** One request for the whole scope's prompt catalog; entries carry their instance. */
 export function useScopePromptsQuery(scope: "store" | "agent", agentId: string) {
   return useQuery({
+    enabled: scope !== "agent" || Boolean(agentId),
     queryKey: queryKeys.scopePrompts(scope, agentId),
     queryFn: () => listScopePrompts(scope, agentId),
   })

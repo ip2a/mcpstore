@@ -81,9 +81,13 @@ export function ToolsFilterDialog(props: {
   }
 
   function confirm() {
+    // Agent scope requires an id; fall back to first agent or store.
+    const nextAgentId =
+      draftScope === "agent" ? draftAgentId || props.agentIds[0] || "" : draftAgentId
+    const nextScope = draftScope === "agent" && !nextAgentId ? "store" : draftScope
     props.onVisibilityFilterChange(draftVisibility)
-    props.onScopeChange(draftScope)
-    props.onAgentIdChange(draftAgentId)
+    props.onScopeChange(nextScope)
+    props.onAgentIdChange(nextAgentId)
     if (!props.hideServiceFilter) props.onInstanceIdChange(draftInstanceId)
     if (pendingSort) props.onSort?.(pendingSort)
     props.onServiceTabsPrefsChange?.(draftServiceTabs)

@@ -31,6 +31,7 @@ export function useScopeToolsQuery(
   filter: ToolVisibilityFilter,
 ) {
   return useQuery({
+    enabled: scope !== "agent" || Boolean(agentId),
     queryKey: queryKeys.scopeTools(scope, agentId, filter),
     queryFn: () => listScopeTools(scope, agentId, filter),
     refetchInterval: 30_000,

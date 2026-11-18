@@ -17,6 +17,7 @@ export function useInstanceResourcesQueries(instances: ServiceInstance[]) {
 /** One request for the whole scope's resource catalog; entries carry their instance. */
 export function useScopeResourcesQuery(scope: "store" | "agent", agentId: string) {
   return useQuery({
+    enabled: scope !== "agent" || Boolean(agentId),
     queryKey: queryKeys.scopeResources(scope, agentId),
     queryFn: () => listScopeResources(scope, agentId),
   })

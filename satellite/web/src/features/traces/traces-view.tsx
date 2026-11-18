@@ -26,8 +26,8 @@ export function TracesView({
 } = {}) {
   const { t } = useI18n()
   const sessions = useQuery({
-    queryKey: queryKeys.gatewayFrameSessionsPage("upstream", 1, 0),
-    queryFn: () => getFrameSessions({ face: "upstream", hours: 24, limit: 1, offset: 0 }),
+    queryKey: queryKeys.gatewayFrameSessionsPage("all", 1, 0),
+    queryFn: () => getFrameSessions({ hours: 24, limit: 1, offset: 0 }),
   })
 
   return (
@@ -44,7 +44,7 @@ export function TracesView({
         callsSlot={<RoutedCallsPanel />}
         historySlot={<HistoryPanel />}
         projectionSlot={<ProjectionPanel />}
-        initialView={normalizeFrameView(initialTab) ?? "outbound"}
+        initialView={normalizeFrameView(initialTab) ?? "sessions"}
         onOpenSession={onOpenSession}
       />
     </>
