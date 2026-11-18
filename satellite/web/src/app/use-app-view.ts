@@ -76,7 +76,16 @@ export function useAppView(services: ServiceInstance[]) {
 
 function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/" || pathname === "/home") return { name: "home" }
-  if (pathname === "/services") return { name: "services" }
+  if (pathname === "/services") {
+    const params = new URLSearchParams(search)
+    const cardInstanceId = params.get("card")?.trim() || undefined
+    const tab = params.get("tab")
+    return {
+      name: "services",
+      ...(cardInstanceId ? { cardInstanceId } : {}),
+      ...(tab === "sessions" ? { cardTab: "sessions" as const } : {}),
+    }
+  }
   if (pathname === "/scope") {
     const scopeId = new URLSearchParams(search).get("id")?.trim()
     return scopeId ? { name: "scope", scopeId } : { name: "scope" }
@@ -174,7 +183,13 @@ function parseTraceSessionPath(
 }
 
 function pathForView(view: AppView): string {
-  if (view.name === "services") return "/services"
+  if (view.name === "services") {
+    const params = new URLSearchParams()
+    if (view.cardInstanceId) params.set("card", view.cardInstanceId)
+    if (view.cardTab) params.set("tab", view.cardTab)
+    const query = params.toString()
+    return query ? `/services?${query}` : "/services"
+  }
   if (view.name === "tool") {
     return `/tools/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.toolName)}`
   }

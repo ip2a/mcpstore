@@ -203,13 +203,25 @@ export function App() {
                 ) : view.name === "traces" ? (
                   <TracesView
                     initialTab={view.tab}
-                    onOpenSession={(session) =>
+                    onOpenSession={(session) => {
+                      if (
+                        session.face === "upstream" &&
+                        session.instance_id &&
+                        services.some((service) => service.instance_id === session.instance_id)
+                      ) {
+                        setView({
+                          name: "services",
+                          cardInstanceId: session.instance_id,
+                          cardTab: "sessions",
+                        })
+                        return
+                      }
                       setView({
                         name: "traceSession",
                         sessionId: session.session_id,
                         face: session.face,
                       })
-                    }
+                    }}
                   />
                 ) : view.name === "traceSession" ? (
                   <TraceSessionDetailView
@@ -226,6 +238,15 @@ export function App() {
                     busy={busy}
                     error={dashboardError}
                     loading={loading}
+                    openCardInstanceId={
+                      view.name === "services" ? view.cardInstanceId : undefined
+                    }
+                    openCardTab={view.name === "services" ? view.cardTab : undefined}
+                    onOpenCardConsumed={() => {
+                      if (view.name === "services" && (view.cardInstanceId || view.cardTab)) {
+                        setView({ name: "services" })
+                      }
+                    }}
                     onCheck={checkAllServices}
                     onConnect={connectServiceEntry}
                     onDelete={setDeleteTarget}

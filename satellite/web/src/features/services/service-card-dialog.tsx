@@ -1,8 +1,10 @@
-import { useRef, useState, type FormEvent, type ReactNode } from "react"
-import { EyeIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { ArrowDownIcon, ArrowUpIcon, EyeIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { McpIcon } from "@/components/shared/mcp-icon"
+import { PageSkeleton } from "@/components/shared/page-states"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,15 +33,21 @@ import {
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
 import {
   isServiceRunning,
+  isServiceStarting,
   ServiceConnectionButton,
 } from "@/features/services/service-connection-button"
 import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
 import { useEditServiceForm } from "@/features/services/use-edit-service-form"
+import { useServiceCardSessionFrames } from "@/features/services/use-service-card-session-frames"
+import { FrameDetailPane } from "@/features/traces/frame-session-panes"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
+import type { FrameRecord, ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type DetailAsideTab = "edit" | "preview" | "profile" | "gateway"
+export type ServiceCardAsideTab = "edit" | "preview" | "profile" | "gateway" | "sessions"
+
+type DetailAsideTab = ServiceCardAsideTab
 
 const EDIT_TABS = new Set<DetailAsideTab>(["edit", "profile"])
 
@@ -56,8 +64,79 @@ function QuietScroll({ className, children }: { className?: string; children: Re
   )
 }
 
+/** Map jsonrpc id → request method so bare responses can show whose reply they are. */
+function methodByJsonrpcId(frames: FrameRecord[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const frame of frames) {
+    if (frame.kind !== "request" || !frame.jsonrpc_id || !frame.method) continue
+    map.set(frame.jsonrpc_id, frame.method)
+  }
+  return map
+}
+
+function frameChipTitle(frame: FrameRecord, methods: Map<string, string>): string {
+  if (frame.method) return frame.method
+  // Responses/errors have no method on the wire — resolve via matching request id.
+  if (frame.jsonrpc_id) {
+    const paired = methods.get(frame.jsonrpc_id)
+    if (paired) return paired
+    return `#${frame.jsonrpc_id}`
+  }
+  return "—"
+}
+
+/** Compact frame chip for the card's fixed left rail (~golden-ratio panel). */
+function CardSessionFrameChip({
+  frame,
+  methods,
+  selected,
+  onSelect,
+}: {
+  frame: FrameRecord
+  methods: Map<string, string>
+  selected: boolean
+  onSelect: () => void
+}) {
+  const Arrow = frame.direction === "up" ? ArrowUpIcon : ArrowDownIcon
+  const time = new Date(frame.ts_unix_ms).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+  const title = frameChipTitle(frame, methods)
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full min-w-0 flex-col gap-0.5 rounded-md border px-2.5 py-2 text-left transition-colors",
+        selected
+          ? "border-border bg-secondary"
+          : "border-transparent hover:border-border/60 hover:bg-muted/40",
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Arrow
+          className={cn(
+            "size-3 shrink-0",
+            frame.direction === "up" ? "text-blue-500" : "text-emerald-500",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{title}</span>
+      </span>
+      <span className="flex min-w-0 items-center justify-between gap-2 pl-[1.125rem] text-[10px] text-muted-foreground">
+        <span className="tabular-nums">{time}</span>
+        <span className="truncate">{frame.kind}</span>
+      </span>
+    </button>
+  )
+}
+
 export function ServiceCardDialog({
   busy,
+  initialTab = "preview",
   onConnect,
   onDelete,
   onDisconnect,
@@ -69,6 +148,7 @@ export function ServiceCardDialog({
   service: listService,
 }: {
   busy: string | null
+  initialTab?: DetailAsideTab
   onConnect: (service: ServiceInstance) => void
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
@@ -83,7 +163,9 @@ export function ServiceCardDialog({
 
   return (
     <ServiceCardDialogBody
+      key={`${listService.instance_id}:${initialTab}`}
       busy={busy}
+      initialTab={initialTab}
       listService={listService}
       open={open}
       onConnect={onConnect}
@@ -99,6 +181,7 @@ export function ServiceCardDialog({
 
 function ServiceCardDialogBody({
   busy,
+  initialTab,
   listService,
   onConnect,
   onDelete,
@@ -110,6 +193,7 @@ function ServiceCardDialogBody({
   open,
 }: {
   busy: string | null
+  initialTab: DetailAsideTab
   listService: ServiceInstance
   onConnect: (service: ServiceInstance) => void
   onDelete: (service: ServiceInstance) => void
@@ -121,17 +205,41 @@ function ServiceCardDialogBody({
   open: boolean
 }) {
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<DetailAsideTab>("preview")
+  const queryClient = useQueryClient()
+  const [activeTab, setActiveTab] = useState<DetailAsideTab>(initialTab)
   const [gatewayBusy, setGatewayBusy] = useState(false)
+  /** After Connect, ignore older sessions so the left rail tracks this attempt. */
+  const [connectWatchFromMs, setConnectWatchFromMs] = useState(0)
   const overridePaneRef = useRef<ServiceOverridePaneHandle>(null)
   const detailQuery = useServiceDetailQuery(listService, open)
   const service = detailQuery.data || listService
+  const isSessionsTab = activeTab === "sessions"
+  const connecting = isServiceStarting(service.state, busy, service.instance_id)
+  const sessionFrames = useServiceCardSessionFrames(service.instance_id, open && isSessionsTab, {
+    followLatest: connecting,
+    notBeforeMs: connectWatchFromMs,
+  })
+  const sessionMethods = useMemo(
+    () => methodByJsonrpcId(sessionFrames.frames),
+    [sessionFrames.frames],
+  )
   const { configFields, onSubmit, previewFormat, setConfigFields, setPreviewFormat, submitting } =
     useEditServiceForm({
       onCancel: () => setActiveTab("preview"),
       onUpdated,
       service,
     })
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  // Once the post-connect session has frames, drop the watermark so later views
+  // can still open the latest session normally.
+  useEffect(() => {
+    if (!connectWatchFromMs || connecting) return
+    if (sessionFrames.sessionId) setConnectWatchFromMs(0)
+  }, [connectWatchFromMs, connecting, sessionFrames.sessionId])
 
   const connected = isServiceRunning(service.state)
   const status = deriveServiceDisplayStatus(service.state)
@@ -191,41 +299,69 @@ function ServiceCardDialogBody({
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => void onFormSubmit(event)}>
           <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 pb-4 pt-0 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:pb-4">
             <QuietScroll className="flex min-h-0 pt-4 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
-              <button
-                type="button"
-                className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                aria-label={t("detail")}
-                onClick={() => closeThen(() => onOpen(service))}
-              >
-                <span
-                  aria-hidden
-                  className="flex size-16 shrink-0 items-center justify-center text-muted-foreground"
-                >
-                  <McpIcon
-                    icons={serviceOverride?.icons ?? service.mcp?.serverInfo?.icons}
-                    fallback={<DefaultServiceIcon className="size-16" />}
-                    className="size-16"
-                  />
-                </span>
-                <div className="min-w-0 w-full">
-                  <p className="truncate font-mono text-base font-semibold">{projectedName}</p>
-                  {serviceOverride?.description ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {serviceOverride.description}
+              {isSessionsTab ? (
+                <div className="flex h-full min-h-0 w-full flex-col gap-1">
+                  {sessionFrames.loading ? (
+                    <PageSkeleton />
+                  ) : sessionFrames.noSession ? (
+                    <p className="m-auto px-2 text-center text-xs text-muted-foreground">
+                      {connecting || connectWatchFromMs
+                        ? t("connecting")
+                        : t("gatewayFramesEmptyUpstream")}
                     </p>
-                  ) : null}
-                  <p
-                    className={cn(
-                      "mt-1 text-xs",
-                      connected
-                        ? "text-emerald-600 dark:text-emerald-500"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {t(SERVICE_STATUS_LABEL_KEYS[status])}
-                  </p>
+                  ) : sessionFrames.frames.length === 0 ? (
+                    <p className="m-auto px-2 text-center text-xs text-muted-foreground">
+                      {connecting ? t("connecting") : t("gatewayFramesNoFrames")}
+                    </p>
+                  ) : (
+                    sessionFrames.frames.map((frame) => (
+                      <CardSessionFrameChip
+                        key={frame.id}
+                        frame={frame}
+                        methods={sessionMethods}
+                        selected={frame.id === sessionFrames.selectedId}
+                        onSelect={() => sessionFrames.setSelectedId(frame.id)}
+                      />
+                    ))
+                  )}
                 </div>
-              </button>
+              ) : (
+                <button
+                  type="button"
+                  className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  aria-label={t("detail")}
+                  onClick={() => closeThen(() => onOpen(service))}
+                >
+                  <span
+                    aria-hidden
+                    className="flex size-16 shrink-0 items-center justify-center text-muted-foreground"
+                  >
+                    <McpIcon
+                      icons={serviceOverride?.icons ?? service.mcp?.serverInfo?.icons}
+                      fallback={<DefaultServiceIcon className="size-16" />}
+                      className="size-16"
+                    />
+                  </span>
+                  <div className="min-w-0 w-full">
+                    <p className="truncate font-mono text-base font-semibold">{projectedName}</p>
+                    {serviceOverride?.description ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {serviceOverride.description}
+                      </p>
+                    ) : null}
+                    <p
+                      className={cn(
+                        "mt-1 text-xs",
+                        connected
+                          ? "text-emerald-600 dark:text-emerald-500"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {t(SERVICE_STATUS_LABEL_KEYS[status])}
+                    </p>
+                  </div>
+                </button>
+              )}
             </QuietScroll>
 
             <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden pt-2 @min-[640px]:h-full @min-[640px]:max-h-none">
@@ -249,6 +385,9 @@ function ServiceCardDialogBody({
                   </TabsTrigger>
                   <TabsTrigger value="gateway" className="flex-none">
                     {t("gateway")}
+                  </TabsTrigger>
+                  <TabsTrigger value="sessions" className="flex-none">
+                    {t("gatewayFramesTabSessions")}
                   </TabsTrigger>
                 </TabsList>
 
@@ -317,6 +456,26 @@ function ServiceCardDialogBody({
                     />
                   </QuietScroll>
                 </TabsContent>
+
+                <TabsContent
+                  value="sessions"
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                >
+                  {sessionFrames.loading ? (
+                    <PageSkeleton />
+                  ) : sessionFrames.selected ? (
+                    <FrameDetailPane
+                      frame={sessionFrames.selected}
+                      insetClassName="px-0 py-0"
+                    />
+                  ) : (
+                    <p className="px-1 py-2 text-sm text-muted-foreground">
+                      {sessionFrames.noSession
+                        ? t("gatewayFramesEmptyUpstream")
+                        : t("gatewayFramesNoFrames")}
+                    </p>
+                  )}
+                </TabsContent>
               </Tabs>
             </aside>
           </div>
@@ -366,8 +525,22 @@ function ServiceCardDialogBody({
                     state={service.state}
                     size="default"
                     variant="outline"
-                    onConnect={() => onConnect(service)}
-                    onDisconnect={() => onDisconnect(service)}
+                    onConnect={() => {
+                      setActiveTab("sessions")
+                      setConnectWatchFromMs(Date.now() - 2_000)
+                      void queryClient.invalidateQueries({
+                        queryKey: [
+                          ...queryKeys.gatewayFrameSessions,
+                          "by-instance",
+                          service.instance_id,
+                        ],
+                      })
+                      onConnect(service)
+                    }}
+                    onDisconnect={() => {
+                      setConnectWatchFromMs(0)
+                      onDisconnect(service)
+                    }}
                   />
                   <Button
                     type="button"

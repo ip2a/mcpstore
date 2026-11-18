@@ -1,5 +1,5 @@
 import { PlusIcon } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -20,7 +20,10 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { useScopesQuery } from "@/features/agents/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
-import { ServiceCardDialog } from "@/features/services/service-card-dialog"
+import {
+  ServiceCardDialog,
+  type ServiceCardAsideTab,
+} from "@/features/services/service-card-dialog"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { useServicesList } from "@/features/services/use-services-list"
 import { usePagination, getPaginationInfo } from "@/hooks/use-pagination"
@@ -53,6 +56,10 @@ export function ServicesView(props: {
   busy: string | null
   error: string | null
   loading: boolean
+  /** Open the service card on mount (e.g. from traces Detail → sessions). */
+  openCardInstanceId?: string
+  openCardTab?: "sessions"
+  onOpenCardConsumed?: () => void
   onCheck: () => void
   onConnect: (service: ServiceInstance) => void
   onAdded: () => Promise<void>
@@ -183,8 +190,11 @@ export function ServicesView(props: {
                     onDelete={props.onDelete}
                     onDisconnect={props.onDisconnect}
                     onOpen={props.onOpen}
+                    onOpenCardConsumed={props.onOpenCardConsumed}
                     onRefresh={handleRefresh}
                     onRestart={props.onRestart}
+                    openCardInstanceId={props.openCardInstanceId}
+                    openCardTab={props.openCardTab}
                     scopeError={scopeServicesError}
                     scopeErrorMessage={scopeServicesErrorMessage}
                     services={props.services}
@@ -233,8 +243,11 @@ function ServicesScopeContent({
   onDelete,
   onDisconnect,
   onOpen,
+  onOpenCardConsumed,
   onRefresh,
   onRestart,
+  openCardInstanceId,
+  openCardTab,
   scopeError,
   scopeErrorMessage,
   services,
@@ -249,15 +262,26 @@ function ServicesScopeContent({
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onOpen: (service: ServiceInstance) => void
+  onOpenCardConsumed?: () => void
   onRefresh: () => void
   onRestart: (service: ServiceInstance) => void
+  openCardInstanceId?: string
+  openCardTab?: "sessions"
   scopeError: unknown
   scopeErrorMessage: string
   services: ServiceInstance[]
 }) {
   const { t } = useI18n()
   const [cardServiceId, setCardServiceId] = useState<string | null>(null)
+  const [cardTab, setCardTab] = useState<ServiceCardAsideTab>("preview")
   const pagination = usePagination(20)
+
+  useEffect(() => {
+    if (!openCardInstanceId) return
+    setCardServiceId(openCardInstanceId)
+    setCardTab(openCardTab ?? "sessions")
+    onOpenCardConsumed?.()
+  }, [openCardInstanceId, openCardTab, onOpenCardConsumed])
 
   const cardService =
     (cardServiceId
@@ -319,7 +343,10 @@ function ServicesScopeContent({
           <ServiceListCard
             key={service.instance_id}
             service={service}
-            onSelect={() => setCardServiceId(service.instance_id)}
+            onSelect={() => {
+              setCardTab("preview")
+              setCardServiceId(service.instance_id)
+            }}
           />
         ))}
         <AddServiceCard onSelect={onAdd} />
@@ -338,10 +365,15 @@ function ServicesScopeContent({
       />
       <ServiceCardDialog
         busy={busy}
+        initialTab={cardTab}
         open={Boolean(cardService)}
         service={cardService}
         onOpenChange={(open) => {
-          if (!open) setCardServiceId(null)
+          if (!open) {
+            setCardServiceId(null)
+            setCardTab("preview")
+            onOpenCardConsumed?.()
+          }
         }}
         onConnect={onConnect}
         onDelete={onDelete}
