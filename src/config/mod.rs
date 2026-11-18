@@ -32,8 +32,10 @@ pub use crate::auth::{
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use app_schema::{
-    ApiSettings, AppConfig, DiagnosticsConfig, GatewayConfig, HostEntry, HostsConfig,
-    PluginsConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, WebSettings,
+    ApiSettings, AppConfig, DaemonOutputConfig, DiagnosticsConfig, EventHistoryConfig,
+    FrameTelemetryConfig, GatewayCallsConfig, GatewayConfig, HostEntry, HostsConfig, PluginsConfig,
+    RequestTelemetryConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig,
+    StdioStderrConfig, WebSettings,
 };
 pub use health_schema::HealthCheckConfig;
 pub use kv_schema::KvConfig;

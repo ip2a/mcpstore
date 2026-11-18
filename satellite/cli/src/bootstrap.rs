@@ -90,7 +90,7 @@ pub fn init_tracing_from_config_with_path(
         .map(|c| {
             let rt = &c.diagnostics.runtime_log;
             (
-                c.diagnostics.enabled && rt.enabled,
+                rt.enabled,
                 rt.level.clone(),
                 rt.max_size_bytes,
                 rt.retention_days,

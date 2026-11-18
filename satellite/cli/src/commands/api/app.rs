@@ -49,7 +49,6 @@ struct UpdateGatewayRequest {
 
 #[derive(Deserialize)]
 struct UpdateDiagnosticsRequest {
-    enabled: Option<bool>,
     runtime_log: Option<UpdateRuntimeLogRequest>,
 }
 
@@ -153,9 +152,6 @@ pub(super) async fn update_settings<T: PanelCtx>(
     }
 
     if let Some(diagnostics) = payload.diagnostics {
-        if let Some(enabled) = diagnostics.enabled {
-            config.diagnostics.enabled = enabled;
-        }
         if let Some(runtime_log) = diagnostics.runtime_log {
             if let Some(enabled) = runtime_log.enabled {
                 config.diagnostics.runtime_log.enabled = enabled;
@@ -189,7 +185,9 @@ pub(super) async fn update_settings<T: PanelCtx>(
     if let Some(service_tabs) = payload.service_tabs {
         if let Some(sort) = service_tabs.sort {
             panel_settings.service_tabs.sort = panel_settings::normalize_service_tab_sort(&sort)
-                .map_err(|message| ApiError::invalid_parameter(message, Some("service_tabs.sort")))?;
+                .map_err(|message| {
+                    ApiError::invalid_parameter(message, Some("service_tabs.sort"))
+                })?;
         }
         if let Some(show_disconnected) = service_tabs.show_disconnected {
             panel_settings.service_tabs.show_disconnected = show_disconnected;
@@ -284,7 +282,6 @@ fn settings_payload(
             "port": config.gateway.port,
         },
         "diagnostics": {
-            "enabled": config.diagnostics.enabled,
             "runtime_log": {
                 "enabled": config.diagnostics.runtime_log.enabled,
                 "max_size_bytes": config.diagnostics.runtime_log.max_size_bytes,

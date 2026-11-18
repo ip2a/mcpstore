@@ -208,7 +208,6 @@ pub struct GatewayCallRecord {
 pub struct GatewayCallLog {
     records: std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>,
     latest: std::sync::atomic::AtomicU64,
-    next_call_id: std::sync::atomic::AtomicU64,
 
     history: Option<Arc<history::GatewayCallHistory>>,
     changed: tokio::sync::watch::Sender<u64>,

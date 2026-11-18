@@ -90,7 +90,8 @@ impl ConfigManager {
             return Err(ConfigError::NotFound(self.app_config_path.clone()));
         }
         let content = std::fs::read_to_string(&self.app_config_path)?;
-        let raw: toml::Value = toml::from_str(&content)?;
+        let mut raw: toml::Value = toml::from_str(&content)?;
+        migrate_diagnostics_raw(&mut raw)?;
         // Hard cut: [cache] was renamed to [kv]. AppConfig deliberately tolerates
         // foreign sections (carry_over_foreign_sections), so serde alone would
         // silently ignore the old name — reject it loudly instead.
@@ -227,4 +228,60 @@ impl Default for ConfigManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn migrate_diagnostics_raw(raw: &mut toml::Value) -> Result<()> {
+    let Some(diagnostics) = raw
+        .get_mut("diagnostics")
+        .and_then(toml::Value::as_table_mut)
+    else {
+        return Ok(());
+    };
+
+    let legacy_enabled = diagnostics
+        .get("enabled")
+        .map(|value| {
+            value.as_bool().ok_or_else(|| {
+                ConfigError::Invalid("diagnostics.enabled must be a boolean".to_string())
+            })
+        })
+        .transpose()?;
+    let runtime_log = diagnostics
+        .get_mut("runtime_log")
+        .and_then(toml::Value::as_table_mut);
+    let runtime_enabled = runtime_log
+        .as_ref()
+        .and_then(|table| table.get("enabled"))
+        .map(|value| {
+            value.as_bool().ok_or_else(|| {
+                ConfigError::Invalid(
+                    "diagnostics.runtime_log.enabled must be a boolean".to_string(),
+                )
+            })
+        })
+        .transpose()?;
+
+    let has_new_channel = diagnostics.keys().any(|key| {
+        matches!(
+            key.as_str(),
+            "requests"
+                | "gateway_calls"
+                | "frames"
+                | "event_history"
+                | "stdio_stderr"
+                | "daemon_output"
+        )
+    });
+    if !has_new_channel && (legacy_enabled.is_some() || runtime_enabled.is_some()) {
+        let enabled = legacy_enabled.unwrap_or(true) && runtime_enabled.unwrap_or(true);
+        let runtime_log = diagnostics
+            .entry("runtime_log")
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+        let table = runtime_log.as_table_mut().ok_or_else(|| {
+            ConfigError::Invalid("diagnostics.runtime_log must be a table".to_string())
+        })?;
+        table.insert("enabled".to_string(), toml::Value::Boolean(enabled));
+    }
+    diagnostics.remove("enabled");
+    Ok(())
 }

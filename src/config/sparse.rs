@@ -3,12 +3,14 @@ use serde_json::{Map, Value};
 use super::{AppConfig, Result};
 
 /// Recursively diff config against default values.
-/// Returns None when nothing differs (or only nulls were dropped).
+/// Returns None when nothing differs. Nulls matching a null default are omitted;
+/// nulls replacing a concrete default use the explicit TOML "unlimited" value.
 fn diff_value(config: &Value, default: Option<&Value>) -> Option<Value> {
-    // TOML has no null; None means "unset" (omit the key, like the previous
-    // direct struct serializer did).
     if config.is_null() {
-        return None;
+        return match default {
+            Some(default) if !default.is_null() => Some(Value::String("unlimited".to_string())),
+            _ => None,
+        };
     }
 
     match (config, default) {
