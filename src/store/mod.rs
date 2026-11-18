@@ -40,7 +40,10 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{PanelRole, StoreOptions};
+pub use options::{
+    CoreDiagnosticsOptions, CoreEventHistoryOptions, CoreFrameCaptureOptions,
+    CoreRequestCaptureOptions, CoreStdioStderrOptions, PanelRole, StoreOptions,
+};
 #[cfg(unix)]
 pub use store_config::ShmStoreConfig;
 pub use store_config::ValkeyStoreConfig;
@@ -80,7 +83,8 @@ impl MCPStore {
         };
 
         let app_config = config_manager.load_app_config_or_default()?;
-        let runtime_config = StoreRuntimeConfig::from_app_config(&app_config);
+        let runtime_config =
+            StoreRuntimeConfig::from_app_config(&app_config, options.diagnostics.clone());
         let namespace = options
             .namespace
             .clone()
@@ -167,7 +171,11 @@ impl MCPStore {
             }
         };
         let registry = ServiceRegistry::new();
-        let event_bus = EventBus::with_history(10_000);
+        let event_bus = if runtime_config.diagnostics.event_history.enabled {
+            EventBus::with_history(runtime_config.diagnostics.event_history.capacity)
+        } else {
+            EventBus::new()
+        };
         let kv = std::sync::Arc::new(KvLayerManager::new(kv_store, namespace.clone()));
         let state_panel_id = match &options.panel {
             PanelRole::ControlPanel => crate::state::CONTROL_NODE_ID.to_string(),

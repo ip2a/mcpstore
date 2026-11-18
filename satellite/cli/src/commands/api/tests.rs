@@ -150,6 +150,7 @@ async fn app_and_core_routers_expose_the_expected_faces() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -252,6 +253,7 @@ async fn gateway_routes_report_http_configuration() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -288,6 +290,7 @@ async fn gateway_backend_preserves_memory_store_and_is_reused() {
         config_path: Some(mcp_json.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -341,6 +344,7 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -420,6 +424,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -513,6 +518,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -697,6 +703,7 @@ async fn third_party_config_export_requires_service_name() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1225,6 +1232,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1293,6 +1301,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1350,6 +1359,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1448,6 +1458,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1550,6 +1561,7 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1592,6 +1604,7 @@ async fn store_routes_manage_rust_core_openapi_imports() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1731,6 +1744,7 @@ async fn store_route_bundles_openapi_without_importing() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1812,6 +1826,7 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -2101,6 +2116,7 @@ async fn cross_resource_import_writes_definitions_without_local_paths() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -2224,6 +2240,7 @@ async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();

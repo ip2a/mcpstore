@@ -479,8 +479,7 @@ mod tests {
     fn dropped_call_publishes_failed_terminal_state() {
         let log = GatewayCallLog::new();
         let call_id = {
-            let mut call =
-                log.begin(None, GatewayCallKind::Tool, "demo__cancel", None, "", None);
+            let mut call = log.begin(None, GatewayCallKind::Tool, "demo__cancel", None, "", None);
             call.set_phase(GatewayCallPhase::CallingUpstream);
             call.record.call_id.clone()
         };
@@ -499,7 +498,7 @@ mod tests {
     #[test]
     fn call_log_capacity_counts_calls_not_phase_updates() {
         let log = GatewayCallLog::new();
-        for index in 0..(super::GATEWAY_CALL_LOG_CAP + 3) {
+        for index in 0..(super::super::GATEWAY_CALL_LOG_CAP + 3) {
             let mut call = log.begin(
                 None,
                 GatewayCallKind::Tool,
@@ -513,11 +512,11 @@ mod tests {
         }
 
         let records = log.snapshot_after(0);
-        assert_eq!(records.len(), super::GATEWAY_CALL_LOG_CAP);
+        assert_eq!(records.len(), super::super::GATEWAY_CALL_LOG_CAP);
         assert_eq!(records.first().unwrap().name, "demo__call_3");
         assert_eq!(
             records.last().unwrap().name,
-            format!("demo__call_{}", super::GATEWAY_CALL_LOG_CAP + 2)
+            format!("demo__call_{}", super::super::GATEWAY_CALL_LOG_CAP + 2)
         );
     }
 
@@ -536,7 +535,7 @@ mod tests {
         saved.phase = GatewayCallPhase::CallingUpstream;
         saved.seq = 7;
         let call_id = saved.call_id.clone();
-        let (history, _) = super::history::GatewayCallHistory::open(&path).unwrap();
+        let (history, _) = super::super::history::GatewayCallHistory::open(&path).unwrap();
         history.save(saved);
         history.flush();
         drop(history);

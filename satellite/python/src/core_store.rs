@@ -769,6 +769,7 @@ impl PyMCPStore {
                 })
                 .transpose()?,
             namespace,
+            diagnostics: None,
         })
         .map_err(map_store_err)?;
         // Raw bindings must be self-sufficient: setup seeds and starts both feeds (spawn works because
