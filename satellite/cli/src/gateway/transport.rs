@@ -469,7 +469,16 @@ fn gateway_frame_sink(server: &GatewayServer) -> Option<std::sync::Arc<dyn Frame
     if let Some(sink) = server.store.frame_telemetry() {
         return Some(sink);
     }
-    match crate::telemetry::TelemetryLog::open(crate::telemetry::default_db_path()) {
+    let manager = server.store.config_manager();
+    let config = match manager.load_app_config_or_default() {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::warn!(%error, "gateway telemetry config unavailable");
+            return None;
+        }
+    };
+    let path = crate::telemetry::db_path(manager);
+    match crate::telemetry::TelemetryLog::open(path, &config.diagnostics) {
         Ok(log) => {
             let sink: std::sync::Arc<dyn FrameTelemetry> = log;
             server.store.set_frame_telemetry(Some(sink.clone()));
@@ -529,9 +538,7 @@ async fn record_gateway_frames(
         .unwrap_or_default();
     let call_id = business_gateway_call_id(&request_bytes);
     if let Some(call_id) = &call_id {
-        parts
-            .extensions
-            .insert(GatewayFrameCallId(call_id.clone()));
+        parts.extensions.insert(GatewayFrameCallId(call_id.clone()));
     }
     emit_gateway_frames(
         &sink,
@@ -589,9 +596,7 @@ fn business_gateway_call_id(bytes: &[u8]) -> Option<String> {
     let envelope: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     envelope.get("id")?;
     match envelope.get("method").and_then(|value| value.as_str()) {
-        Some("tools/call" | "prompts/get" | "resources/read") => {
-            Some(super::new_gateway_call_id())
-        }
+        Some("tools/call" | "prompts/get" | "resources/read") => Some(super::new_gateway_call_id()),
         _ => None,
     }
 }
@@ -691,7 +696,11 @@ mod frame_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gateway-frames.db");
         let _ = std::fs::remove_file(&path);
-        let log = crate::telemetry::TelemetryLog::open(&path).unwrap();
+        let log = crate::telemetry::TelemetryLog::open(
+            &path,
+            &mcpstore::config::DiagnosticsConfig::default(),
+        )
+        .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let router = frame_router(std::sync::Arc::clone(&log));
@@ -740,7 +749,11 @@ mod frame_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gateway-frames.db");
         let _ = std::fs::remove_file(&path);
-        let log = crate::telemetry::TelemetryLog::open(&path).unwrap();
+        let log = crate::telemetry::TelemetryLog::open(
+            &path,
+            &mcpstore::config::DiagnosticsConfig::default(),
+        )
+        .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let router = frame_router(std::sync::Arc::clone(&log));

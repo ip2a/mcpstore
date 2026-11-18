@@ -2413,3 +2413,117 @@ async fn panel_rejects_selector_on_panel_local_routes() {
 
     handle.abort();
 }
+
+fn management_audit_fixture(
+    requests: mcpstore::config::RequestTelemetryConfig,
+) -> (
+    Arc<ApiState>,
+    Arc<crate::telemetry::TelemetryLog>,
+    std::path::PathBuf,
+) {
+    let root = unique_temp_dir_path("management-audit");
+    std::fs::create_dir_all(&root).unwrap();
+    let store_path = root.join("mcp.json");
+    std::fs::write(&store_path, "{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let diagnostics = mcpstore::config::DiagnosticsConfig {
+        requests,
+        ..Default::default()
+    };
+    let log =
+        crate::telemetry::TelemetryLog::open(root.join("telemetry.db"), &diagnostics).unwrap();
+    store.set_telemetry(Some(log.clone()));
+    let state = state_for_store(store);
+    state.set_telemetry(log.clone());
+    (state, log, root)
+}
+
+fn management_audit_router(state: Arc<ApiState>) -> Router {
+    Router::new()
+        .route(
+            "/audit",
+            post(|body: axum::body::Bytes| async move { body }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit_mutations,
+        ))
+        .with_state(state)
+}
+
+async fn post_management_audit(
+    state: Arc<ApiState>,
+    body: &'static str,
+) -> axum::response::Response {
+    use tower::ServiceExt;
+
+    management_audit_router(state)
+        .oneshot(
+            axum::extract::Request::builder()
+                .method(Method::POST)
+                .uri("/audit?query=MANAGEMENT_QUERY_SENTINEL")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn management_audit_capture_and_payload_switches_preserve_the_request() {
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_management = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(
+        log.history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap()
+        .total,
+        0
+    );
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
+
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_payload = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let history = log
+        .history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.total, 1);
+    let record = &history.requests[0];
+    assert_eq!(record.tool.as_deref(), Some("POST /audit"));
+    assert!(record.success);
+    assert_eq!(record.args_json, None);
+    assert!(!serde_json::to_string(record)
+        .unwrap()
+        .contains("MANAGEMENT_"));
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
+}

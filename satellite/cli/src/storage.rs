@@ -23,12 +23,15 @@ impl StorageManager {
 
     /// Open telemetry DB (creates schema if needed, starts writer thread).
     /// Fails loud: a daemon that can't record its calls points at broken storage.
-    pub fn init_telemetry(&mut self) -> Result<(), String> {
+    pub fn init_telemetry(
+        &mut self,
+        diagnostics: &mcpstore::config::DiagnosticsConfig,
+    ) -> Result<(), String> {
         if self.telemetry.is_some() {
             return Ok(());
         }
-        let log =
-            TelemetryLog::open(&self.telemetry_path).map_err(|e| format!("telemetry DB: {e}"))?;
+        let log = TelemetryLog::open(&self.telemetry_path, diagnostics)
+            .map_err(|e| format!("telemetry DB: {e}"))?;
         self.telemetry = Some(log);
         Ok(())
     }
