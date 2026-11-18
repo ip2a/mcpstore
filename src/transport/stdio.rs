@@ -146,6 +146,7 @@ pub(super) async fn connect(
     instance_id: InstanceId,
     supervisor: Option<Arc<InstanceSupervisor>>,
     frame_telemetry: Option<Arc<dyn FrameTelemetry>>,
+    capture_frame_payload: bool,
     stderr_options: CoreStdioStderrOptions,
 ) -> crate::error::Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
@@ -283,6 +284,7 @@ pub(super) async fn connect(
     let transport = TelemetryTransport::wrap(
         transport,
         frame_telemetry,
+        capture_frame_payload,
         instance_id,
         name.to_string(),
         "stdio",
@@ -475,6 +477,7 @@ mod tests {
                 instance_id,
                 None,
                 None,
+                true,
                 stderr_options,
             ),
         )

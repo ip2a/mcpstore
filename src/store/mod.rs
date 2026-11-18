@@ -199,6 +199,7 @@ impl MCPStore {
             event_bus.clone(),
             kv.clone(),
             runtime_config.diagnostics.stdio_stderr.clone(),
+            runtime_config.diagnostics.upstream_frames.clone(),
         );
 
         let store = std::sync::Arc::new(Self {

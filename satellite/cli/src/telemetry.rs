@@ -560,7 +560,12 @@ impl TelemetryLog {
 
     /// Queue a frame — same contract as [`record`](Self::record).
     pub fn record_frame(&self, mut record: FrameRecord) {
-        if !self.frames.enabled {
+        let source_enabled = match record.face.as_str() {
+            "gateway" => self.frames.capture_gateway,
+            "upstream" => self.frames.capture_upstream,
+            _ => true,
+        };
+        if !self.frames.enabled || !source_enabled {
             return;
         }
         if self.frames.capture_payload {
@@ -1424,6 +1429,91 @@ mod tests {
             .unwrap();
         assert_eq!(tool.args_json.as_deref(), Some("12345678"));
         assert!(tool.args_truncated);
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn disabled_frame_capture_preserves_history_and_applies_record_limit() {
+        let path = temp_path("disabled-frame-history");
+        std::fs::remove_file(&path).ok();
+        let conn = open_connection(&path).unwrap();
+        init_schema(&conn).unwrap();
+        insert_frame_batch(
+            &conn,
+            &[
+                frame("f1", "gateway", "up", Some("ping")),
+                frame("f2", "upstream", "up", Some("ping")),
+                frame("f3", "gateway", "down", None),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.frames.enabled = false;
+        diagnostics.frames.max_records = Some(2);
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record_frame(frame("ignored", "upstream", "up", Some("ping")));
+        let frames = log.frame_recent(None, 10).unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].session_id, "f2");
+        assert_eq!(frames[1].session_id, "f3");
+        assert_eq!(log.frame_history("f2", 10).unwrap().len(), 1);
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn frame_face_and_payload_switches_are_enforced_at_the_sink() {
+        let path = temp_path("frame-face-policy");
+        std::fs::remove_file(&path).ok();
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.frames.capture_gateway = false;
+        diagnostics.frames.capture_payload = false;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        let mut gateway = frame("gw-ignored", "gateway", "up", Some("tools/call"));
+        gateway.payload = "GATEWAY_PAYLOAD_SENTINEL".to_string();
+        log.record_frame(gateway);
+        let mut upstream = frame("up-meta", "upstream", "up", Some("tools/call"));
+        upstream.payload = "UPSTREAM_PAYLOAD_SENTINEL".to_string();
+        upstream.size_bytes = upstream.payload.len() as i64;
+        upstream.request_id = Some("call-meta".to_string());
+        upstream.truncated = true;
+        log.record_frame(upstream);
+        std::thread::sleep(Duration::from_millis(300));
+
+        assert!(log.frame_history("gw-ignored", 10).unwrap().is_empty());
+        let frames = log.frame_history("up-meta", 10).unwrap();
+        assert_eq!(frames.len(), 1);
+        let captured = &frames[0];
+        assert_eq!(captured.method.as_deref(), Some("tools/call"));
+        assert_eq!(captured.face, "upstream");
+        assert_eq!(captured.direction, "up");
+        assert_eq!(captured.request_id.as_deref(), Some("call-meta"));
+        assert!(captured.size_bytes > 0);
+        assert!(captured.payload.is_empty());
+        assert!(!captured.truncated);
+        assert!(!serde_json::to_string(captured)
+            .unwrap()
+            .contains("SENTINEL"));
+        drop(log);
+
+        diagnostics.frames.capture_gateway = true;
+        diagnostics.frames.capture_upstream = false;
+        diagnostics.frames.capture_payload = true;
+        diagnostics.frames.max_payload_bytes = 8;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record_frame(frame("up-ignored", "upstream", "up", Some("ping")));
+        let mut gateway = frame("gw-capped", "gateway", "up", Some("ping"));
+        gateway.payload = "123456789".to_string();
+        log.record_frame(gateway);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(log.frame_history("up-ignored", 10).unwrap().is_empty());
+        let frames = log.frame_history("gw-capped", 10).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].payload, "12345678");
+        assert!(frames[0].truncated);
         drop(log);
         std::fs::remove_file(path).ok();
     }
