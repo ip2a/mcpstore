@@ -10,8 +10,8 @@ use mcpstore::client_wire;
 use mcpstore::{MCPStore, ScopeRef};
 
 use crate::gateway::{
-    report_gateway_boot, streamable_http_router, GatewayBoot, GatewayBootPhase,
-    normalize_http_path, GatewayBootReporter, GatewayCallLog, GatewayCatalog, GatewayOptions,
+    normalize_http_path, report_gateway_boot, streamable_http_router, GatewayBoot,
+    GatewayBootPhase, GatewayBootReporter, GatewayCallLog, GatewayCatalog, GatewayOptions,
     GatewayServer,
 };
 use serde::Deserialize;
@@ -209,13 +209,16 @@ impl GatewayRuntime {
         options: GatewayOptions,
         report: Option<GatewayBootReporter>,
     ) -> Result<Arc<Self>, BoxErr> {
-        let call_log = GatewayCallLog::open(&crate::telemetry::default_db_path())?;
+        let app_config = store.config_manager().load_app_config_or_default()?;
+        let call_log = GatewayCallLog::open(
+            &crate::telemetry::db_path(store.config_manager()),
+            &app_config.diagnostics.gateway_calls,
+        )?;
         let wired_path = wired_ledger_path(&store);
         if let Some(report) = &report {
             report(GatewayBoot::new(GatewayBootPhase::Mounting));
         }
-        let mount_set =
-            build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
+        let mount_set = build_mounts(&store, &options, Arc::clone(&call_log), &wired_path).await?;
         let generic_path = normalize_http_path(&options.path);
         let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
         let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
@@ -379,8 +382,7 @@ async fn build_mounts(
     // Generic mount from the CLI options; its exposure is fixed for the
     // process lifetime, so reconciliation never removes it.
     let generic_path = normalize_http_path(&options.path);
-    let generic_server =
-        build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
+    let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
     let generic_projection = MountProjection {
         caller: None,
         issues: generic_server.projection_handle(),

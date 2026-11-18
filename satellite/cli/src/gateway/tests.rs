@@ -497,8 +497,10 @@ mod tests {
 
     #[test]
     fn call_log_capacity_counts_calls_not_phase_updates() {
-        let log = GatewayCallLog::new();
-        for index in 0..(super::super::GATEWAY_CALL_LOG_CAP + 3) {
+        let mut config = mcpstore::config::GatewayCallsConfig::default();
+        config.memory_capacity = 8;
+        let log = GatewayCallLog::from_saved(Vec::new(), None, config);
+        for index in 0..11 {
             let mut call = log.begin(
                 None,
                 GatewayCallKind::Tool,
@@ -512,12 +514,9 @@ mod tests {
         }
 
         let records = log.snapshot_after(0);
-        assert_eq!(records.len(), super::super::GATEWAY_CALL_LOG_CAP);
+        assert_eq!(records.len(), 8);
         assert_eq!(records.first().unwrap().name, "demo__call_3");
-        assert_eq!(
-            records.last().unwrap().name,
-            format!("demo__call_{}", super::super::GATEWAY_CALL_LOG_CAP + 2)
-        );
+        assert_eq!(records.last().unwrap().name, "demo__call_10");
     }
 
     #[test]
@@ -535,12 +534,17 @@ mod tests {
         saved.phase = GatewayCallPhase::CallingUpstream;
         saved.seq = 7;
         let call_id = saved.call_id.clone();
-        let (history, _) = super::super::history::GatewayCallHistory::open(&path).unwrap();
+        let (history, _) = super::super::history::GatewayCallHistory::open(
+            &path,
+            &mcpstore::config::GatewayCallsConfig::default(),
+        )
+        .unwrap();
         history.save(saved);
         history.flush();
         drop(history);
 
-        let log = GatewayCallLog::open(&path).unwrap();
+        let log =
+            GatewayCallLog::open(&path, &mcpstore::config::GatewayCallsConfig::default()).unwrap();
         let records = log.snapshot_after(0);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].call_id, call_id);
@@ -553,13 +557,86 @@ mod tests {
         log.history.as_ref().unwrap().flush();
         drop(log);
 
-        let reopened = GatewayCallLog::open(&path).unwrap();
+        let reopened =
+            GatewayCallLog::open(&path, &mcpstore::config::GatewayCallsConfig::default()).unwrap();
         assert_eq!(reopened.snapshot_after(0), records);
         reopened.history.as_ref().unwrap().flush();
         drop(reopened);
         std::fs::remove_file(&path).ok();
         std::fs::remove_file(path.with_extension("db-wal")).ok();
         std::fs::remove_file(path.with_extension("db-shm")).ok();
+    }
+
+    #[test]
+    fn disabled_call_capture_keeps_old_history_without_publishing_new_calls() {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-gateway-disabled-calls-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let seed =
+            GatewayCallLog::open(&path, &mcpstore::config::GatewayCallsConfig::default()).unwrap();
+        seed.record(
+            Some("old"),
+            GatewayCallKind::Tool,
+            "old__call",
+            ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id(),
+            "demo",
+            std::time::Duration::from_millis(1),
+            true,
+        );
+        seed.history.as_ref().unwrap().flush();
+        drop(seed);
+
+        let mut config = mcpstore::config::GatewayCallsConfig::default();
+        config.enabled = false;
+        let log = GatewayCallLog::open(&path, &config).unwrap();
+        log.record(
+            Some("new"),
+            GatewayCallKind::Tool,
+            "new__call",
+            ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id(),
+            "demo",
+            std::time::Duration::from_millis(1),
+            true,
+        );
+        let records = log.snapshot_after(0);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "old__call");
+        drop(log);
+        let reopened = GatewayCallLog::open(&path, &config).unwrap();
+        assert_eq!(reopened.snapshot_after(0), records);
+        drop(reopened);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn disabled_persistence_keeps_calls_in_memory_only() {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-gateway-memory-calls-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut config = mcpstore::config::GatewayCallsConfig::default();
+        config.persist = false;
+        let log = GatewayCallLog::open(&path, &config).unwrap();
+        let call = log.begin(None, GatewayCallKind::Tool, "memory__call", None, "", None);
+        let call_id = call.record.call_id.clone();
+        call.finish(true, None);
+        assert_eq!(log.snapshot_after(0).len(), 1);
+        assert_eq!(log.snapshot_after(0)[0].call_id, call_id);
+        drop(log);
+
+        let reopened = GatewayCallLog::open(&path, &config).unwrap();
+        assert!(reopened.snapshot_after(0).is_empty());
+        drop(reopened);
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

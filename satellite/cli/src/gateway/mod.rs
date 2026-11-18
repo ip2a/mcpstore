@@ -11,7 +11,9 @@ use std::sync::{
 };
 
 use mcpstore::{
-    config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
+    config::{
+        GatewayCallsConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    },
     events::{bus::EventHandler, Event},
     ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
@@ -210,10 +212,9 @@ pub struct GatewayCallLog {
     latest: std::sync::atomic::AtomicU64,
 
     history: Option<Arc<history::GatewayCallHistory>>,
+    config: GatewayCallsConfig,
     changed: tokio::sync::watch::Sender<u64>,
 }
-
-const GATEWAY_CALL_LOG_CAP: usize = 256;
 
 pub(crate) fn new_gateway_call_id() -> String {
     static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -230,26 +231,26 @@ pub(crate) fn new_gateway_call_id() -> String {
 
 impl GatewayCallLog {
     pub fn new() -> Arc<Self> {
-        Self::from_saved(Vec::new(), None)
+        Self::from_saved(Vec::new(), None, GatewayCallsConfig::default())
     }
 
-    pub fn open(path: &std::path::Path) -> rusqlite::Result<Arc<Self>> {
-        let (history, saved) = history::GatewayCallHistory::open(path)?;
-        let log = Self::from_saved(saved, Some(history));
-        let interrupted: Vec<GatewayCallRecord> = log
-            .records
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|record| {
-                matches!(
-                    record.phase,
-                    GatewayCallPhase::Routing | GatewayCallPhase::CallingUpstream
-                )
-            })
-            .cloned()
-            .collect();
-        for mut record in interrupted {
+    pub fn open(
+        path: &std::path::Path,
+        config: &GatewayCallsConfig,
+    ) -> rusqlite::Result<Arc<Self>> {
+        let (history, mut saved) = history::GatewayCallHistory::open(path, config)?;
+        saved.sort_by_key(|record| record.seq);
+        let mut latest = saved.last().map_or(0, |record| record.seq);
+        let mut repaired = Vec::new();
+        for record in &mut saved {
+            if !matches!(
+                record.phase,
+                GatewayCallPhase::Routing | GatewayCallPhase::CallingUpstream
+            ) {
+                continue;
+            }
+            latest += 1;
+            record.seq = latest;
             record.phase = GatewayCallPhase::Failed;
             record.success = false;
             record.error = Some("Gateway restarted before this call completed".to_string());
@@ -258,7 +259,15 @@ impl GatewayCallLog {
                 .unwrap_or_default()
                 .as_millis()
                 .saturating_sub(record.at_unix_ms as u128) as u64;
-            log.update(record);
+            if config.enabled && config.persist {
+                repaired.push(record.clone());
+            }
+        }
+        let log = Self::from_saved(saved, Some(history), config.clone());
+        for record in repaired {
+            if let Some(history) = &log.history {
+                history.save(record);
+            }
         }
         Ok(log)
     }
@@ -266,13 +275,14 @@ impl GatewayCallLog {
     fn from_saved(
         mut saved: Vec<GatewayCallRecord>,
         history: Option<Arc<history::GatewayCallHistory>>,
+        config: GatewayCallsConfig,
     ) -> Arc<Self> {
         saved.sort_by_key(|record| record.seq);
         let latest = saved.last().map_or(0, |record| record.seq);
         let records = saved
             .into_iter()
             .rev()
-            .take(GATEWAY_CALL_LOG_CAP)
+            .take(config.memory_capacity)
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
@@ -282,6 +292,7 @@ impl GatewayCallLog {
             records: std::sync::Mutex::new(records),
             latest: std::sync::atomic::AtomicU64::new(latest),
             history,
+            config,
             changed,
         })
     }
@@ -298,13 +309,7 @@ impl GatewayCallLog {
         duration: std::time::Duration,
         success: bool,
     ) {
-        let mut record = self.new_record(
-            caller,
-            kind,
-            name,
-            Some(instance_id),
-            service_name,
-        );
+        let mut record = self.new_record(caller, kind, name, Some(instance_id), service_name);
         record.phase = if success {
             GatewayCallPhase::Succeeded
         } else {
@@ -375,6 +380,9 @@ impl GatewayCallLog {
     }
 
     fn update(&self, mut record: GatewayCallRecord) {
+        if !self.config.enabled {
+            return;
+        }
         let seq;
         {
             let mut records = self.records.lock().unwrap();
@@ -386,15 +394,16 @@ impl GatewayCallLog {
             {
                 records.remove(index);
             }
-            while records.len() >= GATEWAY_CALL_LOG_CAP {
+            while records.len() >= self.config.memory_capacity {
                 records.pop_front();
             }
             records.push_back(record.clone());
-            self.latest
-                .store(seq, std::sync::atomic::Ordering::Relaxed);
+            self.latest.store(seq, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(history) = &self.history {
-            history.save(record);
+        if self.config.persist {
+            if let Some(history) = &self.history {
+                history.save(record);
+            }
         }
         let _ = self.changed.send(seq);
     }
