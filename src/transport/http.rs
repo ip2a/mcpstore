@@ -6,6 +6,7 @@ use crate::telemetry::FrameTelemetry;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::oauth::McpStoreOAuthClient;
+use crate::transport::observed_http::ObservedHttpClient;
 use crate::transport::telemetry_transport::TelemetryTransport;
 
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -97,6 +98,7 @@ pub(super) async fn connect(
                     format!("HTTP client initialization failed: {error}"),
                 )
             })?;
+        let http_client = ObservedHttpClient::new(http_client, instance_id);
         let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
         let transport = TelemetryTransport::wrap(
             transport,
@@ -152,7 +154,7 @@ pub(super) async fn connect(
             )
         })?;
     let oauth_client = McpStoreOAuthClient::new(
-        http_client,
+        ObservedHttpClient::new(http_client, instance_id),
         authorization_manager,
         auth_coordinator.clone(),
         instance_id,

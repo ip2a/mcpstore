@@ -457,6 +457,113 @@ mod tests {
     }
 
     #[test]
+    fn call_log_collapses_phases_and_supports_incremental_reads() {
+        let log = GatewayCallLog::new();
+        let mut call = log.begin(None, GatewayCallKind::Tool, "demo__echo", None, "", None);
+        let call_id = call.record.call_id.clone();
+        let routing_seq = log.latest_seq();
+        call.set_phase(GatewayCallPhase::CallingUpstream);
+        call.finish(true, None);
+
+        let records = log.snapshot_after(0);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].call_id, call_id);
+        assert_eq!(records[0].phase, GatewayCallPhase::Succeeded);
+        assert!(records[0].success);
+        assert!(records[0].seq > routing_seq);
+        assert_eq!(log.snapshot_after(routing_seq), records);
+        assert!(log.snapshot_after(log.latest_seq()).is_empty());
+    }
+
+    #[test]
+    fn dropped_call_publishes_failed_terminal_state() {
+        let log = GatewayCallLog::new();
+        let call_id = {
+            let mut call =
+                log.begin(None, GatewayCallKind::Tool, "demo__cancel", None, "", None);
+            call.set_phase(GatewayCallPhase::CallingUpstream);
+            call.record.call_id.clone()
+        };
+
+        let records = log.snapshot_after(0);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].call_id, call_id);
+        assert_eq!(records[0].phase, GatewayCallPhase::Failed);
+        assert!(!records[0].success);
+        assert_eq!(
+            records[0].error.as_deref(),
+            Some("Call ended before a terminal response was recorded")
+        );
+    }
+
+    #[test]
+    fn call_log_capacity_counts_calls_not_phase_updates() {
+        let log = GatewayCallLog::new();
+        for index in 0..(super::GATEWAY_CALL_LOG_CAP + 3) {
+            let mut call = log.begin(
+                None,
+                GatewayCallKind::Tool,
+                &format!("demo__call_{index}"),
+                None,
+                "",
+                None,
+            );
+            call.set_phase(GatewayCallPhase::CallingUpstream);
+            call.finish(true, None);
+        }
+
+        let records = log.snapshot_after(0);
+        assert_eq!(records.len(), super::GATEWAY_CALL_LOG_CAP);
+        assert_eq!(records.first().unwrap().name, "demo__call_3");
+        assert_eq!(
+            records.last().unwrap().name,
+            format!("demo__call_{}", super::GATEWAY_CALL_LOG_CAP + 2)
+        );
+    }
+
+    #[test]
+    fn restart_marks_restored_active_call_as_interrupted() {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-gateway-restart-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let seed = GatewayCallLog::new();
+        let mut saved = seed.new_record(None, GatewayCallKind::Tool, "demo__active", None, "");
+        saved.phase = GatewayCallPhase::CallingUpstream;
+        saved.seq = 7;
+        let call_id = saved.call_id.clone();
+        let (history, _) = super::history::GatewayCallHistory::open(&path).unwrap();
+        history.save(saved);
+        history.flush();
+        drop(history);
+
+        let log = GatewayCallLog::open(&path).unwrap();
+        let records = log.snapshot_after(0);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].call_id, call_id);
+        assert_eq!(records[0].phase, GatewayCallPhase::Failed);
+        assert_eq!(
+            records[0].error.as_deref(),
+            Some("Gateway restarted before this call completed")
+        );
+        assert!(records[0].seq > 7);
+        log.history.as_ref().unwrap().flush();
+        drop(log);
+
+        let reopened = GatewayCallLog::open(&path).unwrap();
+        assert_eq!(reopened.snapshot_after(0), records);
+        reopened.history.as_ref().unwrap().flush();
+        drop(reopened);
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(path.with_extension("db-wal")).ok();
+        std::fs::remove_file(path.with_extension("db-shm")).ok();
+    }
+
+    #[test]
     fn call_records_carry_caller_and_service_name() {
         let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
         let log = GatewayCallLog::new();

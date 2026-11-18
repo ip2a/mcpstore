@@ -82,6 +82,29 @@ impl MCPStore {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        self.get_prompt_scoped_inner(instance_id, prompt_name, arguments, None)
+            .await
+    }
+
+    /// Gateway variant that correlates the upstream request and raw frames.
+    pub async fn get_prompt_scoped_with_trace(
+        &self,
+        instance_id: InstanceId,
+        prompt_name: &str,
+        arguments: serde_json::Value,
+        trace: std::sync::Arc<crate::telemetry::CallTrace>,
+    ) -> Result<serde_json::Value> {
+        self.get_prompt_scoped_inner(instance_id, prompt_name, arguments, Some(trace))
+            .await
+    }
+
+    async fn get_prompt_scoped_inner(
+        &self,
+        instance_id: InstanceId,
+        prompt_name: &str,
+        arguments: serde_json::Value,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         // Execution surface: connect on demand BEFORE resolving the original
         // key — list_prompts is side-effect free now and answers NotConnected
         // for a disconnected instance.
@@ -110,6 +133,7 @@ impl MCPStore {
                 format!("Prompt '{prompt_name}' is disabled in instance '{instance_id}'"),
             ));
         }
-        self.get_prompt(instance_id, &original, arguments).await
+        self.get_prompt_traced(instance_id, &original, arguments, trace)
+            .await
     }
 }

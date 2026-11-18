@@ -3,6 +3,158 @@
 //! layer, so SDK consumers never inherit a storage engine.
 
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
+
+/// Internal MCP `_meta` key used to correlate gateway calls with upstream frames.
+pub const CALL_ID_META_KEY: &str = "io.mcpstore/call_id";
+
+/// Measured offsets from the start of a gateway call. HTTP first-byte timing is
+/// recorded when response headers become available; stdio uses the first byte of
+/// the matching JSON-RPC line. No value is synthesized when a transport cannot
+/// observe the boundary.
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CallTiming {
+    pub request_write_ms: Option<u64>,
+    pub first_byte_ms: Option<u64>,
+    pub response_read_ms: Option<u64>,
+}
+
+#[derive(Debug)]
+pub struct CallTrace {
+    call_id: String,
+    started: Instant,
+    started_at_unix_ms: i64,
+    timing: Mutex<CallTiming>,
+}
+
+impl CallTrace {
+    pub fn register(call_id: impl Into<String>) -> Arc<Self> {
+        let call_id = call_id.into();
+        let trace = Arc::new(Self {
+            call_id: call_id.clone(),
+            started: Instant::now(),
+            started_at_unix_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or_default(),
+            timing: Mutex::new(CallTiming::default()),
+        });
+        call_traces()
+            .lock()
+            .unwrap()
+            .insert(call_id, Arc::clone(&trace));
+        trace
+    }
+
+    pub fn call_id(&self) -> &str {
+        &self.call_id
+    }
+
+    pub fn started_at_unix_ms(&self) -> i64 {
+        self.started_at_unix_ms
+    }
+
+    pub fn timing(&self) -> CallTiming {
+        self.timing.lock().unwrap().clone()
+    }
+
+    pub fn unregister(&self) {
+        call_traces().lock().unwrap().remove(&self.call_id);
+        jsonrpc_traces()
+            .lock()
+            .unwrap()
+            .retain(|_, trace| trace.call_id != self.call_id);
+    }
+
+    pub fn mark_request_write(&self) {
+        self.mark(|timing| &mut timing.request_write_ms);
+    }
+
+    pub fn mark_first_byte(&self) {
+        self.mark(|timing| &mut timing.first_byte_ms);
+    }
+
+    pub fn mark_response_read(&self) {
+        self.mark(|timing| &mut timing.response_read_ms);
+    }
+
+    fn mark(&self, field: impl FnOnce(&mut CallTiming) -> &mut Option<u64>) {
+        let elapsed = self.started.elapsed().as_millis() as u64;
+        let mut timing = self.timing.lock().unwrap();
+        let field = field(&mut timing);
+        if field.is_none() {
+            *field = Some(elapsed);
+        }
+    }
+
+    fn mark_response_bytes(&self, first_byte: Instant) {
+        let mut timing = self.timing.lock().unwrap();
+        if timing.first_byte_ms.is_none() {
+            timing.first_byte_ms = Some(
+                first_byte
+                    .checked_duration_since(self.started)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            );
+        }
+        if timing.response_read_ms.is_none() {
+            timing.response_read_ms = Some(self.started.elapsed().as_millis() as u64);
+        }
+    }
+}
+
+fn call_traces() -> &'static Mutex<HashMap<String, Arc<CallTrace>>> {
+    static TRACES: OnceLock<Mutex<HashMap<String, Arc<CallTrace>>>> = OnceLock::new();
+    TRACES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn jsonrpc_traces() -> &'static Mutex<HashMap<(String, String), Arc<CallTrace>>> {
+    static TRACES: OnceLock<Mutex<HashMap<(String, String), Arc<CallTrace>>>> = OnceLock::new();
+    TRACES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn trace_for_call_id(call_id: &str) -> Option<Arc<CallTrace>> {
+    call_traces().lock().unwrap().get(call_id).cloned()
+}
+
+pub(crate) fn bind_jsonrpc_trace(
+    instance_id: &str,
+    jsonrpc_id: String,
+    trace: Arc<CallTrace>,
+) {
+    jsonrpc_traces()
+        .lock()
+        .unwrap()
+        .insert((instance_id.to_string(), jsonrpc_id), trace);
+}
+
+pub(crate) fn trace_for_jsonrpc(
+    instance_id: &str,
+    jsonrpc_id: &str,
+) -> Option<Arc<CallTrace>> {
+    jsonrpc_traces()
+        .lock()
+        .unwrap()
+        .get(&(instance_id.to_string(), jsonrpc_id.to_string()))
+        .cloned()
+}
+
+pub(crate) fn mark_stdio_response(
+    instance_id: &str,
+    jsonrpc_id: &str,
+    first_byte: Instant,
+) {
+    let trace = jsonrpc_traces()
+        .lock()
+        .unwrap()
+        .get(&(instance_id.to_string(), jsonrpc_id.to_string()))
+        .cloned();
+    if let Some(trace) = trace {
+        trace.mark_response_bytes(first_byte);
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RequestRecord {
@@ -30,6 +182,7 @@ pub struct RequestRecord {
     pub result_json: Option<String>,
     pub args_truncated: bool,
     pub result_truncated: bool,
+    pub timing: Option<CallTiming>,
 }
 
 impl RequestRecord {
@@ -57,6 +210,7 @@ impl RequestRecord {
             result_json: None,
             args_truncated: false,
             result_truncated: false,
+            timing: None,
         }
     }
 }
@@ -100,6 +254,8 @@ pub struct FrameRecord {
     pub peer: Option<String>,
     /// `"stdio" | "streamable-http"`.
     pub transport: Option<String>,
+    /// Stable gateway call id shared with [`RequestRecord::request_id`].
+    pub request_id: Option<String>,
 }
 
 impl FrameRecord {
@@ -124,6 +280,7 @@ impl FrameRecord {
             instance_id: None,
             peer: None,
             transport: None,
+            request_id: None,
         }
     }
 

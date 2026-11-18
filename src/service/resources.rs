@@ -83,6 +83,15 @@ impl MCPStore {
         instance_id: InstanceId,
         uri: &str,
     ) -> Result<serde_json::Value> {
+        self.read_resource_traced(instance_id, uri, None).await
+    }
+
+    pub(crate) async fn read_resource_traced(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         self.ensure_instance_connected(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
@@ -109,7 +118,7 @@ impl MCPStore {
         self.kernel
             .execution
             .pool
-            .read_resource(instance_id, uri)
+            .read_resource_traced(instance_id, uri, trace)
             .await
     }
 }

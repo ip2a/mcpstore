@@ -103,13 +103,29 @@ impl McpConnection {
     }
 
     pub async fn read_resource(&self, uri: &str) -> Result<serde_json::Value> {
+        self.read_resource_traced(uri, None).await
+    }
+
+    pub(crate) async fn read_resource_traced(
+        &self,
+        uri: &str,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         self.require_resources()?;
+        let mut params = ReadResourceRequestParams::new(uri);
+        if let Some(trace) = trace {
+            params
+                .meta
+                .get_or_insert_default()
+                .insert(
+                    crate::telemetry::CALL_ID_META_KEY.to_string(),
+                    trace.call_id().to_string().into(),
+                );
+        }
         let result = send_protocol_request(
             self.get_client()?,
             self.instance_id(),
-            ClientRequest::ReadResourceRequest(ReadResourceRequest::new(
-                ReadResourceRequestParams::new(uri),
-            )),
+            ClientRequest::ReadResourceRequest(ReadResourceRequest::new(params)),
             "read resource",
         )
         .await;

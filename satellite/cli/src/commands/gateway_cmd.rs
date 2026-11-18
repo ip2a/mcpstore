@@ -209,7 +209,7 @@ impl GatewayRuntime {
         options: GatewayOptions,
         report: Option<GatewayBootReporter>,
     ) -> Result<Arc<Self>, BoxErr> {
-        let call_log = GatewayCallLog::new();
+        let call_log = GatewayCallLog::open(&crate::telemetry::default_db_path())?;
         let wired_path = wired_ledger_path(&store);
         if let Some(report) = &report {
             report(GatewayBoot::new(GatewayBootPhase::Mounting));
@@ -766,15 +766,15 @@ async fn calls_route(
     Query(query): Query<CallsQuery>,
 ) -> Response {
     let after = query.after.unwrap_or(0);
-    if let Some(wait_ms) = query.wait_ms {
-        if wait_ms > 0 && call_log.latest_seq() <= after {
-            let mut rx = call_log.subscribe();
+    if let Some(wait_ms) = query.wait_ms.filter(|wait_ms| *wait_ms > 0) {
+        let mut rx = call_log.subscribe();
+        if call_log.latest_seq() <= after {
             let wait = std::time::Duration::from_millis(wait_ms.min(25_000));
             let _ = tokio::time::timeout(wait, rx.changed()).await;
         }
     }
-    let requests: Vec<Value> = call_log
-        .snapshot_after(after)
+    let (latest_seq, records) = call_log.snapshot_page(after);
+    let requests: Vec<Value> = records
         .iter()
         .map(|record| serde_json::to_value(record).unwrap_or(Value::Null))
         .collect();
@@ -783,7 +783,7 @@ async fn calls_route(
         "data": {
             "running": true,
             "requests": requests,
-            "latest_seq": call_log.latest_seq(),
+            "latest_seq": latest_seq,
         },
     }))
     .into_response()

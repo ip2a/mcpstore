@@ -17,6 +17,17 @@ use super::transport::build_tool_bindings;
 use super::*;
 use serde_json::json;
 
+fn gateway_frame_call_id(
+    context: &rmcp::service::RequestContext<rmcp::RoleServer>,
+) -> Option<String> {
+    context
+        .extensions
+        .get::<axum::http::request::Parts>()?
+        .extensions
+        .get::<super::transport::GatewayFrameCallId>()
+        .map(|id| id.0.clone())
+}
+
 impl GatewayServer {
     pub(crate) async fn from_store(
         store: Arc<MCPStore>,
@@ -319,8 +330,9 @@ impl ServerHandler for GatewayServer {
     fn read_resource(
         &self,
         request: ReadResourceRequestParams,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ReadResourceResponse, ErrorData>> + '_ {
+        let frame_call_id = gateway_frame_call_id(&context);
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
@@ -328,7 +340,14 @@ impl ServerHandler for GatewayServer {
         let call_log = Arc::clone(&self.call_log);
         let caller = self.caller.clone();
         async move {
-            let call_start = std::time::Instant::now();
+            let mut call = call_log.begin(
+                caller.as_deref(),
+                GatewayCallKind::Resource,
+                &request.uri,
+                target_instance_id,
+                "",
+                frame_call_id.as_deref(),
+            );
             let resources = if let Some(session_key) = session_key.as_deref() {
                 store.list_resources_in_session(session_key).await
             } else if let Some(instance_id) = target_instance_id {
@@ -345,16 +364,22 @@ impl ServerHandler for GatewayServer {
             )?;
             let (instance_id, original_uri, service_name) =
                 resolve_projected_catalog_uri(&resources, "uri", false, &request.uri)?;
-            let result = store.read_resource_scoped(instance_id, &original_uri).await;
-            call_log.record(
-                caller.as_deref(),
-                GatewayCallKind::Resource,
-                &original_uri,
-                instance_id,
-                &service_name,
-                call_start.elapsed(),
-                result.is_ok(),
-            );
+            call.record.instance_id = Some(instance_id);
+            call.record.service_name = service_name.clone();
+            call.record.upstream_name = Some(original_uri.clone());
+            call.record.namespace_applied = request.uri != original_uri;
+            call.record.routing_ms = Some(call.started.elapsed().as_millis() as u64);
+            call.publish();
+            call.set_phase(super::GatewayCallPhase::CallingUpstream);
+            let result = store
+                .read_resource_scoped_with_trace(
+                    instance_id,
+                    &original_uri,
+                    Arc::clone(&call.trace),
+                )
+                .await;
+            let error = result.as_ref().err().map(ToString::to_string);
+            call.finish(result.is_ok(), error);
             deserialize_item::<ReadResourceResult>(
                 result.map_err(map_store_error)?,
                 "read resource result",
@@ -396,8 +421,9 @@ impl ServerHandler for GatewayServer {
     fn get_prompt(
         &self,
         request: GetPromptRequestParams,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<GetPromptResponse, ErrorData>> + '_ {
+        let frame_call_id = gateway_frame_call_id(&context);
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
@@ -405,7 +431,14 @@ impl ServerHandler for GatewayServer {
         let call_log = Arc::clone(&self.call_log);
         let caller = self.caller.clone();
         async move {
-            let call_start = std::time::Instant::now();
+            let mut call = call_log.begin(
+                caller.as_deref(),
+                GatewayCallKind::Prompt,
+                &request.name,
+                target_instance_id,
+                "",
+                frame_call_id.as_deref(),
+            );
             let arguments = Value::Object(request.arguments.unwrap_or_default());
             let prompts = if let Some(session_key) = session_key.as_deref() {
                 store.list_prompts_in_session(session_key).await
@@ -423,18 +456,23 @@ impl ServerHandler for GatewayServer {
             )?;
             let (instance_id, original_name, service_name) =
                 resolve_projected_prompt(&prompts, &request.name)?;
+            call.record.instance_id = Some(instance_id);
+            call.record.service_name = service_name.clone();
+            call.record.upstream_name = Some(original_name.clone());
+            call.record.namespace_applied = request.name != original_name;
+            call.record.routing_ms = Some(call.started.elapsed().as_millis() as u64);
+            call.publish();
+            call.set_phase(super::GatewayCallPhase::CallingUpstream);
             let result = store
-                .get_prompt_scoped(instance_id, &original_name, arguments)
+                .get_prompt_scoped_with_trace(
+                    instance_id,
+                    &original_name,
+                    arguments,
+                    Arc::clone(&call.trace),
+                )
                 .await;
-            call_log.record(
-                caller.as_deref(),
-                GatewayCallKind::Prompt,
-                &original_name,
-                instance_id,
-                &service_name,
-                call_start.elapsed(),
-                result.is_ok(),
-            );
+            let error = result.as_ref().err().map(ToString::to_string);
+            call.finish(result.is_ok(), error);
             deserialize_item::<GetPromptResult>(result.map_err(map_store_error)?, "prompt result")
                 .map(Into::into)
         }
@@ -443,8 +481,9 @@ impl ServerHandler for GatewayServer {
     fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<CallToolResponse, ErrorData>> + '_ {
+        let frame_call_id = gateway_frame_call_id(&context);
         let tool_name = request.name.as_ref().to_string();
         let is_session_state_tool = self
             .management
@@ -564,7 +603,14 @@ impl ServerHandler for GatewayServer {
                 return self.call_search_tool(arguments).await.map(Into::into);
             }
 
-            let route_start = std::time::Instant::now();
+            let mut call = self.call_log.begin(
+                self.caller.as_deref(),
+                GatewayCallKind::Tool,
+                &tool_name,
+                self.instance_id,
+                "",
+                frame_call_id.as_deref(),
+            );
             let (args, session_key) = extract_business_session_key(
                 meta.as_ref(),
                 arguments,
@@ -602,21 +648,16 @@ impl ServerHandler for GatewayServer {
                     }
                 }
             };
-            let mut call = self.call_log.begin(
-                self.caller.as_deref(),
-                GatewayCallKind::Tool,
-                &tool_name,
-                binding.instance_id,
-                &binding.service_name,
-            );
-            call.upstream_name = Some(binding.tool_name.clone());
-            call.namespace_applied = binding.namespace_applied;
-            call.name_mapped = binding.name_mapped;
-            call.routing_ms = Some(route_start.elapsed().as_millis() as u64);
-            self.call_log.update(call.clone());
-            call.phase = super::GatewayCallPhase::CallingUpstream;
-            self.call_log.update(call.clone());
-            let mut execution_options = McpExecutionOptions::default();
+            call.record.instance_id = Some(binding.instance_id);
+            call.record.service_name = binding.service_name.clone();
+            call.record.upstream_name = Some(binding.tool_name.clone());
+            call.record.namespace_applied = binding.namespace_applied;
+            call.record.name_mapped = binding.name_mapped;
+            call.record.routing_ms = Some(call.started.elapsed().as_millis() as u64);
+            call.publish();
+            call.set_phase(super::GatewayCallPhase::CallingUpstream);
+            let mut execution_options = McpExecutionOptions::default()
+                .with_call_trace(Arc::clone(&call.trace));
             if let Some(caller) = self.caller.clone() {
                 execution_options = execution_options.with_caller(caller);
             }
@@ -711,24 +752,19 @@ impl ServerHandler for GatewayServer {
                 Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
                 _ => false,
             };
-            call.duration_ms = route_start.elapsed().as_millis() as u64;
-            call.success = success;
-            call.phase = if success {
-                super::GatewayCallPhase::Succeeded
+            let error = if success {
+                None
             } else {
-                super::GatewayCallPhase::Failed
-            };
-            if !success {
-                call.error = match &response {
+                match &response {
                     Ok(CallToolResponse::Complete(result)) => result
                         .content
                         .iter()
                         .find_map(|item| item.as_text().map(|text| text.text.to_string())),
                     Err(error) => Some(error.to_string()),
                     _ => None,
-                };
-            }
-            self.call_log.update(call);
+                }
+            };
+            call.finish(success, error);
             if management_tool {
                 record_management_call(
                     &management_store,

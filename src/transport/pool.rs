@@ -416,9 +416,18 @@ impl ConnectionPool {
         instance_id: InstanceId,
         uri: &str,
     ) -> Result<serde_json::Value> {
+        self.read_resource_traced(instance_id, uri, None).await
+    }
+
+    pub(crate) async fn read_resource_traced(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+        trace: Option<Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         let conn = self.connection(instance_id).await?;
         let conn = conn.lock().await;
-        conn.read_resource(uri).await
+        conn.read_resource_traced(uri, trace).await
     }
 
     pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
@@ -433,9 +442,20 @@ impl ConnectionPool {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        self.get_prompt_traced(instance_id, prompt_name, arguments, None)
+            .await
+    }
+
+    pub(crate) async fn get_prompt_traced(
+        &self,
+        instance_id: InstanceId,
+        prompt_name: &str,
+        arguments: serde_json::Value,
+        trace: Option<Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         let conn = self.connection(instance_id).await?;
         let conn = conn.lock().await;
-        conn.get_prompt(prompt_name, arguments).await
+        conn.get_prompt_traced(prompt_name, arguments, trace).await
     }
 
     pub async fn server_metadata(

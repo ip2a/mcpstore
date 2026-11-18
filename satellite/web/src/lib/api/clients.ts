@@ -48,11 +48,14 @@ export type GatewayRequestRecord = {
   name_mapped: boolean
   error: string | null
   routing_ms: number | null
+  request_write_ms?: number | null
+  first_byte_ms?: number | null
+  response_read_ms?: number | null
   at_unix_ms: number
   caller: string | null
   kind: "tool" | "prompt" | "resource"
   name: string
-  instance_id: string
+  instance_id: string | null
   service_name: string
   duration_ms: number
   success: boolean

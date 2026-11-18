@@ -1,9 +1,13 @@
 use std::collections::VecDeque;
 use std::fmt::Display;
+use std::io;
+use std::pin::Pin;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use std::task::{Context, Poll};
+use std::time::Instant;
 
 use crate::config::ServerConfig;
 use crate::error::{Error, FailureCode};
@@ -16,10 +20,105 @@ use crate::transport::telemetry_transport::TelemetryTransport;
 
 use rmcp::transport::async_rw::AsyncRwTransport;
 use rmcp::RoleClient;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader, ReadBuf};
 
-type StdioTransport =
-    AsyncRwTransport<RoleClient, tokio::process::ChildStdout, tokio::process::ChildStdin>;
+type StdioTransport = AsyncRwTransport<
+    RoleClient,
+    ObservedStdout<tokio::process::ChildStdout>,
+    tokio::process::ChildStdin,
+>;
+
+const MAX_OBSERVED_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Transparent stdout reader that timestamps the first byte of each JSON-RPC line.
+struct ObservedStdout<R> {
+    inner: R,
+    instance_id: String,
+    line: Vec<u8>,
+    line_started: Option<Instant>,
+    discarding: bool,
+}
+
+impl<R> ObservedStdout<R> {
+    fn new(inner: R, instance_id: InstanceId) -> Self {
+        Self {
+            inner,
+            instance_id: instance_id.to_string(),
+            line: Vec::new(),
+            line_started: None,
+            discarding: false,
+        }
+    }
+
+    fn observe_bytes(&mut self, bytes: &[u8], arrived: Instant) {
+        let mut start = 0;
+        for (index, byte) in bytes.iter().enumerate() {
+            if !self.discarding && self.line_started.is_none() {
+                self.line_started = Some(arrived);
+            }
+            if *byte != b'\n' {
+                continue;
+            }
+            if !self.discarding {
+                self.line.extend_from_slice(&bytes[start..index]);
+                if self.line.len() <= MAX_OBSERVED_LINE_BYTES {
+                    if let (Ok(envelope), Some(first_byte)) = (
+                        serde_json::from_slice::<serde_json::Value>(&self.line),
+                        self.line_started,
+                    ) {
+                        if envelope.get("method").is_none()
+                            && (envelope.get("result").is_some()
+                                || envelope.get("error").is_some())
+                        {
+                            if let Some(id) = envelope.get("id").map(|value| match value {
+                                serde_json::Value::String(id) => id.clone(),
+                                other => other.to_string(),
+                            }) {
+                                crate::telemetry::mark_stdio_response(
+                                    &self.instance_id,
+                                    &id,
+                                    first_byte,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            self.line.clear();
+            self.line_started = None;
+            self.discarding = false;
+            start = index + 1;
+        }
+        if start < bytes.len() && !self.discarding {
+            let tail = &bytes[start..];
+            if self.line.len().saturating_add(tail.len()) > MAX_OBSERVED_LINE_BYTES {
+                self.line.clear();
+                self.line_started = None;
+                self.discarding = true;
+            } else {
+                self.line.extend_from_slice(tail);
+            }
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for ObservedStdout<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let filled = buf.filled().len();
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                let arrived = Instant::now();
+                self.observe_bytes(&buf.filled()[filled..], arrived);
+                Poll::Ready(Ok(()))
+            }
+            other => other,
+        }
+    }
+}
 
 /// How many trailing child stderr lines we keep to surface in handshake errors.
 const STDERR_TAIL_LINES: usize = 50;
@@ -168,6 +267,7 @@ pub(super) async fn connect(
         }
     });
 
+    let stdout = ObservedStdout::new(stdout, instance_id);
     let transport = StdioTransport::new_client(stdout, stdin);
     let transport = TelemetryTransport::wrap(
         transport,
@@ -325,7 +425,52 @@ fn extract_startup_cause(lines: &[String]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_startup_cause;
+    use super::{extract_startup_cause, ObservedStdout};
+    use crate::identity::InstanceId;
+    use crate::telemetry::{bind_jsonrpc_trace, CallTrace};
+    use crate::{ScopeRef, ServiceInstanceKey};
+    use std::time::Instant;
+
+    fn instance() -> InstanceId {
+        ServiceInstanceKey::new("stdio-timing-test", ScopeRef::Store).instance_id()
+    }
+
+    #[test]
+    fn stdout_observer_correlates_split_and_coalesced_jsonrpc_lines() {
+        let instance_id = instance();
+        let split = CallTrace::register("stdio-split");
+        let coalesced = CallTrace::register("stdio-coalesced");
+        bind_jsonrpc_trace(&instance_id.to_string(), "41".to_string(), split.clone());
+        bind_jsonrpc_trace(&instance_id.to_string(), "42".to_string(), coalesced.clone());
+        let mut stdout = ObservedStdout::new(tokio::io::empty(), instance_id);
+
+        stdout.observe_bytes(
+            br#"{"jsonrpc":"2.0","id":41,"method":"elicitation/create","params":{}}
+"#,
+            Instant::now(),
+        );
+        assert!(split.timing().first_byte_ms.is_none());
+        assert!(split.timing().response_read_ms.is_none());
+
+        let split_start = Instant::now();
+        stdout.observe_bytes(br#"{"jsonrpc":"2.0","id":41,"#, split_start);
+        stdout.observe_bytes(
+            concat!(
+                "\"result\":{}}\n",
+                "{\"jsonrpc\":\"2.0\",\"id\":42,\"result\":{}}\n"
+            )
+            .as_bytes(),
+            Instant::now(),
+        );
+
+        assert!(split.timing().first_byte_ms.is_some());
+        assert!(split.timing().response_read_ms.is_some());
+        assert!(coalesced.timing().first_byte_ms.is_some());
+        assert!(coalesced.timing().response_read_ms.is_some());
+        split.unregister();
+        coalesced.unregister();
+    }
+
 
     fn lines(raw: &str) -> Vec<String> {
         raw.lines().map(String::from).collect()

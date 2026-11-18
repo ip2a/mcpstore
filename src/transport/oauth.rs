@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 
 use crate::auth::{AuthConfig, AuthCoordinator};
 use crate::identity::InstanceId;
+use crate::transport::observed_http::{ObservedHttpClient, DEFAULT_MAX_SSE_EVENT_SIZE};
 
 /// OAuth-aware HTTP client used by MCPStore's rmcp Streamable HTTP transport.
 ///
@@ -21,7 +22,7 @@ use crate::identity::InstanceId;
 /// rmcp authorization manager, and replay the rejected request at most once.
 #[derive(Clone)]
 pub(super) struct McpStoreOAuthClient {
-    auth_client: AuthClient<reqwest::Client>,
+    auth_client: AuthClient<ObservedHttpClient>,
     auth_coordinator: AuthCoordinator,
     instance_id: InstanceId,
     base_url: Arc<str>,
@@ -31,7 +32,7 @@ pub(super) struct McpStoreOAuthClient {
 
 impl McpStoreOAuthClient {
     pub(super) fn new(
-        http_client: reqwest::Client,
+        http_client: ObservedHttpClient,
         authorization_manager: AuthorizationManager,
         auth_coordinator: AuthCoordinator,
         instance_id: InstanceId,
@@ -108,15 +109,36 @@ impl StreamableHttpClient for McpStoreOAuthClient {
         _auth_header: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
+        self.post_message_with_max_sse_event_size(
+            uri,
+            message,
+            session_id,
+            _auth_header,
+            custom_headers,
+            DEFAULT_MAX_SSE_EVENT_SIZE,
+        )
+        .await
+    }
+
+    async fn post_message_with_max_sse_event_size(
+        &self,
+        uri: Arc<str>,
+        message: ClientJsonRpcMessage,
+        session_id: Option<Arc<str>>,
+        _auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+        max_sse_event_size: usize,
+    ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
         let token = self.access_token().await?;
         let first = self
             .auth_client
-            .post_message(
+            .post_message_with_max_sse_event_size(
                 Arc::clone(&uri),
                 message.clone(),
                 session_id.clone(),
                 Some(token.clone()),
                 custom_headers.clone(),
+                max_sse_event_size,
             )
             .await;
 
@@ -127,7 +149,14 @@ impl StreamableHttpClient for McpStoreOAuthClient {
                 };
                 let retry = self
                     .auth_client
-                    .post_message(uri, message, session_id, Some(retry_token), custom_headers)
+                    .post_message_with_max_sse_event_size(
+                        uri,
+                        message,
+                        session_id,
+                        Some(retry_token),
+                        custom_headers,
+                        max_sse_event_size,
+                    )
                     .await;
                 match &retry {
                     Err(StreamableHttpError::AuthRequired(_)) => {
@@ -199,15 +228,36 @@ impl StreamableHttpClient for McpStoreOAuthClient {
         _auth_header: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
+        self.get_stream_with_max_sse_event_size(
+            uri,
+            session_id,
+            last_event_id,
+            _auth_header,
+            custom_headers,
+            DEFAULT_MAX_SSE_EVENT_SIZE,
+        )
+        .await
+    }
+
+    async fn get_stream_with_max_sse_event_size(
+        &self,
+        uri: Arc<str>,
+        session_id: Option<Arc<str>>,
+        last_event_id: Option<String>,
+        _auth_header: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+        max_sse_event_size: usize,
+    ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
         let token = self.access_token().await?;
         let first = self
             .auth_client
-            .get_stream(
+            .get_stream_with_max_sse_event_size(
                 Arc::clone(&uri),
                 session_id.clone(),
                 last_event_id.clone(),
                 Some(token.clone()),
                 custom_headers.clone(),
+                max_sse_event_size,
             )
             .await;
 
@@ -223,12 +273,13 @@ impl StreamableHttpClient for McpStoreOAuthClient {
         };
         let retry = self
             .auth_client
-            .get_stream(
+            .get_stream_with_max_sse_event_size(
                 uri,
                 session_id,
                 last_event_id,
                 Some(retry_token),
                 custom_headers,
+                max_sse_event_size,
             )
             .await;
         if is_unauthorized(&retry) {

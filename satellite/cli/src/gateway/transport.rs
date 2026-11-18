@@ -487,6 +487,10 @@ fn gateway_frame_sink(server: &GatewayServer) -> Option<std::sync::Arc<dyn Frame
 /// line tee instead of buffering.
 const MAX_FRAME_BODY_BYTES: usize = 4 * 1024 * 1024;
 
+/// Internal per-HTTP-request correlation passed through rmcp request extensions.
+#[derive(Clone)]
+pub(crate) struct GatewayFrameCallId(pub String);
+
 /// Records every JSON-RPC envelope crossing the gateway's HTTP boundary:
 /// request body in = ↑, response body out = ↓, grouped by the client's
 /// `Mcp-Session-Id` (stateless requests without one share a mount-level
@@ -519,11 +523,24 @@ async fn record_gateway_frames(
                 caller.clone().unwrap_or_else(|| "direct".to_string())
             )
         });
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     let request_bytes = axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES)
         .await
         .unwrap_or_default();
-    emit_gateway_frames(&sink, &session_id, "up", &caller, &request_bytes);
+    let call_id = business_gateway_call_id(&request_bytes);
+    if let Some(call_id) = &call_id {
+        parts
+            .extensions
+            .insert(GatewayFrameCallId(call_id.clone()));
+    }
+    emit_gateway_frames(
+        &sink,
+        &session_id,
+        "up",
+        &caller,
+        &request_bytes,
+        call_id.as_deref(),
+    );
     let response = next
         .run(axum::extract::Request::from_parts(
             parts,
@@ -541,7 +558,14 @@ async fn record_gateway_frames(
         // long-running tools keep their incremental progress pushes.
         let stream = body.into_data_stream().map(move |chunk| {
             if let Ok(bytes) = &chunk {
-                emit_gateway_frames(&sink, &session_id, "down", &caller, bytes);
+                emit_gateway_frames(
+                    &sink,
+                    &session_id,
+                    "down",
+                    &caller,
+                    bytes,
+                    call_id.as_deref(),
+                );
             }
             chunk
         });
@@ -550,8 +574,26 @@ async fn record_gateway_frames(
     let response_bytes = axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES)
         .await
         .unwrap_or_default();
-    emit_gateway_frames(&sink, &session_id, "down", &caller, &response_bytes);
+    emit_gateway_frames(
+        &sink,
+        &session_id,
+        "down",
+        &caller,
+        &response_bytes,
+        call_id.as_deref(),
+    );
     axum::response::Response::from_parts(parts, axum::body::Body::from(response_bytes))
+}
+
+fn business_gateway_call_id(bytes: &[u8]) -> Option<String> {
+    let envelope: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    envelope.get("id")?;
+    match envelope.get("method").and_then(|value| value.as_str()) {
+        Some("tools/call" | "prompts/get" | "resources/read") => {
+            Some(super::new_gateway_call_id())
+        }
+        _ => None,
+    }
 }
 
 /// Parse every JSON-RPC envelope inside `bytes` (a POST body is one envelope;
@@ -563,6 +605,7 @@ fn emit_gateway_frames(
     direction: &str,
     caller: &Option<String>,
     bytes: &[u8],
+    request_id: Option<&str>,
 ) {
     let text = String::from_utf8_lossy(bytes);
     let mut envelopes = Vec::new();
@@ -580,6 +623,7 @@ fn emit_gateway_frames(
     for envelope in envelopes {
         let mut record = mcpstore::telemetry::FrameRecord::new(session_id, "gateway", direction);
         record.caller = caller.clone();
+        record.request_id = request_id.map(str::to_string);
         record.transport = Some("streamable-http".to_string());
         // The client identity rides on the initialize handshake.
         if envelope.get("method").and_then(|value| value.as_str()) == Some("initialize") {

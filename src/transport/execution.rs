@@ -19,10 +19,11 @@ use crate::transport::client::McpConnection;
 use crate::transport::content::content_item_from_rmcp;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{McpTask, McpToolExecution, ToolCallResult};
+use crate::telemetry::CallTrace;
 
 const EXECUTION_UPDATE_BUFFER: usize = 64;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct McpExecutionOptions {
     pub idle_timeout: Option<Duration>,
     pub max_total_timeout: Option<Duration>,
@@ -31,6 +32,9 @@ pub struct McpExecutionOptions {
     pub caller: Option<String>,
     /// Business session key for telemetry attribution (gateway business calls).
     pub session_key: Option<String>,
+    /// Shared gateway trace. It is serialized as an internal `_meta` call id so
+    /// the persistent transport worker can correlate raw bytes and frames.
+    pub call_trace: Option<std::sync::Arc<CallTrace>>,
 }
 
 impl McpExecutionOptions {
@@ -42,6 +46,11 @@ impl McpExecutionOptions {
 
     pub fn with_session_key(mut self, session_key: impl Into<String>) -> Self {
         self.session_key = Some(session_key.into());
+        self
+    }
+
+    pub fn with_call_trace(mut self, trace: std::sync::Arc<CallTrace>) -> Self {
+        self.call_trace = Some(trace);
         self
     }
 
@@ -178,6 +187,15 @@ impl McpConnection {
         accepts_task: bool,
         operation: &'static str,
     ) -> Result<McpToolExecutionHandle> {
+        let mut params = params;
+        if let Some(trace) = &options.call_trace {
+            let mut meta = params.meta.take().unwrap_or_default();
+            meta.insert(
+                crate::telemetry::CALL_ID_META_KEY.to_string(),
+                trace.call_id().to_string().into(),
+            );
+            params.meta = Some(meta);
+        }
         let mut progress_notifications = self.subscribe_progress();
         let client = self.get_client()?;
         let retry_params = params.clone();

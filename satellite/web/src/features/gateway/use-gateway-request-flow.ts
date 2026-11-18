@@ -2,6 +2,10 @@ import { useEffect, useState } from "react"
 
 import { getGatewayRequests, type GatewayRequestRecord } from "@/lib/api"
 
+export function isGatewayRequestActive(record: GatewayRequestRecord): boolean {
+  return record.phase === "routing" || record.phase === "calling_upstream"
+}
+
 /**
  * Long-polling loop: waits for new records or the 25s timeout, then continues;
  * resets and re-fetches on backend restart (seq goes backwards).

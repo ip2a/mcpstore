@@ -61,6 +61,15 @@ impl McpConnection {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        self.get_prompt_traced(prompt_name, arguments, None).await
+    }
+
+    pub(crate) async fn get_prompt_traced(
+        &self,
+        prompt_name: &str,
+        arguments: serde_json::Value,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         let serde_json::Value::Object(args_map) = arguments else {
             return Err(Error::new(
                 FailureCode::InvalidInput,
@@ -68,11 +77,20 @@ impl McpConnection {
             ));
         };
         self.require_prompts()?;
-        let request = GetPromptRequestParams::new(prompt_name).with_arguments(args_map);
+        let mut params = GetPromptRequestParams::new(prompt_name).with_arguments(args_map);
+        if let Some(trace) = trace {
+            params
+                .meta
+                .get_or_insert_default()
+                .insert(
+                    crate::telemetry::CALL_ID_META_KEY.to_string(),
+                    trace.call_id().to_string().into(),
+                );
+        }
         let result = send_protocol_request(
             self.get_client()?,
             self.instance_id(),
-            ClientRequest::GetPromptRequest(GetPromptRequest::new(request)),
+            ClientRequest::GetPromptRequest(GetPromptRequest::new(params)),
             "get prompt",
         )
         .await;

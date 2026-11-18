@@ -125,6 +125,27 @@ impl MCPStore {
         instance_id: InstanceId,
         uri: &str,
     ) -> Result<serde_json::Value> {
+        self.read_resource_scoped_inner(instance_id, uri, None)
+            .await
+    }
+
+    /// Gateway variant that correlates the upstream request and raw frames.
+    pub async fn read_resource_scoped_with_trace(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+        trace: std::sync::Arc<crate::telemetry::CallTrace>,
+    ) -> Result<serde_json::Value> {
+        self.read_resource_scoped_inner(instance_id, uri, Some(trace))
+            .await
+    }
+
+    async fn read_resource_scoped_inner(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
         self.require_instance(instance_id).await?;
         // Execution surface: connect on demand BEFORE resolving the original
         // key — list_resources is side-effect free now and answers
@@ -154,6 +175,7 @@ impl MCPStore {
                 format!("Resource '{uri}' is disabled in instance '{instance_id}'"),
             ));
         }
-        self.read_resource(instance_id, &original).await
+        self.read_resource_traced(instance_id, &original, trace)
+            .await
     }
 }

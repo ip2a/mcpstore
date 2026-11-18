@@ -16,6 +16,7 @@ mod execution;
 mod handler;
 mod http;
 mod oauth;
+mod observed_http;
 mod pool;
 mod prompts;
 mod protocol;

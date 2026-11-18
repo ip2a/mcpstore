@@ -159,7 +159,7 @@ pub(crate) fn report_gateway_boot(boot: GatewayBoot) {
 }
 
 /// What kind of business call a routed record represents.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayCallKind {
     Tool,
@@ -168,7 +168,7 @@ pub enum GatewayCallKind {
 }
 
 /// Actual lifecycle state; a recent completion is never "calling".
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GatewayCallPhase {
     Routing,
@@ -178,7 +178,7 @@ pub enum GatewayCallPhase {
 }
 
 /// One routed business call through the gateway (management tools excluded).
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GatewayCallRecord {
     pub seq: u64,
     pub call_id: String,
@@ -188,13 +188,16 @@ pub struct GatewayCallRecord {
     pub name_mapped: bool,
     pub error: Option<String>,
     pub routing_ms: Option<u64>,
+    pub request_write_ms: Option<u64>,
+    pub first_byte_ms: Option<u64>,
+    pub response_read_ms: Option<u64>,
     pub at_unix_ms: u64,
     /// Mount the call came through (`/mcp/<id>`); None = the generic `/mcp`.
     pub caller: Option<String>,
     pub kind: GatewayCallKind,
     /// Tool/prompt name, or the resolved upstream URI for resources.
     pub name: String,
-    pub instance_id: InstanceId,
+    pub instance_id: Option<InstanceId>,
     pub service_name: String,
     pub duration_ms: u64,
     pub success: bool,
@@ -206,23 +209,85 @@ pub struct GatewayCallLog {
     records: std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>,
     latest: std::sync::atomic::AtomicU64,
     next_call_id: std::sync::atomic::AtomicU64,
+
+    history: Option<Arc<history::GatewayCallHistory>>,
     changed: tokio::sync::watch::Sender<u64>,
 }
 
 const GATEWAY_CALL_LOG_CAP: usize = 256;
 
+pub(crate) fn new_gateway_call_id() -> String {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 impl GatewayCallLog {
     pub fn new() -> Arc<Self> {
-        let (changed, _) = tokio::sync::watch::channel(0);
+        Self::from_saved(Vec::new(), None)
+    }
+
+    pub fn open(path: &std::path::Path) -> rusqlite::Result<Arc<Self>> {
+        let (history, saved) = history::GatewayCallHistory::open(path)?;
+        let log = Self::from_saved(saved, Some(history));
+        let interrupted: Vec<GatewayCallRecord> = log
+            .records
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.phase,
+                    GatewayCallPhase::Routing | GatewayCallPhase::CallingUpstream
+                )
+            })
+            .cloned()
+            .collect();
+        for mut record in interrupted {
+            record.phase = GatewayCallPhase::Failed;
+            record.success = false;
+            record.error = Some("Gateway restarted before this call completed".to_string());
+            record.duration_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .saturating_sub(record.at_unix_ms as u128) as u64;
+            log.update(record);
+        }
+        Ok(log)
+    }
+
+    fn from_saved(
+        mut saved: Vec<GatewayCallRecord>,
+        history: Option<Arc<history::GatewayCallHistory>>,
+    ) -> Arc<Self> {
+        saved.sort_by_key(|record| record.seq);
+        let latest = saved.last().map_or(0, |record| record.seq);
+        let records = saved
+            .into_iter()
+            .rev()
+            .take(GATEWAY_CALL_LOG_CAP)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let (changed, _) = tokio::sync::watch::channel(latest);
         Arc::new(Self {
-            records: std::sync::Mutex::new(std::collections::VecDeque::new()),
-            latest: std::sync::atomic::AtomicU64::new(0),
-            next_call_id: std::sync::atomic::AtomicU64::new(0),
+            records: std::sync::Mutex::new(records),
+            latest: std::sync::atomic::AtomicU64::new(latest),
+            history,
             changed,
         })
     }
 
-    /// Record one routed call with `now` timestamping, then wake waiters.
+    /// Compatibility helper for callers that only have a completed result.
     #[allow(clippy::too_many_arguments)]
     pub fn record(
         &self,
@@ -234,38 +299,43 @@ impl GatewayCallLog {
         duration: std::time::Duration,
         success: bool,
     ) {
-        let mut record = self.begin(caller, kind, name, instance_id, service_name);
-        record.phase = if success { GatewayCallPhase::Succeeded } else { GatewayCallPhase::Failed };
+        let mut record = self.new_record(
+            caller,
+            kind,
+            name,
+            Some(instance_id),
+            service_name,
+        );
+        record.phase = if success {
+            GatewayCallPhase::Succeeded
+        } else {
+            GatewayCallPhase::Failed
+        };
         record.duration_ms = duration.as_millis() as u64;
         record.success = success;
         self.update(record);
     }
 
-    fn begin(
+    fn new_record(
         &self,
         caller: Option<&str>,
         kind: GatewayCallKind,
         name: &str,
-        instance_id: InstanceId,
+        instance_id: Option<InstanceId>,
         service_name: &str,
     ) -> GatewayCallRecord {
         GatewayCallRecord {
             seq: 0,
-            call_id: format!(
-                "{}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos(),
-                self.next_call_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ),
+            call_id: new_gateway_call_id(),
             phase: GatewayCallPhase::Routing,
             upstream_name: None,
             namespace_applied: false,
             name_mapped: false,
             error: None,
             routing_ms: None,
+            request_write_ms: None,
+            first_byte_ms: None,
+            response_read_ms: None,
             at_unix_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -280,23 +350,53 @@ impl GatewayCallLog {
         }
     }
 
-    fn update(&self, record: GatewayCallRecord) {
-        self.push(record);
+    fn begin(
+        self: &Arc<Self>,
+        caller: Option<&str>,
+        kind: GatewayCallKind,
+        name: &str,
+        instance_id: Option<InstanceId>,
+        service_name: &str,
+        frame_call_id: Option<&str>,
+    ) -> PendingGatewayCall {
+        let mut record = self.new_record(caller, kind, name, instance_id, service_name);
+        if let Some(call_id) = frame_call_id {
+            record.call_id = call_id.to_string();
+        }
+        let trace = mcpstore::telemetry::CallTrace::register(record.call_id.clone());
+        let mut pending = PendingGatewayCall {
+            log: Arc::clone(self),
+            record,
+            trace,
+            started: std::time::Instant::now(),
+            finished: false,
+        };
+        pending.publish();
+        pending
     }
 
-    /// Push at the ring tail, dropping the oldest past the cap, and wake waiters.
-    fn push(&self, mut record: GatewayCallRecord) {
+    fn update(&self, mut record: GatewayCallRecord) {
         let seq;
         {
             let mut records = self.records.lock().unwrap();
-            record.seq = self.latest.load(std::sync::atomic::Ordering::Relaxed) + 1;
+            seq = self.latest.load(std::sync::atomic::Ordering::Relaxed) + 1;
+            record.seq = seq;
+            if let Some(index) = records
+                .iter()
+                .position(|current| current.call_id == record.call_id)
+            {
+                records.remove(index);
+            }
             while records.len() >= GATEWAY_CALL_LOG_CAP {
                 records.pop_front();
             }
-            seq = record.seq;
-            records.push_back(record);
+            records.push_back(record.clone());
+            self.latest
+                .store(seq, std::sync::atomic::Ordering::Relaxed);
         }
-        self.latest.store(seq, std::sync::atomic::Ordering::Relaxed);
+        if let Some(history) = &self.history {
+            history.save(record);
+        }
         let _ = self.changed.send(seq);
     }
 
@@ -308,15 +408,78 @@ impl GatewayCallLog {
         self.changed.subscribe()
     }
 
-    /// Records with `seq > after`, oldest first.
+    /// Latest state per call with `seq > after`, oldest first.
     pub fn snapshot_after(&self, after: u64) -> Vec<GatewayCallRecord> {
-        self.records
-            .lock()
-            .unwrap()
+        self.snapshot_page(after).1
+    }
+
+    /// Atomically pair the long-poll cursor with the records it represents.
+    pub fn snapshot_page(&self, after: u64) -> (u64, Vec<GatewayCallRecord>) {
+        let records = self.records.lock().unwrap();
+        let latest = self.latest.load(std::sync::atomic::Ordering::Relaxed);
+        let page = records
             .iter()
             .filter(|record| record.seq > after)
             .cloned()
-            .collect()
+            .collect();
+        (latest, page)
+    }
+}
+
+/// Publishes a failed terminal snapshot if the handler future is cancelled or
+/// returns early. Successful completion disarms the guard exactly once.
+struct PendingGatewayCall {
+    log: Arc<GatewayCallLog>,
+    record: GatewayCallRecord,
+    trace: Arc<mcpstore::telemetry::CallTrace>,
+    started: std::time::Instant,
+    finished: bool,
+}
+
+impl PendingGatewayCall {
+    fn publish(&self) {
+        self.log.update(self.record.clone());
+    }
+
+    fn set_phase(&mut self, phase: GatewayCallPhase) {
+        self.record.phase = phase;
+        self.publish();
+    }
+
+    fn finish(mut self, success: bool, error: Option<String>) {
+        self.complete(success, error);
+    }
+
+    fn complete(&mut self, success: bool, error: Option<String>) {
+        if self.finished {
+            return;
+        }
+        let timing = self.trace.timing();
+        self.record.request_write_ms = timing.request_write_ms;
+        self.record.first_byte_ms = timing.first_byte_ms;
+        self.record.response_read_ms = timing.response_read_ms;
+        self.record.duration_ms = self.started.elapsed().as_millis() as u64;
+        self.record.phase = if success {
+            GatewayCallPhase::Succeeded
+        } else {
+            GatewayCallPhase::Failed
+        };
+        self.record.success = success;
+        self.record.error = error;
+        self.finished = true;
+        self.trace.unregister();
+        self.log.update(self.record.clone());
+    }
+}
+
+impl Drop for PendingGatewayCall {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.complete(
+                false,
+                Some("Call ended before a terminal response was recorded".to_string()),
+            );
+        }
     }
 }
 
@@ -718,6 +881,7 @@ impl GatewayCatalog {
 mod catalog;
 pub(crate) mod guards;
 mod handler;
+mod history;
 mod search;
 mod tests;
 mod tools;

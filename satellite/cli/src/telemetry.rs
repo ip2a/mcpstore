@@ -158,7 +158,7 @@ enum TelemetryItem {
 
 const SELECT_COLUMNS: &str = "id, request_id, started_at_unix_ms, duration_ms, kind, caller, \
      scope, session_key, instance_id, service_name, tool, success, error_code, error_summary, \
-     args_json, result_json, args_truncated, result_truncated";
+     args_json, result_json, args_truncated, result_truncated, timing_json";
 
 /// Default DB path: `telemetry.db` beside the app config (same dir as gateway-wired.json).
 pub fn default_db_path() -> PathBuf {
@@ -197,7 +197,8 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             args_json TEXT,
             result_json TEXT,
             args_truncated INTEGER NOT NULL DEFAULT 0,
-            result_truncated INTEGER NOT NULL DEFAULT 0
+            result_truncated INTEGER NOT NULL DEFAULT 0,
+            timing_json TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_requests_time ON requests(started_at_unix_ms);
         CREATE INDEX IF NOT EXISTS idx_requests_kind_time ON requests(kind, started_at_unix_ms);
@@ -221,11 +222,42 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             caller TEXT,
             instance_id TEXT,
             peer TEXT,
-            transport TEXT
+            transport TEXT,
+            request_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_frames_session ON frames(session_id, ts_unix_ms);
         CREATE INDEX IF NOT EXISTS idx_frames_face_time ON frames(face, ts_unix_ms);",
+    )?;
+    ensure_column(conn, "requests", "timing_json", "TEXT")?;
+    ensure_column(conn, "frames", "request_id", "TEXT")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_requests_request_id ON requests(request_id);
+         CREATE INDEX IF NOT EXISTS idx_frames_request_id ON frames(request_id);",
     )
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> rusqlite::Result<()> {
+    let exists = {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let mut rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let mut exists = false;
+        for name in &mut rows {
+            if name? == column {
+                exists = true;
+                break;
+            }
+        }
+        exists
+    };
+    if exists {
+        return Ok(());
+    }
+    conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 }
 
 fn purge_expired(conn: &Connection) -> rusqlite::Result<()> {
@@ -265,8 +297,8 @@ fn insert_batch(conn: &Connection, batch: &[RequestRecord]) -> rusqlite::Result<
     let mut stmt = conn.prepare_cached(
         "INSERT INTO requests (request_id, started_at_unix_ms, duration_ms, kind, caller, scope, \
          session_key, instance_id, service_name, tool, success, error_code, error_summary, \
-         args_json, result_json, args_truncated, result_truncated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         args_json, result_json, args_truncated, result_truncated, timing_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )?;
     for record in batch {
         stmt.execute(rusqlite::params![
@@ -287,6 +319,7 @@ fn insert_batch(conn: &Connection, batch: &[RequestRecord]) -> rusqlite::Result<
             record.result_json,
             record.args_truncated,
             record.result_truncated,
+            record.timing.as_ref().map(|timing| serde_json::to_string(timing).unwrap()),
         ])?;
     }
     Ok(())
@@ -312,17 +345,28 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestRecord> {
         result_json: row.get(15)?,
         args_truncated: row.get::<_, i64>(16)? != 0,
         result_truncated: row.get::<_, i64>(17)? != 0,
+        timing: row
+            .get::<_, Option<String>>(18)?
+            .map(|timing| serde_json::from_str(&timing))
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    18,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?,
     })
 }
 
 const FRAME_COLUMNS: &str = "id, session_id, ts_unix_ms, face, direction, method, jsonrpc_id, \
-     kind, payload, size_bytes, truncated, caller, instance_id, peer, transport";
+     kind, payload, size_bytes, truncated, caller, instance_id, peer, transport, request_id";
 
 fn insert_frame_batch(conn: &Connection, batch: &[FrameRecord]) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare_cached(
         "INSERT INTO frames (session_id, ts_unix_ms, face, direction, method, jsonrpc_id, kind, \
-         payload, size_bytes, truncated, caller, instance_id, peer, transport)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         payload, size_bytes, truncated, caller, instance_id, peer, transport, request_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )?;
     for record in batch {
         stmt.execute(rusqlite::params![
@@ -340,6 +384,7 @@ fn insert_frame_batch(conn: &Connection, batch: &[FrameRecord]) -> rusqlite::Res
             record.instance_id,
             record.peer,
             record.transport,
+            record.request_id,
         ])?;
     }
     Ok(())
@@ -362,6 +407,7 @@ fn row_to_frame(row: &rusqlite::Row<'_>) -> rusqlite::Result<FrameRecord> {
         instance_id: row.get(12)?,
         peer: row.get(13)?,
         transport: row.get(14)?,
+        request_id: row.get(15)?,
     })
 }
 
@@ -1072,6 +1118,114 @@ mod tests {
         );
 
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn migrates_existing_db_without_losing_rows() {
+        let path = temp_path("migration");
+        std::fs::remove_file(&path).ok();
+        let conn = open_connection(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL,
+                started_at_unix_ms INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                caller TEXT,
+                scope TEXT,
+                session_key TEXT,
+                instance_id TEXT,
+                service_name TEXT,
+                tool TEXT,
+                success INTEGER NOT NULL,
+                error_code TEXT,
+                error_summary TEXT,
+                args_json TEXT,
+                result_json TEXT,
+                args_truncated INTEGER NOT NULL DEFAULT 0,
+                result_truncated INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE frames (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                ts_unix_ms INTEGER NOT NULL,
+                face TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                method TEXT,
+                jsonrpc_id TEXT,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                truncated INTEGER NOT NULL DEFAULT 0,
+                caller TEXT,
+                instance_id TEXT,
+                peer TEXT,
+                transport TEXT
+            );
+            INSERT INTO requests (request_id, started_at_unix_ms, duration_ms, kind, success)
+                VALUES ('before-migration', 1, 2, 'tool', 1);
+            INSERT INTO frames (session_id, ts_unix_ms, face, direction, kind, payload, size_bytes)
+                VALUES ('before-migration', 1, 'gateway', 'up', 'request', '{}', 2);",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT request_id, timing_json FROM requests",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .unwrap(),
+            ("before-migration".to_string(), None)
+        );
+        assert_eq!(
+            conn.query_row("SELECT session_id, request_id FROM frames", [], |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?
+            )))
+            .unwrap(),
+            ("before-migration".to_string(), None)
+        );
+        drop(conn);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn request_and_frame_call_correlation_roundtrip() {
+        let path = temp_path("call-correlation");
+        std::fs::remove_file(&path).ok();
+        let conn = open_connection(&path).unwrap();
+        init_schema(&conn).unwrap();
+        let timing = mcpstore::telemetry::CallTiming {
+            request_write_ms: Some(2),
+            first_byte_ms: Some(5),
+            response_read_ms: Some(8),
+        };
+        let mut request = RequestRecord::new("tool", "echo");
+        request.request_id = "gateway-call-1".to_string();
+        request.timing = Some(timing.clone());
+        insert_batch(&conn, &[request]).unwrap();
+        let mut frame = FrameRecord::new("upstream-session", "upstream", "down");
+        frame.request_id = Some("gateway-call-1".to_string());
+        insert_frame_batch(&conn, &[frame]).unwrap();
+        drop(conn);
+
+        let log = TelemetryLog::open(&path).unwrap();
+        let requests = log
+            .history(HistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(requests.requests[0].request_id, "gateway-call-1");
+        assert_eq!(requests.requests[0].timing, Some(timing));
+        let frames = log.frame_history("upstream-session", 10).unwrap();
+        assert_eq!(frames[0].request_id.as_deref(), Some("gateway-call-1"));
+        drop(log);
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

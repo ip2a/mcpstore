@@ -35,6 +35,7 @@ struct ToolExecutionContext {
     started_at: Instant,
     caller: Option<String>,
     session_key: Option<String>,
+    call_trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
 }
 
 pub struct McpStoreToolExecutionHandle<'a> {
@@ -348,6 +349,7 @@ impl ExecutionEngine {
             started_at: Instant::now(),
             caller: options.caller.clone(),
             session_key: options.session_key.clone(),
+            call_trace: options.call_trace.clone(),
         };
 
         if is_openapi_virtual {
@@ -592,6 +594,11 @@ fn record_tool_telemetry(
         return;
     };
     let mut record = crate::telemetry::RequestRecord::new("tool", &context.tool_name);
+    if let Some(trace) = &context.call_trace {
+        record.request_id = trace.call_id().to_string();
+        record.started_at_unix_ms = trace.started_at_unix_ms();
+        record.timing = Some(trace.timing());
+    }
     record.duration_ms = latency_ms as i64;
     record.caller = context.caller.clone();
     record.scope = Some(match &context.scope {

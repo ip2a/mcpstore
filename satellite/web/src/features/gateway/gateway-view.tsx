@@ -46,7 +46,10 @@ import {
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
-import { useGatewayRequestFlow } from "@/features/gateway/use-gateway-request-flow"
+import {
+  isGatewayRequestActive,
+  useGatewayRequestFlow,
+} from "@/features/gateway/use-gateway-request-flow"
 import { useI18n } from "@/lib/i18n-context"
 import {
   startMcpHub,
@@ -234,7 +237,9 @@ export function GatewayView({
                       label: t("gatewayFlowStatRequests"),
                     },
                     {
-                      value: new Set(records.map((r) => r.service_name)).size,
+                      value: new Set(
+                        records.map((r) => r.service_name).filter(Boolean),
+                      ).size,
                       label: t("gatewayFlowStatServices"),
                     },
                     {
@@ -524,48 +529,6 @@ function LaunchSettingsDialog({
 /** Narrative narrative markers for the latest-call story. */
 type NarrativeKind = "muted" | "emphasis" | "ok" | "error" | "detail"
 
-/** Temporary mock — replace with real latest-call narrative later. */
-const MOCK_LATEST_NARRATIVE: { kind: NarrativeKind; text: string }[] = [
-  { kind: "muted", text: "Claude Code call 工具：demo1_add" },
-  { kind: "emphasis", text: "mcpstore 路由给服务 demo1 的工具 demo1__add" },
-  { kind: "muted", text: "没有映射，直接透传" },
-  { kind: "ok", text: "上游返回成功 · 24ms" },
-  { kind: "detail", text: "原话：demo1.demo1__add ok" },
-]
-
-/** Temporary mock timing segments — Narrative latency breakdown. */
-const MOCK_TIMING_SEGMENTS: { key: string; label: string; detail: string; ms: number; color: string }[] =
-  [
-    {
-      key: "hub",
-      label: "mcpstore",
-      detail: "mcpstore 内耗时",
-      ms: 2,
-      color: "bg-sky-500",
-    },
-    {
-      key: "net",
-      label: "网络",
-      detail: "发送请求",
-      ms: 8,
-      color: "bg-amber-700",
-    },
-    {
-      key: "svc",
-      label: "服务",
-      detail: "demo1（首字节）",
-      ms: 12,
-      color: "bg-zinc-700",
-    },
-    {
-      key: "read",
-      label: "读取回复",
-      detail: "读取回复",
-      ms: 2,
-      color: "bg-zinc-400",
-    },
-  ]
-
 function NarrativeMarker({ kind }: { kind: NarrativeKind }) {
   if (kind === "error") {
     return <XIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
@@ -591,50 +554,222 @@ function NarrativeMarker({ kind }: { kind: NarrativeKind }) {
   )
 }
 
-function TimingBreakdown() {
+function TimingBreakdown({ record }: { record: GatewayRequestRecord }) {
   const { t } = useI18n()
-  const total = MOCK_TIMING_SEGMENTS.reduce((sum, seg) => sum + seg.ms, 0) || 1
+  const terminal = !isGatewayRequestActive(record)
+  const points = [
+    {
+      key: "routing",
+      label: t("gatewayFlowTimingRouting"),
+      value: record.routing_ms,
+      color: "bg-sky-500",
+    },
+    {
+      key: "request-write",
+      label: t("gatewayFlowTimingRequestWrite"),
+      value: record.request_write_ms,
+      color: "bg-amber-700",
+    },
+    {
+      key: "first-byte",
+      label: t("gatewayFlowTimingFirstByte"),
+      value: record.first_byte_ms,
+      color: "bg-zinc-700",
+    },
+    {
+      key: "response-read",
+      label: t("gatewayFlowTimingResponseRead"),
+      value: record.response_read_ms,
+      color: "bg-zinc-400",
+    },
+  ] as const
+  const segments = [
+    { point: points[0], start: 0, end: record.routing_ms },
+    { point: points[1], start: record.routing_ms, end: record.request_write_ms },
+    { point: points[2], start: record.request_write_ms, end: record.first_byte_ms },
+    { point: points[3], start: record.first_byte_ms, end: record.response_read_ms },
+  ].flatMap(({ point, start, end }) => {
+    if (start == null || end == null || end < start) return []
+    return [{ ...point, start, ms: end - start }]
+  })
+  const scaleMs = Math.max(
+    1,
+    ...points.map((point) => point.value ?? 0),
+    terminal ? record.duration_ms : 0,
+  )
+  const hasTiming = terminal || points.some((point) => point.value != null)
 
   return (
     <li className="flex items-start gap-2.5">
       <NarrativeMarker kind="detail" />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="text-sm font-medium">{t("gatewayFlowTimingTitle")}</span>
-        <div className="flex h-2 w-full overflow-hidden rounded-sm bg-muted">
-          {MOCK_TIMING_SEGMENTS.map((seg) => (
-            <div
-              key={seg.key}
-              className={cn("h-full", seg.color)}
-              style={{ width: `${(seg.ms / total) * 100}%` }}
-              title={`${seg.detail} ${seg.ms}ms`}
-            />
-          ))}
-        </div>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {MOCK_TIMING_SEGMENTS.map((seg) => (
-            <span key={seg.key} className="inline-flex items-center gap-1.5">
-              <span className={cn("size-2.5 shrink-0 rounded-sm", seg.color)} aria-hidden />
-              {seg.detail} {t("gatewayFlowTimingMs", { ms: seg.ms })}
-            </span>
-          ))}
-        </div>
+        {!hasTiming ? (
+          <span className="text-xs text-muted-foreground">{t("gatewayFlowTimingEmpty")}</span>
+        ) : (
+          <>
+            {segments.length > 0 ? (
+              <>
+                <div className="relative h-2 w-full overflow-hidden rounded-sm bg-muted">
+                  {segments.map((segment) => (
+                    <div
+                      key={segment.key}
+                      className={cn("absolute h-full", segment.color)}
+                      style={{
+                        left: `${(segment.start / scaleMs) * 100}%`,
+                        width: `${(segment.ms / scaleMs) * 100}%`,
+                      }}
+                      title={`${segment.label} ${t("gatewayFlowTimingMs", { ms: segment.ms })}`}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {segments.map((segment) => (
+                    <span key={segment.key} className="inline-flex items-center gap-1.5">
+                      <span
+                        className={cn("size-2.5 shrink-0 rounded-sm", segment.color)}
+                        aria-hidden
+                      />
+                      {segment.label} {t("gatewayFlowTimingMs", { ms: segment.ms })}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {points.map((point) => (
+                <span key={point.key}>
+                  {point.value == null
+                    ? t("gatewayFlowTimingPointMissing", { label: point.label })
+                    : t("gatewayFlowTimingPointMs", { label: point.label, ms: point.value })}
+                </span>
+              ))}
+              {terminal ? (
+                <span>
+                  {t("gatewayFlowTimingPointMs", {
+                    label: t("gatewayFlowTimingTotal"),
+                    ms: record.duration_ms,
+                  })}
+                </span>
+              ) : null}
+            </div>
+          </>
+        )}
       </div>
     </li>
   )
 }
 
-function LatestCallNarrative() {
-  const stepsBeforeRaw = MOCK_LATEST_NARRATIVE.slice(0, -1)
-  const rawStep = MOCK_LATEST_NARRATIVE[MOCK_LATEST_NARRATIVE.length - 1]!
+const NARRATIVE_KIND_LABEL_KEYS = {
+  tool: "gatewayCallKindTool",
+  prompt: "gatewayCallKindPrompt",
+  resource: "gatewayCallKindResource",
+} as const
+
+function LatestCallNarrative({
+  callerLabel,
+  record,
+}: {
+  callerLabel?: string
+  record: GatewayRequestRecord | null
+}) {
+  const { t } = useI18n()
+  if (!record) {
+    return <p className="text-sm text-muted-foreground">{t("gatewayFlowLatestEmpty")}</p>
+  }
+
+  const caller = record.caller ? (callerLabel ?? record.caller) : t("gatewayCallDirect")
+  const steps: { key: string; kind: NarrativeKind; text: string }[] = [
+    {
+      key: "request",
+      kind: "muted",
+      text: t("gatewayFlowNarrativeRequest", {
+        caller,
+        kind: t(NARRATIVE_KIND_LABEL_KEYS[record.kind]),
+        name: record.name,
+      }),
+    },
+  ]
+
+  if (record.phase === "routing") {
+    steps.push({
+      key: "route",
+      kind: "emphasis",
+      text: t("gatewayFlowNarrativeRouting", { name: record.name }),
+    })
+  } else if (record.upstream_name !== null) {
+    steps.push({
+      key: "route",
+      kind: "emphasis",
+      text: t("gatewayFlowNarrativeRouted", {
+        service: record.service_name,
+        upstream: record.upstream_name,
+      }),
+    })
+    const mappingKey = record.namespace_applied
+      ? record.name_mapped
+        ? "gatewayFlowNarrativeNamespaceAndMapping"
+        : "gatewayFlowNarrativeNamespace"
+      : record.name_mapped
+        ? "gatewayFlowNarrativeNameMapped"
+        : "gatewayFlowNarrativePassThrough"
+    steps.push({
+      key: "mapping",
+      kind: record.namespace_applied || record.name_mapped ? "detail" : "muted",
+      text: t(mappingKey, { name: record.name, upstream: record.upstream_name }),
+    })
+  } else {
+    steps.push({
+      key: "route",
+      kind: record.phase === "failed" ? "error" : "detail",
+      text: t(
+        record.phase === "failed"
+          ? "gatewayFlowNarrativeRouteFailed"
+          : "gatewayFlowNarrativeRouteMissing",
+      ),
+    })
+  }
+
+  if (record.phase === "routing") {
+    steps.push({
+      key: "result",
+      kind: "muted",
+      text: t("gatewayFlowNarrativeCallWaiting"),
+    })
+  } else if (record.phase === "calling_upstream") {
+    steps.push({
+      key: "result",
+      kind: "emphasis",
+      text: t("gatewayFlowNarrativeCalling"),
+    })
+  } else if (record.phase === "succeeded") {
+    steps.push({
+      key: "result",
+      kind: "ok",
+      text: t("gatewayFlowNarrativeSucceeded", { ms: record.duration_ms }),
+    })
+  } else if (record.upstream_name === null) {
+    steps.push({
+      key: "result",
+      kind: "muted",
+      text: t("gatewayFlowNarrativeNotCalled"),
+    })
+  } else {
+    steps.push({
+      key: "result",
+      kind: "error",
+      text: t("gatewayFlowNarrativeFailed", { ms: record.duration_ms }),
+    })
+  }
 
   return (
     <ul className="flex flex-col gap-2.5 text-sm">
-      {stepsBeforeRaw.map((step, index) => (
-        <li key={index} className="flex items-start gap-2.5">
+      {steps.map((step) => (
+        <li key={step.key} className="flex items-start gap-2.5">
           <NarrativeMarker kind={step.kind} />
           <span
             className={cn(
-              "min-w-0 leading-snug",
+              "min-w-0 break-words leading-snug",
               step.kind === "detail" && "font-mono text-xs text-muted-foreground",
               step.kind === "error" && "text-destructive",
             )}
@@ -643,11 +778,19 @@ function LatestCallNarrative() {
           </span>
         </li>
       ))}
-      <TimingBreakdown />
+      <TimingBreakdown record={record} />
+      {record.error ? (
+        <li className="flex items-start gap-2.5">
+          <NarrativeMarker kind="error" />
+          <span className="min-w-0 break-words font-mono text-xs leading-snug text-destructive">
+            {record.error}
+          </span>
+        </li>
+      ) : null}
       <li className="flex items-start gap-2.5">
-        <NarrativeMarker kind={rawStep.kind} />
-        <span className="min-w-0 font-mono text-xs leading-snug text-muted-foreground">
-          {rawStep.text}
+        <NarrativeMarker kind="detail" />
+        <span className="min-w-0 break-all font-mono text-xs leading-snug text-muted-foreground">
+          {t("gatewayFlowNarrativeCallId", { id: record.call_id })}
         </span>
       </li>
     </ul>
@@ -679,7 +822,7 @@ function CallFlowDiagram({
     ? wired.find((entry) => entry.client_id === activeCaller)
     : undefined
   const hubUrl = activeWired?.url ?? status?.url ?? "—"
-  const fresh = latest?.phase === "routing" || latest?.phase === "calling_upstream"
+  const fresh = latest ? isGatewayRequestActive(latest) : false
 
   return (
     <div className="flex w-full min-w-0 items-stretch gap-0">
@@ -916,14 +1059,14 @@ function ServiceFlowCard({
       </div>
       <div className="border-t border-border/50" />
       <div className="flex min-w-0 flex-col gap-1">
-        {recent.map((record, index) => (
+        {recent.map((record) => (
           <div
             key={record.call_id}
             className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
           >
             <span className="min-w-0 truncate font-mono text-[11px]">{record.name}</span>
             <span className="shrink-0">
-              {record.phase === "routing" || record.phase === "calling_upstream"
+              {isGatewayRequestActive(record)
                 ? t("gatewayFlowCalling")
                 : `${record.success ? "OK" : "ERR"} · ${record.duration_ms}ms`}
             </span>

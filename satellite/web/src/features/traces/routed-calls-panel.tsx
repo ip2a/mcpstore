@@ -12,7 +12,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useGatewayRequestFlow } from "@/features/gateway/use-gateway-request-flow"
+import {
+  isGatewayRequestActive,
+  useGatewayRequestFlow,
+} from "@/features/gateway/use-gateway-request-flow"
 import {
   TRACE_COL1_CELL_CLASSNAME,
   TRACE_COL1_CLASSNAME,
@@ -40,7 +43,8 @@ function formatClock(ms: number): string {
 }
 
 function targetLabel(record: GatewayRequestRecord): string {
-  return record.kind === "resource" ? record.name : `${record.service_name}.${record.name}`
+  if (record.kind === "resource" || !record.service_name) return record.name
+  return `${record.service_name}.${record.name}`
 }
 
 /** Live gateway routed-calls table for embedding (Traces → Routed calls tab). */
@@ -77,8 +81,9 @@ export function RoutedCallsPanel() {
             {rows.map((record) => {
               const fullTime = new Date(record.at_unix_ms).toLocaleString()
               const target = targetLabel(record)
+              const active = isGatewayRequestActive(record)
               return (
-                <TableRow key={record.seq}>
+                <TableRow key={record.call_id}>
                   <TableCell
                     className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}
                   >
@@ -101,12 +106,12 @@ export function RoutedCallsPanel() {
                     {t(KIND_LABEL_KEYS[record.kind])}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={record.success ? "secondary" : "destructive"}>
-                      {record.success ? "OK" : "ERR"}
+                    <Badge variant={!active && !record.success ? "destructive" : "secondary"}>
+                      {active ? t("gatewayCallInProgress") : record.success ? "OK" : "ERR"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs tabular-nums text-muted-foreground">
-                    {record.duration_ms}ms
+                    {active ? "—" : `${record.duration_ms}ms`}
                   </TableCell>
                 </TableRow>
               )
