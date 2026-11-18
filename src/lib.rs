@@ -39,8 +39,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, ConfigManager, GatewayConfig, KvConfig, McpConfig, RuntimeLogConfig, ScopesConfig,
-    ScopesConfigError, ServerConfig,
+    AppConfig, ConfigManager, GatewayConfig, KvConfig, McpConfig, RouteConfig, RouteConfigError,
+    RuntimeLogConfig, ScopesConfig, ScopesConfigError, ServerConfig,
 };
 
 // Facade re-exports: KV layer

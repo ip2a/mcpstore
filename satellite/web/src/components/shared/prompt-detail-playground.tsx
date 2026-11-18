@@ -2,7 +2,6 @@ import { useMemo, useState } from "react"
 import { PlayIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
 import { ToolSchemaEmptyHint } from "@/components/shared/tool-schema-empty-hint"
 import { toolDetailPlaygroundAside } from "@/components/shared/tool-detail-section-layout"
@@ -28,7 +27,6 @@ import {
   type PromptInfo,
   type ScopeRef,
   type ServiceInstance,
-  type ServiceState,
 } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { parsePromptArgs, type PromptArgDef } from "@/lib/prompt-info"
@@ -52,23 +50,18 @@ export function buildPromptCliCommand(input: {
 
 export function PromptDetailDocHeader({
   prompt,
-  serviceState,
   className,
 }: {
   prompt: PromptInfo
-  serviceState?: ServiceState | null
   className?: string
 }) {
   const title = prompt.title?.trim() || prompt.name
 
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
-          {title}
-        </TypographyH2>
-        {serviceState ? <ServiceStatusBadge state={serviceState} /> : null}
-      </div>
+      <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
+        {title}
+      </TypographyH2>
       <ToolDescriptionBlock
         description={prompt.description}
         showLabel={false}

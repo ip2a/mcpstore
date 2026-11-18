@@ -64,14 +64,14 @@ impl MCPStore {
                     .map_err(|err| Error::new(FailureCode::Internal, err.to_string()))?,
             )
             .await?;
-        // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
+        // Best-effort writeback to route.toml; openkeyv above is the source of truth.
         if let Err(error) = self
             .writeback_service_override(&rule.service_name, &rule.scope, &rule.common)
             .await
         {
-            tracing::warn!("Failed to write back service override to scopes.toml: {error}");
+            tracing::warn!("Failed to write back service override to route.toml: {error}");
         }
-        // Publish after the writeback: the gateway's scopes.toml fingerprint
+        // Publish after the writeback: the gateway's route.toml fingerprint
         // tick reads the file, so the persistent channel is consistent before
         // the (faster) event channel fires.
         self.publish_override_changed(instance_id, &rule.service_name)
@@ -111,7 +111,7 @@ impl MCPStore {
                 &self.service_override_key(instance_id),
             )
             .await?;
-        // Best-effort scopes.toml cleanup so the next load cannot resurrect
+        // Best-effort route.toml cleanup so the next load cannot resurrect
         // the deleted rule from its writeback. Skipped when the instance is
         // already gone (nothing to resolve the file path from).
         let mut service_name = None;
@@ -127,7 +127,7 @@ impl MCPStore {
                 .writeback_service_override_removal(&instance.service_name, &instance.scope)
                 .await
             {
-                tracing::warn!("Failed to clean up service override in scopes.toml: {error}");
+                tracing::warn!("Failed to clean up service override in route.toml: {error}");
             }
         }
         if let Some(service_name) = service_name.as_deref() {

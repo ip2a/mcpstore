@@ -365,7 +365,7 @@ export function ServiceResourceDetailPane({
     >
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <ScrollPane className="min-h-0 flex-1">
-          <ResourceDetailDocHeader resource={resource} serviceState={service.state} />
+          <ResourceDetailDocHeader resource={resource} />
           <ResourceDetailDocBody
             resource={resource}
             serviceName={service.service_name}
@@ -484,7 +484,7 @@ export function ServicePromptDetailPane({
     >
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <ScrollPane className="min-h-0 flex-1">
-          <PromptDetailDocHeader prompt={prompt} serviceState={service.state} />
+          <PromptDetailDocHeader prompt={prompt} />
           <PromptDetailDocBody
             prompt={prompt}
             promptArgs={promptArgs}

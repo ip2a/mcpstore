@@ -15,6 +15,11 @@ mod mcp_schema;
 mod merge;
 pub mod models;
 pub mod resolver;
+mod route;
+mod route_loader;
+#[cfg(test)]
+mod route_tests;
+mod route_writeback;
 mod scopes;
 mod scopes_loader;
 #[cfg(test)]
@@ -40,9 +45,10 @@ pub use kv_schema::KvConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
-pub use scopes::{
-    ArgumentOverride, ComponentOverride, ComponentsScopeConfig, IconsOverride, ScopeConfig,
-    ScopesConfig, ScopesConfigError, ServiceScopeConfig, ToolsScopeConfig,
+pub use route::{
+    ArgumentOverride, ComponentOverride, ComponentsRouteConfig, ComponentsScopeConfig,
+    IconsOverride, RouteConfig, RouteConfigError, RouteScopeConfig, ScopeConfig, ScopesConfig,
+    ScopesConfigError, ServiceRouteConfig, ServiceScopeConfig, ToolsRouteConfig, ToolsScopeConfig,
 };
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,

@@ -127,15 +127,15 @@ impl MCPStore {
             self.upsert_instance_tools_projection(instance_id, &tools)
                 .await?;
 
-            // scopes.toml tool/policy entries skip never-connected instances at
+            // route.toml tool/policy entries skip never-connected instances at
             // boot ("no synced tools yet"), which made override persistence
             // require a manual /config/reload after every restart. Tools are
             // synced now — replay the scopes config so file-declared overrides
             // land. Idempotent (set_* upserts + journal reconciliation); the
             // gateway's boot connect runs through this same path, so its private
             // KV is seeded too. Never fail the connect over a reload hiccup.
-            if let Err(error) = self.load_scopes_config().await {
-                tracing::warn!("scopes.toml replay after connect failed: {error}");
+            if let Err(error) = self.load_route_config().await {
+                tracing::warn!("route.toml replay after connect failed: {error}");
             }
             self.kernel
                 .execution
@@ -583,15 +583,15 @@ impl MCPStore {
         self.upsert_instance_tools_projection(instance_id, &tools)
             .await?;
 
-        // scopes.toml tool/policy entries skip never-connected instances at
+        // route.toml tool/policy entries skip never-connected instances at
         // boot ("no synced tools yet"), which made override persistence
         // require a manual /config/reload after every restart. Tools are
         // synced now — replay the scopes config so file-declared overrides
         // land. Idempotent (set_* upserts + journal reconciliation); the
         // gateway's boot connect runs through this same path, so its private
         // KV is seeded too. Never fail the connect over a reload hiccup.
-        if let Err(error) = self.load_scopes_config().await {
-            tracing::warn!("scopes.toml replay after connect failed: {error}");
+        if let Err(error) = self.load_route_config().await {
+            tracing::warn!("route.toml replay after connect failed: {error}");
         }
 
         self.kernel

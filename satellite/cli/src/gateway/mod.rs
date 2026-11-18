@@ -282,6 +282,7 @@ impl GatewayCallLog {
         Arc::new(Self {
             records: std::sync::Mutex::new(records),
             latest: std::sync::atomic::AtomicU64::new(latest),
+            next_call_id: std::sync::atomic::AtomicU64::new(0),
             history,
             changed,
         })

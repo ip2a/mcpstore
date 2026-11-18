@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -7,6 +7,10 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import {
+  WORKSPACE_PANEL_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import {
   ToolDetailDocBody,
   ToolDetailDocHeader,
@@ -19,6 +23,7 @@ import { useInstanceToolsQueries } from "@/features/tools/queries"
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ToolInfo } from "@/lib/api"
+import { findToolByRouteName } from "@/lib/tool-info"
 import { serializeToolArgs } from "@/lib/tool-args"
 import type { ToolDialogState } from "@/features/tools/tool-dialogs"
 import { callInstanceTool } from "@/lib/api"
@@ -30,13 +35,15 @@ export function ToolDetailView(props: {
   services: ServiceInstance[]
   onBack: () => void
   onRunTool: (state: NonNullable<ToolDialogState>) => void
+  /** Keep URL / breadcrumb on the projected name after display_name override. */
+  onToolNameChange?: (toolName: string) => void
   isToolRunning?: (instanceId: string, toolName: string) => boolean
 }) {
   const { t } = useI18n()
   const instance = props.services.find((service) => service.instance_id === props.instanceId)
   const toolQueries = useInstanceToolsQueries(instance ? [instance] : [], "available")
   const tools = toolQueries[0]?.data || []
-  const tool = tools.find((item) => item.name === props.toolName) ?? null
+  const tool = findToolByRouteName(tools, props.toolName)
   const loading = Boolean(instance) && toolQueries.some((query) => query.isFetching)
   const error = toolQueries.find((query) => query.error)?.error
   const errorMessage =
@@ -45,6 +52,12 @@ export function ToolDetailView(props: {
   const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(tool)
   const running = Boolean(tool && props.isToolRunning?.(props.instanceId, tool.name))
   const [playgroundOpen, setPlaygroundOpen] = useState(true)
+
+  // After alias override, projected `name` changes — rewrite the route in place.
+  useEffect(() => {
+    if (!tool || tool.name === props.toolName) return
+    props.onToolNameChange?.(tool.name)
+  }, [tool, props.toolName, props.onToolNameChange])
 
   async function loadTools() {
     const results = await Promise.all(toolQueries.map((query) => query.refetch()))
@@ -118,91 +131,108 @@ export function ToolDetailView(props: {
         ]}
         subtitle={headerSubtitle}
       />
-      <PanelCard
-        variant="plain"
-        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-      >
-        <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            {tool ? (
-              <Button
-                size="sm"
-                onClick={() =>
-                  props.onRunTool({
-                    ...makeRunner(tool, instance),
-                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                  })
-                }
-                disabled={running}
-              >
-                {running ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <WrenchIcon data-icon="inline-start" />
-                )}
-                {running ? t("executing") : t("call")}
-              </Button>
-            ) : null}
-            {tool ? (
-              <Button size="sm" variant="outline" onClick={() => void copyTool(tool)}>
-                <ClipboardIcon data-icon="inline-start" />
-                {t("copy")}
-              </Button>
-            ) : null}
-            <Button size="sm" variant="outline" onClick={() => void loadTools()} disabled={loading}>
-              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-              {t("refresh")}
-            </Button>
-            {tool ? (
+      <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className={cn(WORKSPACE_TOOLBAR_CLASSNAME, "justify-end")}>
+            <div className="flex h-9 min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {tool ? (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    props.onRunTool({
+                      ...makeRunner(tool, instance),
+                      initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                    })
+                  }
+                  disabled={running}
+                >
+                  {running ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <WrenchIcon data-icon="inline-start" />
+                  )}
+                  {running ? t("executing") : t("call")}
+                </Button>
+              ) : null}
+              {tool ? (
+                <Button size="sm" variant="outline" onClick={() => void copyTool(tool)}>
+                  <ClipboardIcon data-icon="inline-start" />
+                  {t("copy")}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setPlaygroundOpen((open) => !open)}
-                aria-label={playgroundOpen ? t("collapse") : t("expand")}
-                title={playgroundOpen ? t("collapse") : t("expand")}
+                onClick={() => void loadTools()}
+                disabled={loading}
               >
-                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+                {t("refresh")}
               </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {error ? (
-          <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
-        ) : loading && !tool ? (
-          <PageSkeleton />
-        ) : tool ? (
-          <div
-            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
-          >
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ScrollPane className="min-h-0 flex-1">
-                <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
-                <ToolDetailDocBody
-                  tool={tool}
-                  toolArgs={toolArgs}
-                  onToolArgChange={setToolArg}
-                  serviceName={instance.service_name}
-                  scope={instance.scope}
-                />
-              </ScrollPane>
+              {tool ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPlaygroundOpen((open) => !open)}
+                  aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                  title={playgroundOpen ? t("collapse") : t("expand")}
+                >
+                  {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                </Button>
+              ) : null}
             </div>
-            {playgroundOpen ? (
-              <ToolPlaygroundAside
-                tool={tool}
-                instanceId={instance.instance_id}
-                toolArgs={toolArgs}
-                toolArgsSchema={toolArgsSchema}
-              />
-            ) : null}
           </div>
-        ) : (
-          <PageEmpty
-            title={t("noTools")}
-            description={t("noToolsScopeDescription")}
-            onRefresh={loadTools}
-          />
-        )}
+
+          {error ? (
+            <PageError
+              title={t("toolsFailedToLoad")}
+              message={errorMessage}
+              onRefresh={loadTools}
+            />
+          ) : loading && !tool ? (
+            <PageSkeleton />
+          ) : tool ? (
+            <div
+              className={cn(
+                toolDetailPlaygroundGrid,
+                "px-4 pb-4",
+                !playgroundOpen && "@min-[42rem]:grid-cols-1",
+              )}
+            >
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <ScrollPane className="min-h-0 flex-1">
+                  <ToolDetailDocHeader
+                    tool={tool}
+                    serviceName={instance.service_name}
+                    scope={instance.scope}
+                    onDisplayNameApplied={props.onToolNameChange}
+                  />
+                  <ToolDetailDocBody
+                    tool={tool}
+                    toolArgs={toolArgs}
+                    onToolArgChange={setToolArg}
+                    serviceName={instance.service_name}
+                    scope={instance.scope}
+                  />
+                </ScrollPane>
+              </div>
+              {playgroundOpen ? (
+                <ToolPlaygroundAside
+                  tool={tool}
+                  instanceId={instance.instance_id}
+                  toolArgs={toolArgs}
+                  toolArgsSchema={toolArgsSchema}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <PageEmpty
+              title={t("noTools")}
+              description={t("noToolsScopeDescription")}
+              onRefresh={loadTools}
+            />
+          )}
+        </div>
       </PanelCard>
     </>
   )

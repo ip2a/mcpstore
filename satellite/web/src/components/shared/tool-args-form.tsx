@@ -27,7 +27,7 @@ type SchemaField = Record<string, unknown>
 type ToolSchema = { properties?: Record<string, SchemaField>; required?: string[] }
 
 const inputMutedClass = "bg-muted/50 text-foreground placeholder:text-muted-foreground"
-const compactTextareaClass = "min-h-9 resize-y py-1 text-sm leading-normal"
+const compactTextareaClass = "min-h-9 resize-y py-[7px] text-sm leading-5"
 
 export function ToolArgsForm({
   className,

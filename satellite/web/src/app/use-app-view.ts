@@ -40,7 +40,11 @@ export function useAppView(services: ServiceInstance[]) {
   const selectedService = listedService || instanceQuery.data
   const viewTitle = useViewTitle(view)
   const pageTitle = selectedService?.service_name || viewTitle
-  const setView = useCallback((nextView: AppView) => navigate(pathForView(nextView)), [navigate])
+  const setView = useCallback(
+    (nextView: AppView, options?: { replace?: boolean }) =>
+      navigate(pathForView(nextView), { replace: options?.replace }),
+    [navigate],
+  )
   const goBack = useCallback(() => {
     if (view.name === "tool") {
       navigate("/tools", { replace: location.key === "default" })

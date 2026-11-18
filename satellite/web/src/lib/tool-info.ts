@@ -119,8 +119,18 @@ export function isStructuredDescriptionSection(label: string) {
   return STRUCTURED_DESCRIPTION_SECTIONS.has(label.toLowerCase())
 }
 
+/** Stable across display_name overrides — keyed by original registry name. */
 export function toolKey(instanceId: string, tool: ToolInfo) {
-  return `${instanceId}:${tool.name}`
+  return `${instanceId}:${getOriginalToolName(tool)}`
+}
+
+/** Match projected `name` or raw `tool_name` / `original_name`. */
+export function findToolByRouteName(tools: ToolInfo[], routeName: string) {
+  return (
+    tools.find((tool) => tool.name === routeName) ||
+    tools.find((tool) => getOriginalToolName(tool) === routeName) ||
+    null
+  )
 }
 
 export function findToolStatus(toolName: string, state?: ServiceState | null) {
@@ -192,10 +202,14 @@ export function resolveParameterDoc(
   name: string,
   field: SchemaField,
   proseParamDocs: Record<string, string>,
+  /** When the param was renamed by override, prose docs are still keyed by the original name. */
+  originalName?: string,
 ): string | null {
   const schemaDoc = getSchemaFieldDescription(field)
   if (schemaDoc) return schemaDoc
 
-  const proseDoc = proseParamDocs[name]?.trim()
+  const proseDoc =
+    proseParamDocs[name]?.trim() ||
+    (originalName && originalName !== name ? proseParamDocs[originalName]?.trim() : undefined)
   return proseDoc || null
 }

@@ -26,9 +26,10 @@ import {
 } from "@/components/ui/accordion"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import type { ScopeRef, ServiceState, ToolInfo } from "@/lib/api"
+import type { ScopeRef, ToolInfo } from "@/lib/api"
+import { InlineOverrideField } from "@/features/overrides/inline-override-field"
 import { OverrideEditor } from "@/features/overrides/override-editor"
+import { useToolInlineOverride } from "@/features/overrides/use-tool-inline-override"
 import { buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
 import {
@@ -94,27 +95,63 @@ function useToolPlaygroundData({
 
 export function ToolDetailDocHeader({
   tool,
-  serviceState,
   className,
+  serviceName,
+  scope,
+  onDisplayNameApplied,
 }: {
   tool: ToolInfo
-  serviceState?: ServiceState | null
   className?: string
+  serviceName?: string
+  scope?: ScopeRef
+  onDisplayNameApplied?: (projectedName: string) => void
 }) {
+  const { t } = useI18n()
+  const originalToolName = getOriginalToolName(tool)
+  const override = useToolInlineOverride(serviceName, originalToolName, scope, {
+    onDisplayNameApplied,
+  })
+  const description = tool.description?.trim() || t("noDescription")
+
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
-          {tool.name}
-        </TypographyH2>
-        {serviceState ? <ServiceStatusBadge state={serviceState} /> : null}
-      </div>
-      <ToolDescriptionBlock
-        description={tool.description}
-        showLabel={false}
-        omitStructuredSections
-        className="text-foreground"
-      />
+      <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
+        <InlineOverrideField
+          value={tool.name}
+          originalValue={originalToolName}
+          overridden={override.nameOverridden}
+          label={t("overrideDisplayName")}
+          disabled={!override.enabled}
+          busy={override.busy}
+          className="w-full"
+          textClassName="font-mono text-xl font-semibold tracking-tight"
+          onSave={override.saveDisplayName}
+        />
+      </TypographyH2>
+      {override.enabled ? (
+        <InlineOverrideField
+          value={tool.description || ""}
+          originalValue={
+            override.descriptionOverridden ? undefined : tool.description || ""
+          }
+          overridden={override.descriptionOverridden}
+          label={t("overrideDescription")}
+          multiline
+          busy={override.busy}
+          className="w-full"
+          textClassName="break-words text-sm leading-relaxed"
+          onSave={override.saveDescription}
+        >
+          {description}
+        </InlineOverrideField>
+      ) : (
+        <ToolDescriptionBlock
+          description={tool.description}
+          showLabel={false}
+          omitStructuredSections
+          className="text-foreground"
+        />
+      )}
     </header>
   )
 }
@@ -158,6 +195,9 @@ export function ToolDetailDocBody({
           values={toolArgs}
           onChange={onToolArgChange}
           proseParamDocs={proseInputParams}
+          serviceName={serviceName}
+          scope={scope}
+          originalToolName={originalToolName || getOriginalToolName(tool)}
         />
       </section>
 

@@ -150,7 +150,7 @@ impl GatewayServer {
         Arc::clone(&self.catalog.projection)
     }
 
-    /// Shared catalog handle: the reconciliation tick watches scopes.toml
+    /// Shared catalog handle: the reconciliation tick watches route.toml
     /// through it (daemon-side override writes land there via writeback) and
     /// health observability reads the rebuild counter.
     pub(crate) fn catalog_handle(&self) -> Arc<GatewayCatalog> {

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react"
+import { useCallback, useSyncExternalStore } from "react"
 import { useAppActions } from "@/app/use-app-actions"
 import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
@@ -55,6 +55,14 @@ export function App() {
     setView,
     view,
   } = useAppView(services)
+  const handleToolNameChange = useCallback(
+    (toolName: string) => {
+      if (view.name !== "tool") return
+      if (view.toolName === toolName) return
+      setView({ name: "tool", instanceId: view.instanceId, toolName }, { replace: true })
+    },
+    [setView, view],
+  )
   const { busy, runAction } = useAppActions(refresh)
   const {
     closeToolDetail,
@@ -170,6 +178,7 @@ export function App() {
                     services={services}
                     onBack={goBack}
                     onRunTool={runToolFromDialogState}
+                    onToolNameChange={handleToolNameChange}
                     isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
                   />
                 ) : view.name === "resource" ? (

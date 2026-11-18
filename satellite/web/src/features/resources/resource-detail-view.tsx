@@ -12,6 +12,10 @@ import {
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import {
+  WORKSPACE_PANEL_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -120,90 +124,93 @@ export function ResourceDetailView(props: {
         ]}
         subtitle={headerSubtitle}
       />
-      <PanelCard
-        variant="plain"
-        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-      >
-        <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            {resource ? (
-              <Button size="sm" onClick={() => void onReadResource()} disabled={reading}>
-                {reading ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <FileIcon data-icon="inline-start" />
-                )}
-                {reading ? t("reading") : t("read")}
-              </Button>
-            ) : null}
-            {resource ? (
-              <Button size="sm" variant="outline" onClick={() => void copyResource(resource)}>
-                <ClipboardIcon data-icon="inline-start" />
-                {t("copy")}
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void loadResources()}
-              disabled={loading}
-            >
-              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-              {t("refresh")}
-            </Button>
-            {resource ? (
+      <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className={cn(WORKSPACE_TOOLBAR_CLASSNAME, "justify-end")}>
+            <div className="flex h-9 min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {resource ? (
+                <Button size="sm" onClick={() => void onReadResource()} disabled={reading}>
+                  {reading ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <FileIcon data-icon="inline-start" />
+                  )}
+                  {reading ? t("reading") : t("read")}
+                </Button>
+              ) : null}
+              {resource ? (
+                <Button size="sm" variant="outline" onClick={() => void copyResource(resource)}>
+                  <ClipboardIcon data-icon="inline-start" />
+                  {t("copy")}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setPlaygroundOpen((open) => !open)}
-                aria-label={playgroundOpen ? t("collapse") : t("expand")}
-                title={playgroundOpen ? t("collapse") : t("expand")}
+                onClick={() => void loadResources()}
+                disabled={loading}
               >
-                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+                {t("refresh")}
               </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {error ? (
-          <PageError
-            title={t("resourcesFailedToLoad")}
-            message={errorMessage}
-            onRefresh={loadResources}
-          />
-        ) : loading && !resource ? (
-          <PageSkeleton />
-        ) : resource ? (
-          <div
-            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
-          >
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ScrollPane className="min-h-0 flex-1">
-                <ResourceDetailDocHeader resource={resource} serviceState={instance.state} />
-                <ResourceDetailDocBody
-                  resource={resource}
-                  serviceName={instance.service_name}
-                  scope={instance.scope}
-                />
-              </ScrollPane>
+              {resource ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPlaygroundOpen((open) => !open)}
+                  aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                  title={playgroundOpen ? t("collapse") : t("expand")}
+                >
+                  {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                </Button>
+              ) : null}
             </div>
-            {playgroundOpen ? (
-              <ResourcePlaygroundAside
-                resource={resource}
-                service={instance}
-                onRead={() => void onReadResource()}
-                reading={reading}
-                content={content}
-              />
-            ) : null}
           </div>
-        ) : (
-          <PageEmpty
-            title={t("noResourcesFound")}
-            description={t("noResourcesScopeDescription")}
-            onRefresh={loadResources}
-          />
-        )}
+
+          {error ? (
+            <PageError
+              title={t("resourcesFailedToLoad")}
+              message={errorMessage}
+              onRefresh={loadResources}
+            />
+          ) : loading && !resource ? (
+            <PageSkeleton />
+          ) : resource ? (
+            <div
+              className={cn(
+                toolDetailPlaygroundGrid,
+                "px-4 pb-4",
+                !playgroundOpen && "@min-[42rem]:grid-cols-1",
+              )}
+            >
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <ScrollPane className="min-h-0 flex-1">
+                  <ResourceDetailDocHeader resource={resource} />
+                  <ResourceDetailDocBody
+                    resource={resource}
+                    serviceName={instance.service_name}
+                    scope={instance.scope}
+                  />
+                </ScrollPane>
+              </div>
+              {playgroundOpen ? (
+                <ResourcePlaygroundAside
+                  resource={resource}
+                  service={instance}
+                  onRead={() => void onReadResource()}
+                  reading={reading}
+                  content={content}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <PageEmpty
+              title={t("noResourcesFound")}
+              description={t("noResourcesScopeDescription")}
+              onRefresh={loadResources}
+            />
+          )}
+        </div>
       </PanelCard>
     </>
   )

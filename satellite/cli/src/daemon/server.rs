@@ -708,7 +708,7 @@ fn enforce_file_permissions(data_dir: &std::path::Path) -> Result<(), String> {
         "daemon-id",
         "config.toml",
         "mcp.json",
-        "scopes.toml",
+        "route.toml",
         "telemetry.db",
     ];
 

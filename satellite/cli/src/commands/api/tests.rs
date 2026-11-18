@@ -1434,7 +1434,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 
 #[tokio::test]
 async fn store_routes_manage_rust_core_tool_overrides() {
-    // Override writes write back to scopes.toml beside the config — point the
+    // Override writes write back to route.toml beside the config — point the
     // store at a temp config so the run never touches the real user file.
     let dir =
         std::env::temp_dir().join(format!("mcpstore-api-override-test-{}", std::process::id()));

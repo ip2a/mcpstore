@@ -12,6 +12,10 @@ import {
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import {
+  WORKSPACE_PANEL_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -122,93 +126,96 @@ export function PromptDetailView(props: {
         ]}
         subtitle={headerSubtitle}
       />
-      <PanelCard
-        variant="plain"
-        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-      >
-        <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            {prompt ? (
-              <Button size="sm" onClick={() => void onGetPrompt()} disabled={getting}>
-                {getting ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <ScrollTextIcon data-icon="inline-start" />
-                )}
-                {getting ? t("executing") : t("get")}
-              </Button>
-            ) : null}
-            {prompt ? (
-              <Button size="sm" variant="outline" onClick={() => void copyPrompt(prompt)}>
-                <ClipboardIcon data-icon="inline-start" />
-                {t("copy")}
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void loadPrompts()}
-              disabled={loading}
-            >
-              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-              {t("refresh")}
-            </Button>
-            {prompt ? (
+      <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className={cn(WORKSPACE_TOOLBAR_CLASSNAME, "justify-end")}>
+            <div className="flex h-9 min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {prompt ? (
+                <Button size="sm" onClick={() => void onGetPrompt()} disabled={getting}>
+                  {getting ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <ScrollTextIcon data-icon="inline-start" />
+                  )}
+                  {getting ? t("executing") : t("get")}
+                </Button>
+              ) : null}
+              {prompt ? (
+                <Button size="sm" variant="outline" onClick={() => void copyPrompt(prompt)}>
+                  <ClipboardIcon data-icon="inline-start" />
+                  {t("copy")}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setPlaygroundOpen((open) => !open)}
-                aria-label={playgroundOpen ? t("collapse") : t("expand")}
-                title={playgroundOpen ? t("collapse") : t("expand")}
+                onClick={() => void loadPrompts()}
+                disabled={loading}
               >
-                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+                {t("refresh")}
               </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {error ? (
-          <PageError
-            title={t("promptsFailedToLoad")}
-            message={errorMessage}
-            onRefresh={loadPrompts}
-          />
-        ) : loading && !prompt ? (
-          <PageSkeleton />
-        ) : prompt ? (
-          <div
-            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
-          >
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ScrollPane className="min-h-0 flex-1">
-                <PromptDetailDocHeader prompt={prompt} serviceState={instance.state} />
-                <PromptDetailDocBody
-                  prompt={prompt}
-                  promptArgs={promptArgs}
-                  onPromptArgChange={setPromptArg}
-                  serviceName={instance.service_name}
-                  scope={instance.scope}
-                />
-              </ScrollPane>
+              {prompt ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPlaygroundOpen((open) => !open)}
+                  aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                  title={playgroundOpen ? t("collapse") : t("expand")}
+                >
+                  {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+                </Button>
+              ) : null}
             </div>
-            {playgroundOpen ? (
-              <PromptPlaygroundAside
-                prompt={prompt}
-                service={instance}
-                promptArgs={promptArgs}
-                onGet={() => void onGetPrompt()}
-                getting={getting}
-                content={content}
-              />
-            ) : null}
           </div>
-        ) : (
-          <PageEmpty
-            title={t("noPromptsFound")}
-            description={t("noPromptsScopeDescription")}
-            onRefresh={loadPrompts}
-          />
-        )}
+
+          {error ? (
+            <PageError
+              title={t("promptsFailedToLoad")}
+              message={errorMessage}
+              onRefresh={loadPrompts}
+            />
+          ) : loading && !prompt ? (
+            <PageSkeleton />
+          ) : prompt ? (
+            <div
+              className={cn(
+                toolDetailPlaygroundGrid,
+                "px-4 pb-4",
+                !playgroundOpen && "@min-[42rem]:grid-cols-1",
+              )}
+            >
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <ScrollPane className="min-h-0 flex-1">
+                  <PromptDetailDocHeader prompt={prompt} />
+                  <PromptDetailDocBody
+                    prompt={prompt}
+                    promptArgs={promptArgs}
+                    onPromptArgChange={setPromptArg}
+                    serviceName={instance.service_name}
+                    scope={instance.scope}
+                  />
+                </ScrollPane>
+              </div>
+              {playgroundOpen ? (
+                <PromptPlaygroundAside
+                  prompt={prompt}
+                  service={instance}
+                  promptArgs={promptArgs}
+                  onGet={() => void onGetPrompt()}
+                  getting={getting}
+                  content={content}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <PageEmpty
+              title={t("noPromptsFound")}
+              description={t("noPromptsScopeDescription")}
+              onRefresh={loadPrompts}
+            />
+          )}
+        </div>
       </PanelCard>
     </>
   )

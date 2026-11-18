@@ -456,7 +456,11 @@ export function ServiceDetailView(props: {
           >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <ScrollPane className="min-h-0 flex-1">
-                <ToolDetailDocHeader tool={selectedTool} />
+                <ToolDetailDocHeader
+                  tool={selectedTool}
+                  serviceName={service.service_name}
+                  scope={service.scope}
+                />
                 <ToolDetailDocBody
                   tool={selectedTool}
                   toolArgs={toolArgs}

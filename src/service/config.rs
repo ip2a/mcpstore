@@ -133,8 +133,8 @@ impl MCPStore {
 
     pub async fn load_from_source(&self) -> Result<()> {
         self.load_from_config().await?;
-        // scopes.toml overrides depend on services already being registered.
-        self.load_scopes_config().await?;
+        // route.toml overrides depend on services already being registered.
+        self.load_route_config().await?;
         Ok(())
     }
 

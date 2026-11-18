@@ -267,7 +267,7 @@ impl MCPStore {
         rule.version += 1;
         self.store_tool_override(&rule, expected_version).await?;
 
-        // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
+        // Best-effort writeback to route.toml; openkeyv above is the source of truth.
         if let Err(error) = self
             .writeback_tool_override(
                 &rule.service_name,
@@ -278,11 +278,9 @@ impl MCPStore {
             )
             .await
         {
-            tracing::warn!("Failed to write back tool override to scopes.toml: {error}");
+            tracing::warn!("Failed to write back tool override to route.toml: {error}");
         }
-        // Publish after the writeback: the gateway's scopes.toml fingerprint
-        // tick reads the file, so the persistent channel is consistent before
-        // the (faster) event channel fires.
+        // Publish after the writeback so projection consumers refresh promptly.
         self.publish_override_changed(instance_id, &rule.service_name)
             .await;
 
@@ -317,7 +315,7 @@ impl MCPStore {
                 &Self::component_override_key(instance_id, &original_tool_name),
             )
             .await?;
-        // Best-effort scopes.toml cleanup so the next load cannot resurrect
+        // Best-effort route.toml cleanup so the next load cannot resurrect
         // the deleted rule from its writeback (same contract as the service
         // override delete).
         let mut service_name = None;
@@ -337,7 +335,7 @@ impl MCPStore {
                 )
                 .await
             {
-                tracing::warn!("Failed to clean up tool override in scopes.toml: {error}");
+                tracing::warn!("Failed to clean up tool override in route.toml: {error}");
             }
         }
         if let Some(service_name) = service_name.as_deref() {

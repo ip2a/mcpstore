@@ -3,7 +3,6 @@ import { PlayIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
 import {
   toolDetailPlaygroundAside,
@@ -29,7 +28,6 @@ import {
   type ResourceInfo,
   type ScopeRef,
   type ServiceInstance,
-  type ServiceState,
 } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { hasJsonContent } from "@/lib/tool-info"
@@ -49,23 +47,18 @@ export function buildResourceCliCommand(input: { instanceId: string; uri: string
 
 export function ResourceDetailDocHeader({
   resource,
-  serviceState,
   className,
 }: {
   resource: ResourceInfo
-  serviceState?: ServiceState | null
   className?: string
 }) {
   const title = resource.title?.trim() || resource.name || resource.uri
 
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
-          {title}
-        </TypographyH2>
-        {serviceState ? <ServiceStatusBadge state={serviceState} /> : null}
-      </div>
+      <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
+        {title}
+      </TypographyH2>
       <ToolDescriptionBlock
         description={resource.description}
         showLabel={false}
