@@ -1966,6 +1966,146 @@ async fn panel_language_persists_outside_daemon_config() {
 }
 
 #[tokio::test]
+async fn diagnostics_settings_round_trip_every_channel_and_report_real_log_path() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-roundtrip");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let patch = json!({
+        "diagnostics": {
+            "runtime_log": {
+                "enabled": false,
+                "level": "debug",
+                "max_size_bytes": 12345,
+                "retention_days": null
+            },
+            "requests": {
+                "enabled": false,
+                "capture_tool": false,
+                "capture_management": false,
+                "capture_cli": false,
+                "capture_payload": false,
+                "max_payload_bytes": 2048,
+                "retention_days": 9,
+                "max_records": null
+            },
+            "gateway_calls": {
+                "enabled": false,
+                "persist": false,
+                "memory_capacity": 17,
+                "retention_days": 11,
+                "max_calls": null
+            },
+            "frames": {
+                "enabled": false,
+                "capture_gateway": false,
+                "capture_upstream": false,
+                "capture_payload": false,
+                "max_payload_bytes": 4096,
+                "retention_days": 13,
+                "max_records": 77
+            },
+            "event_history": { "enabled": false, "capacity": 19 },
+            "stdio_stderr": {
+                "enabled": false,
+                "tail_lines": 0,
+                "forward_to_runtime_log": false,
+                "include_in_error": false
+            },
+            "daemon_output": { "enabled": false }
+        }
+    });
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&patch)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let updated = response.json::<Value>().await.unwrap();
+    assert_eq!(updated["data"]["diagnostics"], patch["diagnostics"]);
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert!(meta.status().is_success());
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(
+        payload["data"]["settings"]["diagnostics"],
+        patch["diagnostics"]
+    );
+    assert_eq!(
+        payload["data"]["settings_paths"]["log_file_name"],
+        json!("daemon.log")
+    );
+    assert!(payload["data"]["settings_paths"]["log_file_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("logs/daemon.log"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let loaded = manager.load_app_config_or_default().unwrap();
+    assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
+    assert_eq!(loaded.diagnostics.requests.max_payload_bytes, 2048);
+    assert_eq!(loaded.diagnostics.gateway_calls.memory_capacity, 17);
+    assert_eq!(loaded.diagnostics.frames.max_records, Some(77));
+    assert_eq!(loaded.diagnostics.event_history.capacity, 19);
+    assert_eq!(loaded.diagnostics.stdio_stderr.tail_lines, 0);
+    assert!(!loaded.diagnostics.daemon_output.enabled);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn invalid_diagnostics_settings_do_not_write_config_or_panel_files() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-invalid");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let app_config_path = fixture_dir.join("config.toml");
+    std::fs::write(
+        &app_config_path,
+        "[diagnostics.requests]\ncapture_payload = true\n",
+    )
+    .unwrap();
+    let panel_path = fixture_dir.join("panel/settings.json");
+    std::fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &panel_path,
+        r#"{"language":"en","hosts":{"active":"local"}}"#,
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let config_before = std::fs::read(&app_config_path).unwrap();
+    let panel_before = std::fs::read(&panel_path).unwrap();
+
+    let response = reqwest::Client::new()
+        .put(format!("http://{addr}/v1/settings"))
+        .json(&json!({
+            "language": "zh",
+            "diagnostics": {"requests": {"max_payload_bytes": 0}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(std::fs::read(&app_config_path).unwrap(), config_before);
+    assert_eq!(std::fs::read(&panel_path).unwrap(), panel_before);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
 async fn panel_settings_corruption_fails_requests_explicitly() {
     let fixture_dir = unique_temp_dir_path("panel-corrupt");
     std::fs::create_dir_all(&fixture_dir).unwrap();

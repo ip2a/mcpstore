@@ -6,7 +6,7 @@ use super::{
     AppConfig, ConfigError, Result,
 };
 
-pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
+pub fn validate_app_config(config: &AppConfig) -> Result<()> {
     let mut errors = Vec::new();
 
     validate_api_settings(&config.api, &mut errors);

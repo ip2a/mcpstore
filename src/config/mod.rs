@@ -37,6 +37,7 @@ pub use app_schema::{
     RequestTelemetryConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig,
     StdioStderrConfig, WebSettings,
 };
+pub use app_validation::validate_app_config;
 pub use health_schema::HealthCheckConfig;
 pub use kv_schema::KvConfig;
 pub use manager::ConfigManager;
