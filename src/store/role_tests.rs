@@ -15,6 +15,7 @@ async fn control_panel_role_attaches_supervisor_at_setup() {
         config_path: Some(path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("role-control".to_string()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
         ..Default::default()
     })
@@ -56,6 +57,7 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
         config_path: Some(path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -63,6 +65,7 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },
@@ -174,6 +177,7 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
         config_path: Some(path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -181,6 +185,7 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },
@@ -269,6 +274,7 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -276,6 +282,7 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },
@@ -360,6 +367,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -368,6 +376,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         config_path: Some(config_path),
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },
@@ -470,6 +479,7 @@ async fn db_data_panel_default_placement_executes_locally_case() {
         config_path: None,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -480,6 +490,7 @@ async fn db_data_panel_default_placement_executes_locally_case() {
         config_path: Some(config_path),
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },
@@ -583,6 +594,7 @@ async fn data_panel_rejects_process_private_memory_store() {
     let error = MCPStore::setup_with_options(StoreOptions {
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("role-guard-{}", uuid::Uuid::new_v4())),
+        diagnostics: None,
         panel: PanelRole::DataPanel {
             panel_id: "edge-01".to_string(),
         },

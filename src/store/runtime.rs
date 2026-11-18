@@ -1,6 +1,6 @@
 use crate::config::{AppConfig, ServiceLifecycleDefaults};
 use crate::health::state_machine::SupervisorPolicy;
-use crate::store::MCPStore;
+use crate::store::{CoreDiagnosticsOptions, MCPStore};
 
 #[derive(Clone, Debug)]
 pub(crate) struct StoreRuntimeConfig {
@@ -15,6 +15,7 @@ pub(crate) struct StoreRuntimeConfig {
     pub(crate) ping_timeout_stdio_secs: f64,
     pub(crate) supervisor_policy: SupervisorPolicy,
     pub(crate) service_lifecycle_defaults: ServiceLifecycleDefaults,
+    pub(crate) diagnostics: CoreDiagnosticsOptions,
 }
 
 impl StoreRuntimeConfig {
@@ -35,7 +36,10 @@ impl StoreRuntimeConfig {
         }
     }
 
-    pub(crate) fn from_app_config(config: &AppConfig) -> Self {
+    pub(crate) fn from_app_config(
+        config: &AppConfig,
+        diagnostics_override: Option<CoreDiagnosticsOptions>,
+    ) -> Self {
         let health = &config.health_check;
         let supervisor_policy = SupervisorPolicy {
             startup_interval_secs: health.startup_interval.max(0.1),
@@ -65,6 +69,8 @@ impl StoreRuntimeConfig {
             ping_timeout_stdio_secs: health.ping_timeout_stdio.max(0.1),
             supervisor_policy,
             service_lifecycle_defaults: config.service_defaults.lifecycle.clone(),
+            diagnostics: diagnostics_override
+                .unwrap_or_else(|| CoreDiagnosticsOptions::from(&config.diagnostics)),
         }
     }
 }

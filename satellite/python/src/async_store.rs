@@ -108,6 +108,7 @@ impl PyAsyncMCPStore {
                 })
                 .transpose()?,
             namespace,
+            diagnostics: None,
         })
         .map_err(map_store_err)?;
         Ok(Self::from_store(inner))

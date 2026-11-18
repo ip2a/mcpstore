@@ -783,6 +783,7 @@ mod tests {
             config_path: Some(store_path.to_string_lossy().into_owned()),
             store: Some(mcpstore::JsonStoreConfig::memory()),
             namespace: Some(format!("host-routing-{}", std::process::id())),
+            diagnostics: None,
             panel: mcpstore::PanelRole::ControlPanel,
         })
         .unwrap();

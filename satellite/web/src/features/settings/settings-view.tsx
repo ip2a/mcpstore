@@ -42,7 +42,6 @@ import {
 import { Label } from "@/components/ui/label"
 import {
   InputGroup,
-  InputGroupAddon,
   InputGroupInput,
   InputGroupTextarea,
 } from "@/components/ui/input-group"
@@ -57,6 +56,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { DiagnosticsSection } from "@/features/settings/diagnostics-section"
 import {
   hostsToList,
   payloadFromDraft,
@@ -124,12 +124,6 @@ export function SettingsView() {
 
   function patchDraft(patch: Partial<SettingsDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current))
-  }
-
-  function patchDiagnostics(patch: Partial<SettingsDraft["diagnostics"]>) {
-    setDraft((current) =>
-      current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current,
-    )
   }
 
   async function handleSave() {
@@ -345,73 +339,10 @@ export function SettingsView() {
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <section className="flex flex-col gap-5">
-                    <FieldGroup>
-                      <ToggleField
-                        title={t("diagnosticsEnabled")}
-                        description={t("diagnosticsEnabledDescription")}
-                        checked={draft.diagnostics.enabled}
-                        onCheckedChange={(enabled) => patchDiagnostics({ enabled })}
-                      />
-                      <ToggleField
-                        title={t("runtimeLogEnabled")}
-                        description={t("runtimeLogEnabledDescription")}
-                        checked={draft.diagnostics.runtime_enabled}
-                        disabled={!draft.diagnostics.enabled}
-                        onCheckedChange={(enabled) =>
-                          patchDiagnostics({ runtime_enabled: enabled })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t("runtimeLogRestartNotice")}
-                      </p>
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle>
-                          <FieldDescription>{t("runtimeLogMaxSizeDescription")}</FieldDescription>
-                        </FieldContent>
-                        <InputGroup className={compactInputGroupClass}>
-                          <InputGroupInput
-                            inputMode="decimal"
-                            value={String(
-                              draft.diagnostics.runtime_max_size_bytes / 1024 / 1024,
-                            ).replace(/\.0$/, "")}
-                            onChange={(event) =>
-                              patchDiagnostics({
-                                runtime_max_size_bytes: Math.max(
-                                  1,
-                                  Number(event.target.value || 1) * 1024 * 1024,
-                                ),
-                              })
-                            }
-                          />
-                          <InputGroupAddon align="inline-end">MB</InputGroupAddon>
-                        </InputGroup>
-                      </Field>
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("runtimeLogRetentionDays")}</FieldTitle>
-                          <FieldDescription>{t("unlimited")}</FieldDescription>
-                        </FieldContent>
-                        <InputGroup className={compactInputGroupClass}>
-                          <InputGroupInput
-                            inputMode="numeric"
-                            placeholder={t("unlimitedPlaceholder")}
-                            value={draft.diagnostics.runtime_retention_days ?? ""}
-                            onChange={(event) =>
-                              patchDiagnostics({
-                                runtime_retention_days:
-                                  event.target.value === ""
-                                    ? null
-                                    : Math.max(0, Number(event.target.value)),
-                              })
-                            }
-                          />
-                          <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
-                        </InputGroup>
-                      </Field>
-                    </FieldGroup>
-                  </section>
+                  <DiagnosticsSection
+                    value={draft.diagnostics}
+                    onChange={(diagnostics) => patchDraft({ diagnostics })}
+                  />
                 </ScrollPane>
               </TabsContent>
 

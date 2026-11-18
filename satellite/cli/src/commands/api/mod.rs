@@ -660,28 +660,39 @@ async fn audit_mutations(
     ) {
         return next.run(request).await;
     }
-    let Some(telemetry) = state.store.telemetry() else {
+    let Some(telemetry) = state.telemetry() else {
         return next.run(request).await;
     };
+    let request_config = telemetry.requests();
+    if !request_config.enabled || !request_config.capture_management {
+        return next.run(request).await;
+    }
+    let capture_payload = request_config.capture_payload;
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
-    let query = request.uri().query().map(str::to_string);
+    let query = capture_payload
+        .then(|| request.uri().query().map(str::to_string))
+        .flatten();
     let (parts, body) = request.into_parts();
-    let body = axum::body::to_bytes(body, 2 * 1024 * 1024)
-        .await
-        .unwrap_or_default();
-    let body_text = (!body.is_empty()).then(|| String::from_utf8_lossy(&body).into_owned());
+    let (body, body_text) = if capture_payload {
+        let body = axum::body::to_bytes(body, 2 * 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        let body_text = (!body.is_empty()).then(|| String::from_utf8_lossy(&body).into_owned());
+        (axum::body::Body::from(body), body_text)
+    } else {
+        (body, None)
+    };
     let started = std::time::Instant::now();
     let response = next
-        .run(axum::extract::Request::from_parts(
-            parts,
-            axum::body::Body::from(body),
-        ))
+        .run(axum::extract::Request::from_parts(parts, body))
         .await;
     let mut record =
         mcpstore::telemetry::RequestRecord::new("management", format!("{method} {path}"));
     record.duration_ms = started.elapsed().as_millis() as i64;
-    record.args_json = Some(json!({ "query": query, "body": body_text }).to_string());
+    if capture_payload {
+        record.args_json = Some(json!({ "query": query, "body": body_text }).to_string());
+    }
     record.success = response.status().is_success();
     if !record.success {
         record.error_summary = Some(format!("HTTP {}", response.status().as_u16()));

@@ -51,6 +51,30 @@ fn assert_success(output: &Output, step: &str) -> String {
 }
 
 #[test]
+fn invalid_config_fails_without_creating_default_diagnostic_files() {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    std::fs::write(&config_path, r#"{"mcpServers":{}}"#).unwrap();
+    std::fs::write(
+        temp_dir.join("config.toml"),
+        "[diagnostics]\nenabled = \"not-a-bool\"\n",
+    )
+    .unwrap();
+
+    let output = run_cli(&[
+        "list".to_string(),
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("diagnostics.enabled"));
+    assert!(!temp_dir.join("logs/daemon.log").exists());
+    assert!(!temp_dir.join("telemetry.db").exists());
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 #[ignore = "integration test: stdio transport environment variance causes hangs in debug builds"]
 fn cli_binary_completes_real_stdio_service_flow() {
     let temp_dir = unique_temp_dir();

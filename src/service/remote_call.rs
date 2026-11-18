@@ -11,7 +11,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use openkeyv::{AsyncChangeFeed, ChangeCause, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
+use openkeyv::{
+    AsyncChangeFeed, ChangeCause, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart,
+};
 use serde_json::Value;
 
 use crate::kv::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
@@ -407,6 +409,7 @@ mod tests {
             config_path: None,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("remote-call-feed-{}", uuid::Uuid::new_v4())),
+            diagnostics: None,
             panel: PanelRole::ControlPanel,
         })
         .expect("setup store");

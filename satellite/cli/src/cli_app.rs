@@ -102,19 +102,168 @@ pub enum Commands {
     Tui(crate::tui::TuiArgs),
 }
 
+impl Commands {
+    fn operation_name(&self) -> &'static str {
+        match self {
+            Self::Version => "version",
+            Self::Start(_) => "start",
+            Self::Stop => "stop",
+            Self::Status { .. } => "status",
+            Self::Daemon { .. } => "daemon",
+            Self::Api { .. } => "api",
+            Self::Auth(_) => "auth",
+            Self::Plugin { .. } => "plugin",
+            Self::Config { .. } => "config",
+            Self::Add(_) => "add",
+            Self::AddJson(_) => "add-json",
+            Self::Assign(_) => "assign",
+            Self::Unassign(_) => "unassign",
+            Self::List(_) => "list",
+            Self::Get(_) => "get",
+            Self::Remove(_) => "remove",
+            Self::Connect(_) => "connect",
+            Self::Disconnect(_) => "disconnect",
+            Self::Restart(_) => "restart",
+            Self::Check(_) => "check",
+            Self::Wait(_) => "wait",
+            Self::Update(_) => "update",
+            Self::Tools(_) => "tools",
+            Self::Call(_) => "call",
+            Self::Task(_) => "task",
+            Self::Resource(_) => "resource",
+            Self::Prompt(_) => "prompt",
+            Self::Complete(_) => "complete",
+            Self::MigrateStore(_) => "migrate-store",
+            Self::Gateway(_) => "gateway",
+            Self::Web { .. } => "web",
+            Self::Tui(_) => "tui",
+        }
+    }
+
+    fn config_path(&self) -> Option<&str> {
+        use commands::auth::AuthAction;
+        use commands::config::ConfigAction;
+
+        match self {
+            Self::Start(args) => args.store.config_path.as_deref(),
+            Self::Auth(args) => match &args.action {
+                AuthAction::Status(args) => args.store.config_path.as_deref(),
+                AuthAction::Login(args) => args.store.config_path.as_deref(),
+                AuthAction::Refresh(args) => args.store.config_path.as_deref(),
+                AuthAction::Logout(args) => args.store.config_path.as_deref(),
+                AuthAction::ScopeUpgrade(args) => args.store.config_path.as_deref(),
+                AuthAction::SetClientSecret(args) => args.store.config_path.as_deref(),
+                AuthAction::SetPrivateKey(args) => args.store.config_path.as_deref(),
+            },
+            Self::Config { action, .. } => match action {
+                Some(
+                    ConfigAction::Show { path }
+                    | ConfigAction::Validate { path }
+                    | ConfigAction::Path { path }
+                    | ConfigAction::AddExamples { path },
+                ) => path.as_deref(),
+                Some(ConfigAction::Init { path, .. }) => path.as_deref(),
+                Some(ConfigAction::ImportClient { store, .. }) => store.config_path.as_deref(),
+                None => None,
+            },
+            Self::Add(args) => args.store.config_path.as_deref(),
+            Self::AddJson(args) => args.store.config_path.as_deref(),
+            Self::Assign(args) => args.store.config_path.as_deref(),
+            Self::Unassign(args) => args.store.config_path.as_deref(),
+            Self::List(args) => args.store.config_path.as_deref(),
+            Self::Get(args) => args.store.config_path.as_deref(),
+            Self::Remove(args) => args.store.config_path.as_deref(),
+            Self::Connect(args) => args.store.config_path.as_deref(),
+            Self::Disconnect(args) => args.store.config_path.as_deref(),
+            Self::Restart(args) => args.store.config_path.as_deref(),
+            Self::Check(args) => args.store.config_path.as_deref(),
+            Self::Wait(args) => args.store.config_path.as_deref(),
+            Self::Update(args) => args.store.config_path.as_deref(),
+            Self::Tools(args) => args.store.config_path.as_deref(),
+            Self::Call(args) => args.store.config_path.as_deref(),
+            Self::Task(args) => match &args.action {
+                commands::task::TaskAction::Run(args) => args.runtime.store.config_path.as_deref(),
+                commands::task::TaskAction::List(args) => args.runtime.store.config_path.as_deref(),
+                commands::task::TaskAction::Status(args)
+                | commands::task::TaskAction::Result(args)
+                | commands::task::TaskAction::Cancel(args) => {
+                    args.runtime.store.config_path.as_deref()
+                }
+            },
+            Self::Resource(args) => match &args.action {
+                commands::protocol::ResourceAction::List(args)
+                | commands::protocol::ResourceAction::Templates(args) => {
+                    args.store.config_path.as_deref()
+                }
+                commands::protocol::ResourceAction::Read(args) => args.store.config_path.as_deref(),
+            },
+            Self::Prompt(args) => match &args.action {
+                commands::protocol::PromptAction::List(args) => args.store.config_path.as_deref(),
+                commands::protocol::PromptAction::Get(args) => args.store.config_path.as_deref(),
+            },
+            Self::Complete(args) => args.store.config_path.as_deref(),
+            Self::MigrateStore(args) => args.store.config_path.as_deref(),
+            Self::Tui(args) => args.store.config_path.as_deref(),
+            Self::Version
+            | Self::Stop
+            | Self::Status { .. }
+            | Self::Daemon { .. }
+            | Self::Api { .. }
+            | Self::Plugin { .. }
+            | Self::Gateway(_)
+            | Self::Web { .. } => None,
+        }
+    }
+}
+
 pub fn run() -> Result<(), BoxErr> {
     let started = std::time::Instant::now();
-    let result = run_inner();
-    audit_cli_command(started, &result);
+    let cli = Cli::parse();
+    let config_manager = match cli.command.config_path() {
+        Some(path) => ConfigManager::with_path(path),
+        None => ConfigManager::new(),
+    };
+    let app_config = config_manager.load_app_config_or_default();
+    let operation = cli.command.operation_name();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let result = run_inner(cli, &app_config, &config_manager);
+    audit_cli_command(
+        started,
+        &result,
+        operation,
+        &config_manager,
+        &app_config,
+        &argv,
+    );
     result
 }
 
 /// Audit every CLI command into request telemetry (kind=management). Best-effort:
 /// a broken telemetry file must not take down the command itself.
-fn audit_cli_command(started: std::time::Instant, result: &Result<(), BoxErr>) {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut record =
-        mcpstore::telemetry::RequestRecord::new("management", format!("cli {}", args.join(" ")));
+fn audit_cli_command(
+    started: std::time::Instant,
+    result: &Result<(), BoxErr>,
+    operation: &str,
+    config_manager: &ConfigManager,
+    app_config: &Result<mcpstore::AppConfig, mcpstore::config::ConfigError>,
+    args: &[String],
+) {
+    let config = match app_config {
+        Ok(config) => &config.diagnostics.requests,
+        Err(error) => {
+            tracing::warn!(%error, "cli command audit skipped: invalid config");
+            return;
+        }
+    };
+    if !config.enabled || !config.capture_cli {
+        return;
+    }
+    let operation = if config.capture_payload {
+        format!("cli {}", args.join(" "))
+    } else {
+        format!("cli {operation}")
+    };
+    let mut record = mcpstore::telemetry::RequestRecord::new("management", operation);
     let tool = record.tool.take().unwrap_or_default();
     record.tool = Some(tool.chars().take(200).collect());
     record.duration_ms = started.elapsed().as_millis() as i64;
@@ -122,16 +271,21 @@ fn audit_cli_command(started: std::time::Instant, result: &Result<(), BoxErr>) {
     if let Some(error) = result.as_ref().err() {
         record.error_summary = Some(error.to_string());
     }
-    record.args_json = Some(serde_json::json!({ "argv": args }).to_string());
-    if let Err(error) = crate::telemetry::record_once(&crate::telemetry::default_db_path(), record)
+    if config.capture_payload {
+        record.args_json = Some(serde_json::json!({ "argv": args }).to_string());
+    }
+    if let Err(error) =
+        crate::telemetry::record_once(&crate::telemetry::db_path(config_manager), record, config)
     {
         tracing::warn!(%error, "cli command audit failed");
     }
 }
 
-fn run_inner() -> Result<(), BoxErr> {
-    let cli = Cli::parse();
-
+fn run_inner(
+    cli: Cli,
+    app_config: &Result<mcpstore::AppConfig, mcpstore::config::ConfigError>,
+    config_manager: &ConfigManager,
+) -> Result<(), BoxErr> {
     // TUI runs its own blocking event loop and creates its own runtime,
     // so it must be handled outside the async block to avoid nested runtimes.
     if let Commands::Tui(mut args) = cli.command {
@@ -139,12 +293,20 @@ fn run_inner() -> Result<(), BoxErr> {
         return crate::tui::run_from_args(&args);
     }
 
-    let app_config = ConfigManager::new().load_app_config_or_default().ok();
     let output_format = output_format(&cli.command);
     if output_format.is_machine() {
         bootstrap::init_tracing_silent("mcpstore=info");
+    } else if let Ok(config) = app_config {
+        let log_path = config_manager
+            .mcp_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("logs")
+            .join("daemon.log");
+        bootstrap::init_tracing_from_config_with_path(Some(config), log_path);
     } else {
-        bootstrap::init_tracing_from_config(app_config.as_ref());
+        // Invalid configuration must not create a default log before the command fails.
+        bootstrap::init_tracing("mcpstore=info");
     }
 
     let endpoint = cli.daemon_endpoint();
@@ -1046,5 +1208,104 @@ mod tests {
             }
             _ => panic!("Expected check command"),
         }
+    }
+
+    fn cli_audit_fixture(tag: &str) -> (std::path::PathBuf, ConfigManager) {
+        let root =
+            std::env::temp_dir().join(format!("mcpstore-cli-audit-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let manager = ConfigManager::with_path(root.join("mcp.json"));
+        (root, manager)
+    }
+
+    fn record_cli_audit(manager: &ConfigManager, operation: &str, argv: &[&str]) {
+        let app_config = manager.load_app_config_or_default();
+        let argv = argv.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+        audit_cli_command(
+            std::time::Instant::now(),
+            &Ok(()),
+            operation,
+            manager,
+            &app_config,
+            &argv,
+        );
+    }
+
+    fn cli_audit_row(root: &std::path::Path) -> (String, Option<String>) {
+        rusqlite::Connection::open(root.join("telemetry.db"))
+            .unwrap()
+            .query_row("SELECT tool, args_json FROM requests", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn cli_audit_payload_switch_removes_argv_without_losing_operation() {
+        let (default_root, default_manager) = cli_audit_fixture("default-payload");
+        record_cli_audit(
+            &default_manager,
+            "list",
+            &["list", "--namespace", "CLI_DEFAULT_SENTINEL"],
+        );
+        let (tool, args) = cli_audit_row(&default_root);
+        assert_eq!(tool, "cli list --namespace CLI_DEFAULT_SENTINEL");
+        assert!(args.unwrap().contains("CLI_DEFAULT_SENTINEL"));
+        std::fs::remove_dir_all(default_root).ok();
+
+        let (root, manager) = cli_audit_fixture("no-payload");
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "list",
+            "--config-path",
+            manager.mcp_path().to_str().unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(cli.command.operation_name(), "list");
+        assert_eq!(cli.command.config_path(), manager.mcp_path().to_str());
+        let selected = ConfigManager::with_path(cli.command.config_path().unwrap());
+        let mut config = selected.load_app_config_or_default().unwrap();
+        config.diagnostics.requests.capture_payload = false;
+        selected.save_app_config(&config).unwrap();
+        record_cli_audit(
+            &selected,
+            cli.command.operation_name(),
+            &["list", "--namespace", "CLI_PRIVATE_SENTINEL"],
+        );
+        let (tool, args) = cli_audit_row(&root);
+        assert_eq!(tool, "cli list");
+        assert_eq!(args, None);
+        assert!(!std::fs::read_to_string(manager.app_config_path())
+            .unwrap()
+            .contains("CLI_PRIVATE_SENTINEL"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cli_audit_disabled_or_invalid_config_never_opens_the_db() {
+        for (tag, configure) in [("source-disabled", 0), ("globally-disabled", 1)] {
+            let (root, manager) = cli_audit_fixture(tag);
+            let mut config = manager.load_app_config_or_default().unwrap();
+            if configure == 0 {
+                config.diagnostics.requests.capture_cli = false;
+            } else {
+                config.diagnostics.requests.enabled = false;
+            }
+            manager.save_app_config(&config).unwrap();
+            record_cli_audit(&manager, "list", &["list"]);
+            assert!(!crate::telemetry::db_path(&manager).exists());
+            std::fs::remove_dir_all(root).ok();
+        }
+
+        let (root, manager) = cli_audit_fixture("invalid");
+        std::fs::write(
+            manager.app_config_path(),
+            "[diagnostics.requests]\nmax_payload_bytes = 0\n",
+        )
+        .unwrap();
+        record_cli_audit(&manager, "list", &["list", "CLI_INVALID_SENTINEL"]);
+        assert!(!crate::telemetry::db_path(&manager).exists());
+        std::fs::remove_dir_all(root).ok();
     }
 }

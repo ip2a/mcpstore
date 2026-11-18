@@ -12,20 +12,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use mcpstore::config::{DiagnosticsConfig, FrameTelemetryConfig, RequestTelemetryConfig};
 use mcpstore::telemetry::{FrameRecord, RequestRecord};
 use rusqlite::{types::Value, Connection};
 
-/// Records older than this are purged at open and once per hour by the writer.
-// ponytail: constant retention; wire to `[diagnostics]` config when a real need shows up.
-const RETENTION_DAYS: i64 = 30;
-/// Frames decay faster than requests (handshake/list chatter dominates), so
-/// they live on a shorter clock.
-// ponytail: same as RETENTION_DAYS — promote both together when configurable.
-const FRAME_RETENTION_DAYS: i64 = 7;
-/// Per-field cap on stored args/result JSON; oversized payloads are truncated
-/// and flagged instead of silently bloating the DB.
-// ponytail: 1 MiB flat cap; make configurable if a payload-heavy workload complains.
-const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
 const QUEUE_CAP: usize = 1024;
 const BATCH_MAX: usize = 64;
 
@@ -160,13 +150,18 @@ const SELECT_COLUMNS: &str = "id, request_id, started_at_unix_ms, duration_ms, k
      scope, session_key, instance_id, service_name, tool, success, error_code, error_summary, \
      args_json, result_json, args_truncated, result_truncated, timing_json";
 
-/// Default DB path: `telemetry.db` beside the app config (same dir as gateway-wired.json).
-pub fn default_db_path() -> PathBuf {
-    mcpstore::ConfigManager::new()
+/// Telemetry DB path beside the selected workspace's app config.
+pub fn db_path(manager: &mcpstore::ConfigManager) -> PathBuf {
+    manager
         .app_config_path()
         .parent()
         .map(|dir| dir.join("telemetry.db"))
         .unwrap_or_else(|| PathBuf::from("telemetry.db"))
+}
+
+/// Default DB path: `telemetry.db` beside the default app config.
+pub fn default_db_path() -> PathBuf {
+    db_path(&mcpstore::ConfigManager::new())
 }
 
 fn open_connection(path: &Path) -> rusqlite::Result<Connection> {
@@ -257,17 +252,46 @@ fn ensure_column(
     if exists {
         return Ok(());
     }
-    conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+    conn.execute_batch(&format!(
+        "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+    ))
 }
 
-fn purge_expired(conn: &Connection) -> rusqlite::Result<()> {
-    let request_cutoff = now_ms() - RETENTION_DAYS * 24 * 3600 * 1000;
-    conn.execute(
-        "DELETE FROM requests WHERE started_at_unix_ms < ?1",
-        [request_cutoff],
-    )?;
-    let frame_cutoff = now_ms() - FRAME_RETENTION_DAYS * 24 * 3600 * 1000;
-    conn.execute("DELETE FROM frames WHERE ts_unix_ms < ?1", [frame_cutoff])?;
+fn purge_expired(conn: &Connection, diagnostics: &DiagnosticsConfig) -> rusqlite::Result<()> {
+    if let Some(days) = diagnostics.requests.retention_days {
+        let age = i64::try_from(days)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(24 * 3600 * 1000);
+        conn.execute(
+            "DELETE FROM requests WHERE started_at_unix_ms < ?1",
+            [now_ms().saturating_sub(age)],
+        )?;
+    }
+    if let Some(limit) = diagnostics.requests.max_records {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        conn.execute(
+            "DELETE FROM requests WHERE id NOT IN \
+             (SELECT id FROM requests ORDER BY id DESC LIMIT ?1)",
+            [limit],
+        )?;
+    }
+    if let Some(days) = diagnostics.frames.retention_days {
+        let age = i64::try_from(days)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(24 * 3600 * 1000);
+        conn.execute(
+            "DELETE FROM frames WHERE ts_unix_ms < ?1",
+            [now_ms().saturating_sub(age)],
+        )?;
+    }
+    if let Some(limit) = diagnostics.frames.max_records {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        conn.execute(
+            "DELETE FROM frames WHERE id NOT IN \
+             (SELECT id FROM frames ORDER BY id DESC LIMIT ?1)",
+            [limit],
+        )?;
+    }
     Ok(())
 }
 
@@ -278,15 +302,15 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-/// Truncate a serialized payload to MAX_PAYLOAD_BYTES on a UTF-8 char boundary.
-fn cap_payload(payload: Option<String>) -> (Option<String>, bool) {
+/// Truncate a serialized payload to the configured cap on a UTF-8 char boundary.
+fn cap_payload(payload: Option<String>, max_bytes: usize) -> (Option<String>, bool) {
     let Some(payload) = payload else {
         return (None, false);
     };
-    if payload.len() <= MAX_PAYLOAD_BYTES {
+    if payload.len() <= max_bytes {
         return (Some(payload), false);
     }
-    let mut end = MAX_PAYLOAD_BYTES;
+    let mut end = max_bytes;
     while end > 0 && !payload.is_char_boundary(end) {
         end -= 1;
     }
@@ -319,7 +343,10 @@ fn insert_batch(conn: &Connection, batch: &[RequestRecord]) -> rusqlite::Result<
             record.result_json,
             record.args_truncated,
             record.result_truncated,
-            record.timing.as_ref().map(|timing| serde_json::to_string(timing).unwrap()),
+            record
+                .timing
+                .as_ref()
+                .map(|timing| serde_json::to_string(timing).unwrap()),
         ])?;
     }
     Ok(())
@@ -417,20 +444,26 @@ pub struct TelemetryLog {
     path: PathBuf,
     tx: std::sync::mpsc::SyncSender<TelemetryItem>,
     dropped: AtomicU64,
+    requests: RequestTelemetryConfig,
+    frames: FrameTelemetryConfig,
 }
 
 impl TelemetryLog {
     /// Open (creating schema if needed) and start the writer thread. Fails loud:
     /// an unusable telemetry file is a startup error, not a silent skip.
-    pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Arc<Self>> {
+    pub fn open(
+        path: impl AsRef<Path>,
+        diagnostics: &DiagnosticsConfig,
+    ) -> rusqlite::Result<Arc<Self>> {
         let path = path.as_ref().to_path_buf();
         {
             let conn = open_connection(&path)?;
             init_schema(&conn)?;
-            purge_expired(&conn)?;
+            purge_expired(&conn, diagnostics)?;
         }
         let (tx, rx) = std::sync::mpsc::sync_channel::<TelemetryItem>(QUEUE_CAP);
         let writer_path = path.clone();
+        let writer_diagnostics = diagnostics.clone();
         std::thread::Builder::new()
             .name("telemetry-writer".to_string())
             .spawn(move || {
@@ -471,7 +504,7 @@ impl TelemetryLog {
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                             if last_purge.elapsed() >= Duration::from_secs(3600) {
-                                if let Err(error) = purge_expired(&conn) {
+                                if let Err(error) = purge_expired(&conn, &writer_diagnostics) {
                                     tracing::warn!(%error, "telemetry retention purge failed");
                                 }
                                 last_purge = std::time::Instant::now();
@@ -486,6 +519,8 @@ impl TelemetryLog {
             path,
             tx,
             dropped: AtomicU64::new(0),
+            requests: diagnostics.requests.clone(),
+            frames: diagnostics.frames.clone(),
         }))
     }
 
@@ -493,21 +528,58 @@ impl TelemetryLog {
         &self.path
     }
 
+    pub(crate) fn requests(&self) -> &RequestTelemetryConfig {
+        &self.requests
+    }
+
     /// Queue a record. Never blocks the caller; when the queue is full the
     /// record is dropped and counted (telemetry must never break a call).
     pub fn record(&self, mut record: RequestRecord) {
-        (record.args_json, record.args_truncated) = cap_payload(record.args_json.take());
-        (record.result_json, record.result_truncated) = cap_payload(record.result_json.take());
+        let source_enabled = match record.kind.as_str() {
+            "tool" => self.requests.capture_tool,
+            // CLI uses record_once below, so daemon management records have one source switch.
+            "management" => self.requests.capture_management,
+            _ => true,
+        };
+        if !self.requests.enabled || !source_enabled {
+            return;
+        }
+        if self.requests.capture_payload {
+            (record.args_json, record.args_truncated) =
+                cap_payload(record.args_json.take(), self.requests.max_payload_bytes);
+            (record.result_json, record.result_truncated) =
+                cap_payload(record.result_json.take(), self.requests.max_payload_bytes);
+        } else {
+            record.args_json = None;
+            record.result_json = None;
+            record.args_truncated = false;
+            record.result_truncated = false;
+        }
         self.send(TelemetryItem::Request(record));
     }
 
     /// Queue a frame — same contract as [`record`](Self::record).
     pub fn record_frame(&self, mut record: FrameRecord) {
-        (record.payload, record.truncated) =
-            match cap_payload(Some(std::mem::take(&mut record.payload))) {
+        let source_enabled = match record.face.as_str() {
+            "gateway" => self.frames.capture_gateway,
+            "upstream" => self.frames.capture_upstream,
+            _ => true,
+        };
+        if !self.frames.enabled || !source_enabled {
+            return;
+        }
+        if self.frames.capture_payload {
+            (record.payload, record.truncated) = match cap_payload(
+                Some(std::mem::take(&mut record.payload)),
+                self.frames.max_payload_bytes,
+            ) {
                 (Some(payload), truncated) => (payload, truncated),
                 (None, truncated) => (String::new(), truncated),
             };
+        } else {
+            record.payload.clear();
+            record.truncated = false;
+        }
         self.send(TelemetryItem::Frame(record));
     }
 
@@ -1024,9 +1096,25 @@ impl mcpstore::telemetry::FrameTelemetry for TelemetryLog {
 
 /// One-shot synchronous insert for short-lived processes (CLI command audit):
 /// open, insert, close. The daemon uses [`TelemetryLog`] instead.
-pub fn record_once(path: &Path, mut record: RequestRecord) -> rusqlite::Result<()> {
-    (record.args_json, record.args_truncated) = cap_payload(record.args_json.take());
-    (record.result_json, record.result_truncated) = cap_payload(record.result_json.take());
+pub fn record_once(
+    path: &Path,
+    mut record: RequestRecord,
+    config: &RequestTelemetryConfig,
+) -> rusqlite::Result<()> {
+    if !config.enabled || !config.capture_cli {
+        return Ok(());
+    }
+    if config.capture_payload {
+        (record.args_json, record.args_truncated) =
+            cap_payload(record.args_json.take(), config.max_payload_bytes);
+        (record.result_json, record.result_truncated) =
+            cap_payload(record.result_json.take(), config.max_payload_bytes);
+    } else {
+        record.args_json = None;
+        record.result_json = None;
+        record.args_truncated = false;
+        record.result_truncated = false;
+    }
     let conn = open_connection(path)?;
     init_schema(&conn)?;
     insert_batch(&conn, std::slice::from_ref(&record))
@@ -1058,7 +1146,7 @@ mod tests {
     #[test]
     fn roundtrip_history_and_detail() {
         let path = temp_path("roundtrip");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         log.record(tool_record("claude", "fs", true));
         let mut failed = tool_record("codex", "git", false);
         failed.error_code = Some("TOOL_FAILED".to_string());
@@ -1213,7 +1301,7 @@ mod tests {
         insert_frame_batch(&conn, &[frame]).unwrap();
         drop(conn);
 
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         let requests = log
             .history(HistoryFilter {
                 limit: 10,
@@ -1230,18 +1318,210 @@ mod tests {
 
     #[test]
     fn payload_cap_truncates_and_flags() {
-        let (payload, truncated) = cap_payload(Some("x".repeat(MAX_PAYLOAD_BYTES + 1)));
+        let max_bytes = 1024 * 1024;
+        let (payload, truncated) = cap_payload(Some("x".repeat(max_bytes + 1)), max_bytes);
         assert!(truncated);
-        assert_eq!(payload.unwrap().len(), MAX_PAYLOAD_BYTES);
-        let (payload, truncated) = cap_payload(Some("短".repeat(10)));
+        assert_eq!(payload.unwrap().len(), max_bytes);
+        let (payload, truncated) = cap_payload(Some("短".repeat(10)), max_bytes);
         assert!(!truncated);
         assert_eq!(payload.unwrap().chars().count(), 10);
     }
 
     #[test]
+    fn disabled_request_capture_preserves_history_and_applies_record_limit() {
+        let path = temp_path("disabled-request-history");
+        std::fs::remove_file(&path).ok();
+        let conn = open_connection(&path).unwrap();
+        init_schema(&conn).unwrap();
+        let records = ["r1", "r2", "r3"]
+            .into_iter()
+            .map(|id| {
+                let mut record = tool_record("claude", "fs", true);
+                record.request_id = id.to_string();
+                record
+            })
+            .collect::<Vec<_>>();
+        insert_batch(&conn, &records).unwrap();
+        drop(conn);
+
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.requests.enabled = false;
+        diagnostics.requests.max_records = Some(2);
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record(tool_record("codex", "git", true));
+        let history = log
+            .history(HistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.total, 2);
+        assert_eq!(history.requests[0].request_id, "r3");
+        assert_eq!(history.requests[1].request_id, "r2");
+        assert_eq!(
+            log.get(history.requests[1].id.unwrap())
+                .unwrap()
+                .unwrap()
+                .request_id,
+            "r2"
+        );
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn request_source_and_payload_switches_are_enforced_at_the_sink() {
+        let path = temp_path("request-source-policy");
+        std::fs::remove_file(&path).ok();
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.requests.capture_tool = false;
+        diagnostics.requests.capture_payload = false;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        let mut tool = tool_record("claude", "fs", true);
+        tool.args_json = Some("TOOL_SENTINEL".to_string());
+        log.record(tool);
+        let mut management = RequestRecord::new("management", "POST /services");
+        management.args_json = Some("MANAGEMENT_SENTINEL".to_string());
+        management.result_json = Some("MANAGEMENT_SENTINEL".to_string());
+        management.args_truncated = true;
+        management.result_truncated = true;
+        log.record(management);
+        std::thread::sleep(Duration::from_millis(300));
+
+        let history = log
+            .history(HistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.total, 1);
+        let record = &history.requests[0];
+        assert_eq!(record.kind, "management");
+        assert_eq!(record.args_json, None);
+        assert_eq!(record.result_json, None);
+        assert!(!record.args_truncated);
+        assert!(!record.result_truncated);
+        assert!(!serde_json::to_string(record).unwrap().contains("SENTINEL"));
+        drop(log);
+
+        diagnostics.requests.capture_tool = true;
+        diagnostics.requests.capture_management = false;
+        diagnostics.requests.capture_payload = true;
+        diagnostics.requests.max_payload_bytes = 8;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record(RequestRecord::new("management", "ignored"));
+        let mut tool = tool_record("claude", "fs", true);
+        tool.request_id = "new-tool".to_string();
+        tool.args_json = Some("123456789".to_string());
+        log.record(tool);
+        std::thread::sleep(Duration::from_millis(300));
+        let history = log
+            .history(HistoryFilter {
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(history.total, 2);
+        let tool = history
+            .requests
+            .iter()
+            .find(|record| record.request_id == "new-tool")
+            .unwrap();
+        assert_eq!(tool.args_json.as_deref(), Some("12345678"));
+        assert!(tool.args_truncated);
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn disabled_frame_capture_preserves_history_and_applies_record_limit() {
+        let path = temp_path("disabled-frame-history");
+        std::fs::remove_file(&path).ok();
+        let conn = open_connection(&path).unwrap();
+        init_schema(&conn).unwrap();
+        insert_frame_batch(
+            &conn,
+            &[
+                frame("f1", "gateway", "up", Some("ping")),
+                frame("f2", "upstream", "up", Some("ping")),
+                frame("f3", "gateway", "down", None),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.frames.enabled = false;
+        diagnostics.frames.max_records = Some(2);
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record_frame(frame("ignored", "upstream", "up", Some("ping")));
+        let frames = log.frame_recent(None, 10).unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].session_id, "f2");
+        assert_eq!(frames[1].session_id, "f3");
+        assert_eq!(log.frame_history("f2", 10).unwrap().len(), 1);
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn frame_face_and_payload_switches_are_enforced_at_the_sink() {
+        let path = temp_path("frame-face-policy");
+        std::fs::remove_file(&path).ok();
+        let mut diagnostics = DiagnosticsConfig::default();
+        diagnostics.frames.capture_gateway = false;
+        diagnostics.frames.capture_payload = false;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        let mut gateway = frame("gw-ignored", "gateway", "up", Some("tools/call"));
+        gateway.payload = "GATEWAY_PAYLOAD_SENTINEL".to_string();
+        log.record_frame(gateway);
+        let mut upstream = frame("up-meta", "upstream", "up", Some("tools/call"));
+        upstream.payload = "UPSTREAM_PAYLOAD_SENTINEL".to_string();
+        upstream.size_bytes = upstream.payload.len() as i64;
+        upstream.request_id = Some("call-meta".to_string());
+        upstream.truncated = true;
+        log.record_frame(upstream);
+        std::thread::sleep(Duration::from_millis(300));
+
+        assert!(log.frame_history("gw-ignored", 10).unwrap().is_empty());
+        let frames = log.frame_history("up-meta", 10).unwrap();
+        assert_eq!(frames.len(), 1);
+        let captured = &frames[0];
+        assert_eq!(captured.method.as_deref(), Some("tools/call"));
+        assert_eq!(captured.face, "upstream");
+        assert_eq!(captured.direction, "up");
+        assert_eq!(captured.request_id.as_deref(), Some("call-meta"));
+        assert!(captured.size_bytes > 0);
+        assert!(captured.payload.is_empty());
+        assert!(!captured.truncated);
+        assert!(!serde_json::to_string(captured)
+            .unwrap()
+            .contains("SENTINEL"));
+        drop(log);
+
+        diagnostics.frames.capture_gateway = true;
+        diagnostics.frames.capture_upstream = false;
+        diagnostics.frames.capture_payload = true;
+        diagnostics.frames.max_payload_bytes = 8;
+        let log = TelemetryLog::open(&path, &diagnostics).unwrap();
+        log.record_frame(frame("up-ignored", "upstream", "up", Some("ping")));
+        let mut gateway = frame("gw-capped", "gateway", "up", Some("ping"));
+        gateway.payload = "123456789".to_string();
+        log.record_frame(gateway);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(log.frame_history("up-ignored", 10).unwrap().is_empty());
+        let frames = log.frame_history("gw-capped", 10).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].payload, "12345678");
+        assert!(frames[0].truncated);
+        drop(log);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn heatmap_stats_groups_primitives_by_utc_day() {
         let path = temp_path("heatmap");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
 
         let mut tool = FrameRecord::new("gw:s", "gateway", "up");
         tool.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call"}));
@@ -1290,7 +1570,7 @@ mod tests {
     #[test]
     fn daily_stats_groups_by_utc_day() {
         let path = temp_path("daily");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         log.record(tool_record("claude", "fs", true));
         log.record(tool_record("codex", "git", true));
         std::thread::sleep(Duration::from_millis(300));
@@ -1310,7 +1590,7 @@ mod tests {
     #[test]
     fn usage_stats_groups_by_hour_and_dims() {
         let path = temp_path("stats");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         log.record(tool_record("claude", "fs", true));
         log.record(tool_record("claude", "fs", false));
         log.record(tool_record("codex", "git", true));
@@ -1341,17 +1621,25 @@ mod tests {
     fn retention_purges_expired_rows() {
         let path = temp_path("retention");
         {
-            let log = TelemetryLog::open(&path).unwrap();
+            let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
             log.record(tool_record("claude", "fs", true));
             std::thread::sleep(Duration::from_millis(300));
         }
         // Backdate the row directly, then reopen: open() purges expired rows.
         let conn = open_connection(&path).unwrap();
-        let old = now_ms() - (RETENTION_DAYS + 1) * 24 * 3600 * 1000;
+        let old = now_ms()
+            - (DiagnosticsConfig::default()
+                .requests
+                .retention_days
+                .unwrap() as i64
+                + 1)
+                * 24
+                * 3600
+                * 1000;
         conn.execute("UPDATE requests SET started_at_unix_ms = ?1", [old])
             .unwrap();
         drop(conn);
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(
             log.history(HistoryFilter {
@@ -1386,7 +1674,7 @@ mod tests {
     fn frame_roundtrip_sessions_history_and_retention() {
         let path = temp_path("frames");
         {
-            let log = TelemetryLog::open(&path).unwrap();
+            let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
             log.record_frame(frame("s-gw", "gateway", "up", Some("initialize")));
             log.record_frame(frame("s-gw", "gateway", "down", None));
             log.record_frame(frame("s-up", "upstream", "up", Some("tools/list")));
@@ -1404,8 +1692,14 @@ mod tests {
             assert_eq!(gw.session_id, "s-gw");
             assert_eq!(gw.frame_count, 2);
             assert_eq!(gw.caller.as_deref(), Some("claude"));
-            assert!(gw.request_bytes > 0, "up frames should contribute request_bytes");
-            assert!(gw.response_bytes > 0, "down frames should contribute response_bytes");
+            assert!(
+                gw.request_bytes > 0,
+                "up frames should contribute request_bytes"
+            );
+            assert!(
+                gw.response_bytes > 0,
+                "down frames should contribute response_bytes"
+            );
             let up = log.frame_sessions(Some("upstream"), 24, 50, 0).unwrap();
             assert_eq!(up.total, 1);
             assert_eq!(up.sessions.len(), 1);
@@ -1436,12 +1730,16 @@ mod tests {
             // Backdate one session's frames beyond the frame clock, reopen:
             // frames go, requests stay (their retention is longer).
             let conn = open_connection(&path).unwrap();
-            let old = now_ms() - (FRAME_RETENTION_DAYS + 1) * 24 * 3600 * 1000;
+            let old = now_ms()
+                - (DiagnosticsConfig::default().frames.retention_days.unwrap() as i64 + 1)
+                    * 24
+                    * 3600
+                    * 1000;
             conn.execute("UPDATE frames SET ts_unix_ms = ?1", [old])
                 .unwrap();
             drop(conn);
         }
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(log.frame_sessions(None, 24, 50, 0).unwrap().total, 0);
         std::fs::remove_file(&path).ok();
@@ -1450,7 +1748,7 @@ mod tests {
     #[test]
     fn frame_activity_by_service_scopes_by_instance() {
         let path = temp_path("frame-svc");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         let mut a = frame("s1", "upstream", "up", Some("tools/call"));
         a.instance_id = Some("store-demo".to_string());
         let mut b = frame("s2", "upstream", "up", Some("tools/call"));
@@ -1478,7 +1776,7 @@ mod tests {
     #[test]
     fn frame_activity_by_method_names_every_frame() {
         let path = temp_path("frame-method");
-        let log = TelemetryLog::open(&path).unwrap();
+        let log = TelemetryLog::open(&path, &DiagnosticsConfig::default()).unwrap();
         log.record_frame(frame("s1", "upstream", "up", Some("ping")));
         log.record_frame(frame("s1", "upstream", "up", Some("ping")));
         log.record_frame(frame("s2", "gateway", "up", Some("tools/list")));

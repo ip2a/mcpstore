@@ -150,6 +150,7 @@ async fn app_and_core_routers_expose_the_expected_faces() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -252,6 +253,7 @@ async fn gateway_routes_report_http_configuration() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -288,6 +290,7 @@ async fn gateway_backend_preserves_memory_store_and_is_reused() {
         config_path: Some(mcp_json.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -341,6 +344,7 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -420,6 +424,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -513,6 +518,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -697,6 +703,7 @@ async fn third_party_config_export_requires_service_name() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1225,6 +1232,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1293,6 +1301,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1350,6 +1359,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1448,6 +1458,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1550,6 +1561,7 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1592,6 +1604,7 @@ async fn store_routes_manage_rust_core_openapi_imports() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1731,6 +1744,7 @@ async fn store_route_bundles_openapi_without_importing() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1812,6 +1826,7 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -1945,6 +1960,146 @@ async fn panel_language_persists_outside_daemon_config() {
         serde_json::from_slice(&std::fs::read(fixture_dir.join("panel/settings.json")).unwrap())
             .unwrap();
     assert_eq!(panel["language"], json!("zh"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn diagnostics_settings_round_trip_every_channel_and_report_real_log_path() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-roundtrip");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let patch = json!({
+        "diagnostics": {
+            "runtime_log": {
+                "enabled": false,
+                "level": "debug",
+                "max_size_bytes": 12345,
+                "retention_days": null
+            },
+            "requests": {
+                "enabled": false,
+                "capture_tool": false,
+                "capture_management": false,
+                "capture_cli": false,
+                "capture_payload": false,
+                "max_payload_bytes": 2048,
+                "retention_days": 9,
+                "max_records": null
+            },
+            "gateway_calls": {
+                "enabled": false,
+                "persist": false,
+                "memory_capacity": 17,
+                "retention_days": 11,
+                "max_calls": null
+            },
+            "frames": {
+                "enabled": false,
+                "capture_gateway": false,
+                "capture_upstream": false,
+                "capture_payload": false,
+                "max_payload_bytes": 4096,
+                "retention_days": 13,
+                "max_records": 77
+            },
+            "event_history": { "enabled": false, "capacity": 19 },
+            "stdio_stderr": {
+                "enabled": false,
+                "tail_lines": 0,
+                "forward_to_runtime_log": false,
+                "include_in_error": false
+            },
+            "daemon_output": { "enabled": false }
+        }
+    });
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&patch)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let updated = response.json::<Value>().await.unwrap();
+    assert_eq!(updated["data"]["diagnostics"], patch["diagnostics"]);
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert!(meta.status().is_success());
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(
+        payload["data"]["settings"]["diagnostics"],
+        patch["diagnostics"]
+    );
+    assert_eq!(
+        payload["data"]["settings_paths"]["log_file_name"],
+        json!("daemon.log")
+    );
+    assert!(payload["data"]["settings_paths"]["log_file_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("logs/daemon.log"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let loaded = manager.load_app_config_or_default().unwrap();
+    assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
+    assert_eq!(loaded.diagnostics.requests.max_payload_bytes, 2048);
+    assert_eq!(loaded.diagnostics.gateway_calls.memory_capacity, 17);
+    assert_eq!(loaded.diagnostics.frames.max_records, Some(77));
+    assert_eq!(loaded.diagnostics.event_history.capacity, 19);
+    assert_eq!(loaded.diagnostics.stdio_stderr.tail_lines, 0);
+    assert!(!loaded.diagnostics.daemon_output.enabled);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn invalid_diagnostics_settings_do_not_write_config_or_panel_files() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-invalid");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let app_config_path = fixture_dir.join("config.toml");
+    std::fs::write(
+        &app_config_path,
+        "[diagnostics.requests]\ncapture_payload = true\n",
+    )
+    .unwrap();
+    let panel_path = fixture_dir.join("panel/settings.json");
+    std::fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &panel_path,
+        r#"{"language":"en","hosts":{"active":"local"}}"#,
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let config_before = std::fs::read(&app_config_path).unwrap();
+    let panel_before = std::fs::read(&panel_path).unwrap();
+
+    let response = reqwest::Client::new()
+        .put(format!("http://{addr}/v1/settings"))
+        .json(&json!({
+            "language": "zh",
+            "diagnostics": {"requests": {"max_payload_bytes": 0}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(std::fs::read(&app_config_path).unwrap(), config_before);
+    assert_eq!(std::fs::read(&panel_path).unwrap(), panel_before);
 
     handle.abort();
     std::fs::remove_dir_all(&fixture_dir).ok();
@@ -2101,6 +2256,7 @@ async fn cross_resource_import_writes_definitions_without_local_paths() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -2224,6 +2380,7 @@ async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        diagnostics: None,
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
@@ -2395,4 +2552,118 @@ async fn panel_rejects_selector_on_panel_local_routes() {
     assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
 
     handle.abort();
+}
+
+fn management_audit_fixture(
+    requests: mcpstore::config::RequestTelemetryConfig,
+) -> (
+    Arc<ApiState>,
+    Arc<crate::telemetry::TelemetryLog>,
+    std::path::PathBuf,
+) {
+    let root = unique_temp_dir_path("management-audit");
+    std::fs::create_dir_all(&root).unwrap();
+    let store_path = root.join("mcp.json");
+    std::fs::write(&store_path, "{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let diagnostics = mcpstore::config::DiagnosticsConfig {
+        requests,
+        ..Default::default()
+    };
+    let log =
+        crate::telemetry::TelemetryLog::open(root.join("telemetry.db"), &diagnostics).unwrap();
+    store.set_telemetry(Some(log.clone()));
+    let state = state_for_store(store);
+    state.set_telemetry(log.clone());
+    (state, log, root)
+}
+
+fn management_audit_router(state: Arc<ApiState>) -> Router {
+    Router::new()
+        .route(
+            "/audit",
+            post(|body: axum::body::Bytes| async move { body }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit_mutations,
+        ))
+        .with_state(state)
+}
+
+async fn post_management_audit(
+    state: Arc<ApiState>,
+    body: &'static str,
+) -> axum::response::Response {
+    use tower::ServiceExt;
+
+    management_audit_router(state)
+        .oneshot(
+            axum::extract::Request::builder()
+                .method(Method::POST)
+                .uri("/audit?query=MANAGEMENT_QUERY_SENTINEL")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn management_audit_capture_and_payload_switches_preserve_the_request() {
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_management = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(
+        log.history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap()
+        .total,
+        0
+    );
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
+
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_payload = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let history = log
+        .history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.total, 1);
+    let record = &history.requests[0];
+    assert_eq!(record.tool.as_deref(), Some("POST /audit"));
+    assert!(record.success);
+    assert_eq!(record.args_json, None);
+    assert!(!serde_json::to_string(record)
+        .unwrap()
+        .contains("MANAGEMENT_"));
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
 }

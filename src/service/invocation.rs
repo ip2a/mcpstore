@@ -590,6 +590,10 @@ fn record_tool_telemetry(
     error_summary: Option<String>,
     result_json: Option<String>,
 ) {
+    let capture = &store.kernel.runtime.runtime_config.diagnostics.requests;
+    if !capture.capture_tool {
+        return;
+    }
     let Some(telemetry) = store.telemetry() else {
         return;
     };
@@ -611,8 +615,10 @@ fn record_tool_telemetry(
     record.success = success;
     record.error_code = error_code;
     record.error_summary = error_summary;
-    record.args_json = Some(context.arguments.to_string());
-    record.result_json = result_json;
+    if capture.capture_payload {
+        record.args_json = Some(context.arguments.to_string());
+        record.result_json = result_json;
+    }
     telemetry.record(record);
 }
 
@@ -653,5 +659,99 @@ mod tests {
             FailureCode::CallDisconnected,
             "MCP request disconnected",
         )));
+    }
+
+    #[derive(Default)]
+    struct RecordingTelemetry(std::sync::Mutex<Vec<crate::telemetry::RequestRecord>>);
+
+    impl crate::telemetry::RequestTelemetry for RecordingTelemetry {
+        fn record(&self, record: crate::telemetry::RequestRecord) {
+            self.0.lock().unwrap().push(record);
+        }
+    }
+
+    fn capture_store(
+        capture_tool: bool,
+        capture_payload: bool,
+    ) -> (
+        std::sync::Arc<MCPStore>,
+        std::sync::Arc<RecordingTelemetry>,
+        std::path::PathBuf,
+    ) {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-request-capture-test-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, "{}").unwrap();
+        let mut diagnostics = crate::store::CoreDiagnosticsOptions::default();
+        diagnostics.requests.capture_tool = capture_tool;
+        diagnostics.requests.capture_payload = capture_payload;
+        let store = MCPStore::setup_with_options(crate::store::StoreOptions {
+            config_path: Some(path.to_string_lossy().into_owned()),
+            store: Some(crate::store::JsonStoreConfig::memory()),
+            diagnostics: Some(diagnostics),
+            ..crate::store::StoreOptions::default()
+        })
+        .unwrap();
+        let telemetry = std::sync::Arc::new(RecordingTelemetry::default());
+        store.set_telemetry(Some(telemetry.clone()));
+        (store, telemetry, path)
+    }
+
+    fn capture_context() -> ToolExecutionContext {
+        ToolExecutionContext {
+            instance_id: "c81af510-755b-55c7-8487-5668ab36e06e".parse().unwrap(),
+            service_name: "demo".to_string(),
+            scope: ScopeRef::Store,
+            tool_name: "search".to_string(),
+            arguments: serde_json::json!({"secret": "REQUEST_SENTINEL"}),
+            task_tool_name: None,
+            is_openapi_virtual: false,
+            started_at: Instant::now(),
+            caller: Some("caller".to_string()),
+            session_key: Some("session".to_string()),
+            call_trace: None,
+        }
+    }
+
+    #[test]
+    fn request_capture_tool_and_payload_switches_are_independent() {
+        let (store, telemetry, path) = capture_store(false, true);
+        record_tool_telemetry(
+            &store,
+            &capture_context(),
+            1.0,
+            true,
+            None,
+            None,
+            Some("REQUEST_SENTINEL".to_string()),
+        );
+        assert!(telemetry.0.lock().unwrap().is_empty());
+        drop(store);
+        std::fs::remove_file(path).ok();
+
+        let (store, telemetry, path) = capture_store(true, false);
+        record_tool_telemetry(
+            &store,
+            &capture_context(),
+            2.0,
+            true,
+            None,
+            None,
+            Some("REQUEST_SENTINEL".to_string()),
+        );
+        let records = telemetry.0.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.tool.as_deref(), Some("search"));
+        assert_eq!(record.service_name.as_deref(), Some("demo"));
+        assert_eq!(record.duration_ms, 2);
+        assert_eq!(record.args_json, None);
+        assert_eq!(record.result_json, None);
+        assert!(!record.args_truncated);
+        assert!(!record.result_truncated);
+        drop(records);
+        drop(store);
+        std::fs::remove_file(path).ok();
     }
 }

@@ -47,17 +47,88 @@ struct UpdateGatewayRequest {
     port: Option<u16>,
 }
 
+fn deserialize_nullable_u64<'de, D>(deserializer: D) -> Result<Option<Option<u64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<u64>::deserialize(deserializer)?))
+}
+
 #[derive(Deserialize)]
 struct UpdateDiagnosticsRequest {
-    enabled: Option<bool>,
     runtime_log: Option<UpdateRuntimeLogRequest>,
+    requests: Option<UpdateRequestsRequest>,
+    gateway_calls: Option<UpdateGatewayCallsRequest>,
+    frames: Option<UpdateFramesRequest>,
+    event_history: Option<UpdateEventHistoryRequest>,
+    stdio_stderr: Option<UpdateStdioStderrRequest>,
+    daemon_output: Option<UpdateDaemonOutputRequest>,
 }
 
 #[derive(Deserialize)]
 struct UpdateRuntimeLogRequest {
     enabled: Option<bool>,
+    level: Option<String>,
     max_size_bytes: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
     retention_days: Option<Option<u64>>,
+}
+
+#[derive(Deserialize)]
+struct UpdateRequestsRequest {
+    enabled: Option<bool>,
+    capture_tool: Option<bool>,
+    capture_management: Option<bool>,
+    capture_cli: Option<bool>,
+    capture_payload: Option<bool>,
+    max_payload_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    retention_days: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    max_records: Option<Option<u64>>,
+}
+
+#[derive(Deserialize)]
+struct UpdateGatewayCallsRequest {
+    enabled: Option<bool>,
+    persist: Option<bool>,
+    memory_capacity: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    retention_days: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    max_calls: Option<Option<u64>>,
+}
+
+#[derive(Deserialize)]
+struct UpdateFramesRequest {
+    enabled: Option<bool>,
+    capture_gateway: Option<bool>,
+    capture_upstream: Option<bool>,
+    capture_payload: Option<bool>,
+    max_payload_bytes: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    retention_days: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_u64")]
+    max_records: Option<Option<u64>>,
+}
+
+#[derive(Deserialize)]
+struct UpdateEventHistoryRequest {
+    enabled: Option<bool>,
+    capacity: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct UpdateStdioStderrRequest {
+    enabled: Option<bool>,
+    tail_lines: Option<usize>,
+    forward_to_runtime_log: Option<bool>,
+    include_in_error: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct UpdateDaemonOutputRequest {
+    enabled: Option<bool>,
 }
 
 pub(super) async fn health<T: PanelCtx>(State(state): State<Arc<T>>) -> Json<Value> {
@@ -153,27 +224,117 @@ pub(super) async fn update_settings<T: PanelCtx>(
     }
 
     if let Some(diagnostics) = payload.diagnostics {
-        if let Some(enabled) = diagnostics.enabled {
-            config.diagnostics.enabled = enabled;
-        }
         if let Some(runtime_log) = diagnostics.runtime_log {
             if let Some(enabled) = runtime_log.enabled {
                 config.diagnostics.runtime_log.enabled = enabled;
             }
+            if let Some(level) = runtime_log.level {
+                config.diagnostics.runtime_log.level = level;
+            }
             if let Some(max_size_bytes) = runtime_log.max_size_bytes {
-                if max_size_bytes == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "Runtime log size limit must be greater than 0",
-                        Some("diagnostics.runtime_log.max_size_bytes"),
-                    ));
-                }
                 config.diagnostics.runtime_log.max_size_bytes = max_size_bytes;
             }
             if let Some(retention_days) = runtime_log.retention_days {
                 config.diagnostics.runtime_log.retention_days = retention_days;
             }
         }
+        if let Some(requests) = diagnostics.requests {
+            if let Some(enabled) = requests.enabled {
+                config.diagnostics.requests.enabled = enabled;
+            }
+            if let Some(value) = requests.capture_tool {
+                config.diagnostics.requests.capture_tool = value;
+            }
+            if let Some(value) = requests.capture_management {
+                config.diagnostics.requests.capture_management = value;
+            }
+            if let Some(value) = requests.capture_cli {
+                config.diagnostics.requests.capture_cli = value;
+            }
+            if let Some(value) = requests.capture_payload {
+                config.diagnostics.requests.capture_payload = value;
+            }
+            if let Some(value) = requests.max_payload_bytes {
+                config.diagnostics.requests.max_payload_bytes = value;
+            }
+            if let Some(value) = requests.retention_days {
+                config.diagnostics.requests.retention_days = value;
+            }
+            if let Some(value) = requests.max_records {
+                config.diagnostics.requests.max_records = value;
+            }
+        }
+        if let Some(calls) = diagnostics.gateway_calls {
+            if let Some(value) = calls.enabled {
+                config.diagnostics.gateway_calls.enabled = value;
+            }
+            if let Some(value) = calls.persist {
+                config.diagnostics.gateway_calls.persist = value;
+            }
+            if let Some(value) = calls.memory_capacity {
+                config.diagnostics.gateway_calls.memory_capacity = value;
+            }
+            if let Some(value) = calls.retention_days {
+                config.diagnostics.gateway_calls.retention_days = value;
+            }
+            if let Some(value) = calls.max_calls {
+                config.diagnostics.gateway_calls.max_calls = value;
+            }
+        }
+        if let Some(frames) = diagnostics.frames {
+            if let Some(value) = frames.enabled {
+                config.diagnostics.frames.enabled = value;
+            }
+            if let Some(value) = frames.capture_gateway {
+                config.diagnostics.frames.capture_gateway = value;
+            }
+            if let Some(value) = frames.capture_upstream {
+                config.diagnostics.frames.capture_upstream = value;
+            }
+            if let Some(value) = frames.capture_payload {
+                config.diagnostics.frames.capture_payload = value;
+            }
+            if let Some(value) = frames.max_payload_bytes {
+                config.diagnostics.frames.max_payload_bytes = value;
+            }
+            if let Some(value) = frames.retention_days {
+                config.diagnostics.frames.retention_days = value;
+            }
+            if let Some(value) = frames.max_records {
+                config.diagnostics.frames.max_records = value;
+            }
+        }
+        if let Some(history) = diagnostics.event_history {
+            if let Some(value) = history.enabled {
+                config.diagnostics.event_history.enabled = value;
+            }
+            if let Some(value) = history.capacity {
+                config.diagnostics.event_history.capacity = value;
+            }
+        }
+        if let Some(stderr) = diagnostics.stdio_stderr {
+            if let Some(value) = stderr.enabled {
+                config.diagnostics.stdio_stderr.enabled = value;
+            }
+            if let Some(value) = stderr.tail_lines {
+                config.diagnostics.stdio_stderr.tail_lines = value;
+            }
+            if let Some(value) = stderr.forward_to_runtime_log {
+                config.diagnostics.stdio_stderr.forward_to_runtime_log = value;
+            }
+            if let Some(value) = stderr.include_in_error {
+                config.diagnostics.stdio_stderr.include_in_error = value;
+            }
+        }
+        if let Some(output) = diagnostics.daemon_output {
+            if let Some(value) = output.enabled {
+                config.diagnostics.daemon_output.enabled = value;
+            }
+        }
     }
+
+    // Validate the complete candidate before panel loading can migrate or write anything.
+    mcpstore::config::validate_app_config(&config).map_err(config_api_error)?;
 
     // One in-process lock covers panel-settings read, mutate and persist; the
     // two file writes are atomic individually but are not one transaction.
@@ -189,7 +350,9 @@ pub(super) async fn update_settings<T: PanelCtx>(
     if let Some(service_tabs) = payload.service_tabs {
         if let Some(sort) = service_tabs.sort {
             panel_settings.service_tabs.sort = panel_settings::normalize_service_tab_sort(&sort)
-                .map_err(|message| ApiError::invalid_parameter(message, Some("service_tabs.sort")))?;
+                .map_err(|message| {
+                    ApiError::invalid_parameter(message, Some("service_tabs.sort"))
+                })?;
         }
         if let Some(show_disconnected) = service_tabs.show_disconnected {
             panel_settings.service_tabs.show_disconnected = show_disconnected;
@@ -267,6 +430,8 @@ fn settings_payload(
     panel_settings: &PanelSettings,
     web_auth_token_path: &std::path::Path,
 ) -> Value {
+    let diagnostics = serde_json::to_value(&config.diagnostics)
+        .expect("diagnostics configuration is always serializable");
     json!({
         "language": panel_settings.language,
         "api": {
@@ -283,14 +448,7 @@ fn settings_payload(
         "gateway": {
             "port": config.gateway.port,
         },
-        "diagnostics": {
-            "enabled": config.diagnostics.enabled,
-            "runtime_log": {
-                "enabled": config.diagnostics.runtime_log.enabled,
-                "max_size_bytes": config.diagnostics.runtime_log.max_size_bytes,
-                "retention_days": config.diagnostics.runtime_log.retention_days,
-            },
-        },
+        "diagnostics": diagnostics,
         "hosts": hosts_payload(&panel_settings.hosts),
         "service_tabs": {
             "sort": panel_settings.service_tabs.sort,
@@ -311,7 +469,7 @@ fn hosts_payload(hosts: &HostsConfig) -> Value {
 fn settings_paths_payload(mcp_path: &FsPath) -> Value {
     let base = mcp_path.parent().unwrap_or_else(|| FsPath::new("."));
     let log_dir = base.join("logs");
-    let log_file_name = "mcpstore.log";
+    let log_file_name = "daemon.log";
 
     json!({
         "log_dir": log_dir.display().to_string(),

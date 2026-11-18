@@ -54,6 +54,7 @@ default = []
 
 [dev-dependencies]
 tokio-test = "0.4"
+tracing-subscriber = { workspace = true }
 
 [workspace]
 members = ["satellite/python"]

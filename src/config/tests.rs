@@ -315,6 +315,202 @@ fn test_app_config_roundtrip() {
 }
 
 #[test]
+fn diagnostics_defaults_preserve_existing_behavior() {
+    let diagnostics = DiagnosticsConfig::default();
+    assert!(diagnostics.runtime_log.enabled);
+    assert_eq!(diagnostics.runtime_log.level, "info");
+    assert_eq!(diagnostics.runtime_log.max_size_bytes, 5 * 1024 * 1024);
+    assert_eq!(diagnostics.runtime_log.retention_days, None);
+    assert!(diagnostics.requests.enabled);
+    assert!(diagnostics.requests.capture_tool);
+    assert!(diagnostics.requests.capture_management);
+    assert!(diagnostics.requests.capture_cli);
+    assert!(diagnostics.requests.capture_payload);
+    assert_eq!(diagnostics.requests.max_payload_bytes, 1024 * 1024);
+    assert_eq!(diagnostics.requests.retention_days, Some(30));
+    assert_eq!(diagnostics.requests.max_records, None);
+    assert!(diagnostics.gateway_calls.enabled);
+    assert!(diagnostics.gateway_calls.persist);
+    assert_eq!(diagnostics.gateway_calls.memory_capacity, 256);
+    assert_eq!(diagnostics.gateway_calls.retention_days, Some(30));
+    assert_eq!(diagnostics.gateway_calls.max_calls, Some(5_000));
+    assert!(diagnostics.frames.enabled);
+    assert!(diagnostics.frames.capture_gateway);
+    assert!(diagnostics.frames.capture_upstream);
+    assert!(diagnostics.frames.capture_payload);
+    assert_eq!(diagnostics.frames.max_payload_bytes, 1024 * 1024);
+    assert_eq!(diagnostics.frames.retention_days, Some(7));
+    assert_eq!(diagnostics.frames.max_records, None);
+    assert!(diagnostics.event_history.enabled);
+    assert_eq!(diagnostics.event_history.capacity, 10_000);
+    assert!(diagnostics.stdio_stderr.enabled);
+    assert_eq!(diagnostics.stdio_stderr.tail_lines, 50);
+    assert!(diagnostics.stdio_stderr.forward_to_runtime_log);
+    assert!(diagnostics.stdio_stderr.include_in_error);
+    assert!(diagnostics.daemon_output.enabled);
+}
+
+#[test]
+fn diagnostics_config_roundtrips_every_channel() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    let mut config = AppConfig::default();
+    config.diagnostics.runtime_log.retention_days = Some(14);
+    config.diagnostics.requests.enabled = false;
+    config.diagnostics.requests.capture_cli = false;
+    config.diagnostics.requests.capture_payload = false;
+    config.diagnostics.requests.max_payload_bytes = 2_048;
+    config.diagnostics.requests.retention_days = None;
+    config.diagnostics.requests.max_records = Some(9);
+    config.diagnostics.gateway_calls.enabled = false;
+    config.diagnostics.gateway_calls.persist = false;
+    config.diagnostics.gateway_calls.memory_capacity = 12;
+    config.diagnostics.gateway_calls.retention_days = Some(2);
+    config.diagnostics.gateway_calls.max_calls = Some(3);
+    config.diagnostics.frames.capture_gateway = false;
+    config.diagnostics.frames.capture_upstream = false;
+    config.diagnostics.frames.capture_payload = false;
+    config.diagnostics.frames.max_payload_bytes = 4_096;
+    config.diagnostics.frames.retention_days = Some(1);
+    config.diagnostics.frames.max_records = Some(8);
+    config.diagnostics.event_history.enabled = false;
+    config.diagnostics.event_history.capacity = 20;
+    config.diagnostics.stdio_stderr.enabled = false;
+    config.diagnostics.stdio_stderr.tail_lines = 0;
+    config.diagnostics.stdio_stderr.forward_to_runtime_log = false;
+    config.diagnostics.stdio_stderr.include_in_error = false;
+    config.diagnostics.daemon_output.enabled = false;
+
+    mgr.save_app_config(&config).unwrap();
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(
+        serde_json::to_value(&loaded.diagnostics).unwrap(),
+        serde_json::to_value(&config.diagnostics).unwrap()
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn legacy_diagnostics_switches_migrate_before_deserialize() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    for (contents, expected) in [
+        ("[diagnostics]\nenabled = false\n", false),
+        ("[diagnostics.runtime_log]\nenabled = false\n", false),
+        (
+            "[diagnostics]\nenabled = true\n[diagnostics.runtime_log]\nenabled = false\n",
+            false,
+        ),
+        (
+            "[diagnostics]\nenabled = false\n[diagnostics.runtime_log]\nenabled = true\n",
+            false,
+        ),
+        (
+            "[diagnostics]\nenabled = true\n[diagnostics.runtime_log]\nenabled = true\n",
+            true,
+        ),
+    ] {
+        std::fs::write(mgr.app_config_path(), contents).unwrap();
+        let config = mgr.load_app_config().unwrap();
+        assert_eq!(config.diagnostics.runtime_log.enabled, expected);
+    }
+
+    std::fs::write(
+        mgr.app_config_path(),
+        "[diagnostics]\nenabled = false\n[diagnostics.runtime_log]\nenabled = true\n[diagnostics.requests]\ncapture_payload = false\n",
+    )
+    .unwrap();
+    let config = mgr.load_app_config().unwrap();
+    assert!(config.diagnostics.runtime_log.enabled);
+    assert!(!config.diagnostics.requests.capture_payload);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn legacy_diagnostics_switches_reject_non_booleans() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    for (contents, field) in [
+        ("[diagnostics]\nenabled = \"no\"\n", "diagnostics.enabled"),
+        (
+            "[diagnostics.runtime_log]\nenabled = 0\n",
+            "diagnostics.runtime_log.enabled",
+        ),
+    ] {
+        std::fs::write(mgr.app_config_path(), contents).unwrap();
+        let error = mgr.load_app_config().unwrap_err().to_string();
+        assert!(error.contains(field), "unexpected error: {error}");
+        assert!(error.contains("boolean"), "unexpected error: {error}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn saving_migrated_diagnostics_removes_legacy_key_and_preserves_foreign_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[diagnostics]\nenabled = false\n\n[ui]\nlanguage = \"zh\"\n",
+    )
+    .unwrap();
+    let config = mgr.load_app_config().unwrap();
+    mgr.save_app_config(&config).unwrap();
+
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["diagnostics"]["runtime_log"]["enabled"], json!(false));
+    assert!(raw["diagnostics"].get("enabled").is_none());
+    assert_eq!(raw["ui"]["language"], json!("zh"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn diagnostics_validation_rejects_zero_limits_but_allows_empty_stdio_tail() {
+    let mut config = AppConfig::default();
+    config.diagnostics.runtime_log.max_size_bytes = 0;
+    config.diagnostics.runtime_log.retention_days = Some(0);
+    config.diagnostics.requests.max_payload_bytes = 0;
+    config.diagnostics.requests.retention_days = Some(0);
+    config.diagnostics.requests.max_records = Some(0);
+    config.diagnostics.gateway_calls.memory_capacity = 0;
+    config.diagnostics.gateway_calls.retention_days = Some(0);
+    config.diagnostics.gateway_calls.max_calls = Some(0);
+    config.diagnostics.frames.max_payload_bytes = 0;
+    config.diagnostics.frames.retention_days = Some(0);
+    config.diagnostics.frames.max_records = Some(0);
+    config.diagnostics.event_history.capacity = 0;
+    config.diagnostics.event_history.enabled = false;
+
+    let error = super::app_validation::validate_app_config(&config)
+        .unwrap_err()
+        .to_string();
+    for field in [
+        "diagnostics.runtime_log.max_size_bytes",
+        "diagnostics.runtime_log.retention_days",
+        "diagnostics.requests.max_payload_bytes",
+        "diagnostics.requests.retention_days",
+        "diagnostics.requests.max_records",
+        "diagnostics.gateway_calls.memory_capacity",
+        "diagnostics.gateway_calls.retention_days",
+        "diagnostics.gateway_calls.max_calls",
+        "diagnostics.frames.max_payload_bytes",
+        "diagnostics.frames.retention_days",
+        "diagnostics.frames.max_records",
+        "diagnostics.event_history.capacity",
+    ] {
+        assert!(error.contains(field), "missing {field} in: {error}");
+    }
+
+    let mut config = AppConfig::default();
+    config.diagnostics.stdio_stderr.tail_lines = 0;
+    super::app_validation::validate_app_config(&config).unwrap();
+}
+
+#[test]
 fn legacy_cache_section_is_rejected_loudly() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

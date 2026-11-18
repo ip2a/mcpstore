@@ -47,8 +47,10 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     }
 
     // Unified storage manager: telemetry SQLite opened once, shared by store/API/gateway.
-    let mut storage = crate::storage::StorageManager::new(crate::telemetry::default_db_path());
-    storage.init_telemetry()?;
+    let app_config = store.config_manager().load_app_config_or_default()?;
+    let telemetry_path = crate::telemetry::db_path(store.config_manager());
+    let mut storage = crate::storage::StorageManager::new(telemetry_path);
+    storage.init_telemetry(&app_config.diagnostics)?;
     let telemetry = storage.telemetry();
 
     store.set_telemetry(Some(telemetry.clone()));
@@ -64,7 +66,6 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let (listener, endpoint) = HostListener::bind()?;
     let state = crate::commands::api::state_for_store(Arc::clone(&store));
     state.set_telemetry(telemetry);
-    let app_config = store.config_manager().load_app_config_or_default()?;
     let remote_listener = bind_remote_listener(&app_config).await?;
     let host_remote_token = app_config.server.rpc_token.clone();
     std::fs::write(&pid_path, pid.to_string())?;

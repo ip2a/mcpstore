@@ -15,6 +15,7 @@ use crate::telemetry::{FrameRecord, FrameTelemetry};
 pub(crate) struct TelemetryTransport<T> {
     inner: T,
     sink: Option<Arc<dyn FrameTelemetry>>,
+    capture_payload: bool,
     session_id: String,
     instance_id: String,
     service_name: String,
@@ -25,6 +26,7 @@ impl<T> TelemetryTransport<T> {
     pub(crate) fn wrap(
         inner: T,
         sink: Option<Arc<dyn FrameTelemetry>>,
+        capture_payload: bool,
         instance_id: InstanceId,
         service_name: String,
         transport_kind: &'static str,
@@ -32,6 +34,7 @@ impl<T> TelemetryTransport<T> {
         Self {
             inner,
             sink,
+            capture_payload,
             session_id: uuid::Uuid::new_v4().to_string(),
             instance_id: instance_id.to_string(),
             service_name,
@@ -41,10 +44,17 @@ impl<T> TelemetryTransport<T> {
 
     /// Record one wire frame and bind its JSON-RPC id to the gateway trace.
     /// Telemetry failures never break the transport.
-    fn emit(&self, direction: &str, message: &impl serde::Serialize) -> Option<Arc<crate::telemetry::CallTrace>> {
+    fn emit(
+        &self,
+        direction: &str,
+        message: &impl serde::Serialize,
+    ) -> Option<Arc<crate::telemetry::CallTrace>> {
         let envelope = serde_json::to_value(message).ok()?;
         let call_id = envelope
-            .pointer(&format!("/params/_meta/{}", crate::telemetry::CALL_ID_META_KEY.replace('/', "~1")))
+            .pointer(&format!(
+                "/params/_meta/{}",
+                crate::telemetry::CALL_ID_META_KEY.replace('/', "~1")
+            ))
             .and_then(|value| value.as_str())
             .map(str::to_string);
         let jsonrpc_id = envelope.get("id").map(|value| match value {
@@ -58,15 +68,17 @@ impl<T> TelemetryTransport<T> {
             crate::telemetry::bind_jsonrpc_trace(&self.instance_id, id, trace);
         }
         if let Some(sink) = &self.sink {
-            let payload = envelope.to_string();
             let mut record = FrameRecord::new(self.session_id.clone(), "upstream", direction);
             record.instance_id = Some(self.instance_id.clone());
             record.peer = Some(self.service_name.clone());
             record.transport = Some(self.transport_kind.to_string());
             record.request_id = call_id;
             record.from_envelope(&envelope);
-            record.payload = payload;
-            record.size_bytes = record.payload.len() as i64;
+            let payload = envelope.to_string();
+            record.size_bytes = payload.len() as i64;
+            if self.capture_payload {
+                record.payload = payload;
+            }
             sink.record_frame(record);
         }
         trace
@@ -102,6 +114,7 @@ where
         // emit needs must be cloned out before awaiting.
         let borrowed = self.inner.receive();
         let sink = self.sink.clone();
+        let capture_payload = self.capture_payload;
         let session_id = self.session_id.clone();
         let instance_id = self.instance_id.clone();
         let service_name = self.service_name.clone();
@@ -128,15 +141,17 @@ where
                         trace.mark_response_read();
                     }
                     if let Some(sink) = sink.as_ref() {
-                        let payload = envelope.to_string();
                         let mut record = FrameRecord::new(session_id, "upstream", "down");
                         record.instance_id = Some(instance_id.clone());
                         record.peer = Some(service_name);
                         record.transport = Some(transport_kind.to_string());
                         record.request_id = trace.map(|trace| trace.call_id().to_string());
                         record.from_envelope(&envelope);
-                        record.payload = payload;
-                        record.size_bytes = record.payload.len() as i64;
+                        let payload = envelope.to_string();
+                        record.size_bytes = payload.len() as i64;
+                        if capture_payload {
+                            record.payload = payload;
+                        }
                         sink.record_frame(record);
                     }
                 }
@@ -235,6 +250,7 @@ mod tests {
         let mut transport = TelemetryTransport::wrap(
             fake,
             Some(collector.clone()),
+            true,
             instance(),
             "test-service".to_string(),
             "stdio",
@@ -297,15 +313,14 @@ mod tests {
             "jsonrpc": "2.0", "id": 77, "result": {"content": []}
         }))
         .unwrap();
-        let server_request: RxJsonRpcMessage<RoleClient> = serde_json::from_value(
-            serde_json::json!({
+        let server_request: RxJsonRpcMessage<RoleClient> =
+            serde_json::from_value(serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 77,
                 "method": "elicitation/create",
                 "params": {"message": "input", "requestedSchema": {"type": "object"}}
-            }),
-        )
-        .unwrap();
+            }))
+            .unwrap();
         let collector = Arc::new(Collector::new());
         let fake = FakeTransport {
             sent: Arc::new(Mutex::new(Vec::new())),
@@ -314,6 +329,7 @@ mod tests {
         let mut transport = TelemetryTransport::wrap(
             fake,
             Some(collector.clone()),
+            true,
             instance(),
             "test-service".to_string(),
             "stdio",
@@ -338,6 +354,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metadata_only_frames_keep_correlation_and_wire_size() {
+        let trace = crate::telemetry::CallTrace::register("metadata-only-frame-test");
+        let up: TxJsonRpcMessage<RoleClient> = serde_json::from_value(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 88,
+            "method": "tools/call",
+            "params": {
+                "name": "echo",
+                "arguments": {"secret": "UPSTREAM_PAYLOAD_SENTINEL"},
+                "_meta": { (crate::telemetry::CALL_ID_META_KEY): trace.call_id() }
+            }
+        }))
+        .unwrap();
+        let wire_size = serde_json::to_string(&up).unwrap().len() as i64;
+        let collector = Arc::new(Collector::new());
+        let fake = FakeTransport {
+            sent: Arc::new(Mutex::new(Vec::new())),
+            incoming: Arc::new(Mutex::new(VecDeque::new())),
+        };
+        let mut transport = TelemetryTransport::wrap(
+            fake,
+            Some(collector.clone()),
+            false,
+            instance(),
+            "test-service".to_string(),
+            "stdio",
+        );
+
+        transport.send(up).await.unwrap();
+        let frames = collector.frames();
+        assert_eq!(frames.len(), 1);
+        let frame = &frames[0];
+        assert_eq!(frame.method.as_deref(), Some("tools/call"));
+        assert_eq!(frame.jsonrpc_id.as_deref(), Some("88"));
+        assert_eq!(frame.kind, "request");
+        assert_eq!(frame.request_id.as_deref(), Some(trace.call_id()));
+        assert_eq!(frame.size_bytes, wire_size);
+        assert!(frame.payload.is_empty());
+        assert!(!frame.truncated);
+        assert!(!serde_json::to_string(frame)
+            .unwrap()
+            .contains("UPSTREAM_PAYLOAD_SENTINEL"));
+        trace.unregister();
+    }
+
+    #[tokio::test]
     async fn passes_frames_through_when_no_sink() {
         let up: TxJsonRpcMessage<RoleClient> = serde_json::from_value(serde_json::json!({
             "jsonrpc": "2.0", "id": 2, "method": "ping", "params": null
@@ -348,7 +410,8 @@ mod tests {
             incoming: Arc::new(Mutex::new(VecDeque::new())),
         };
         let sent = Arc::clone(&fake.sent);
-        let mut transport = TelemetryTransport::wrap(fake, None, instance(), "s".into(), "stdio");
+        let mut transport =
+            TelemetryTransport::wrap(fake, None, true, instance(), "s".into(), "stdio");
         transport.send(up).await.unwrap();
         assert_eq!(sent.lock().unwrap().len(), 1);
     }

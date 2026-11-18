@@ -47,6 +47,7 @@ pub(super) async fn connect(
     auth_coordinator: &AuthCoordinator,
     handler: McpStoreClientHandler,
     frame_telemetry: Option<std::sync::Arc<dyn FrameTelemetry>>,
+    capture_frame_payload: bool,
 ) -> crate::error::Result<McpClient> {
     let config = server_config;
     let url = config.url.as_deref().ok_or_else(|| {
@@ -103,6 +104,7 @@ pub(super) async fn connect(
         let transport = TelemetryTransport::wrap(
             transport,
             frame_telemetry,
+            capture_frame_payload,
             instance_id,
             name.to_string(),
             "streamable-http",
@@ -165,6 +167,7 @@ pub(super) async fn connect(
     let transport = TelemetryTransport::wrap(
         transport,
         frame_telemetry,
+        capture_frame_payload,
         instance_id,
         name.to_string(),
         "streamable-http",

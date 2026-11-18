@@ -117,6 +117,8 @@ pub use store::swap::SwapResult;
 pub use store::ShmStoreConfig;
 pub use store::ValkeyStoreConfig;
 pub use store::{
-    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
-    PanelRole, RedisStoreConfig, StoreOptions, StoreSpec, ToolVisibilityFilter,
+    CoreDiagnosticsOptions, CoreEventHistoryOptions, CoreFrameCaptureOptions,
+    CoreRequestCaptureOptions, CoreStdioStderrOptions, JsonStoreConfig, MCPStore,
+    MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource, PanelRole, RedisStoreConfig,
+    StoreOptions, StoreSpec, ToolVisibilityFilter,
 };

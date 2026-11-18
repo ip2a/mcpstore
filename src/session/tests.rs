@@ -187,6 +187,7 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
         config_path: Some(first_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -194,6 +195,7 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
         config_path: Some(second_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -294,6 +296,7 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
         config_path: Some(first_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -301,6 +304,7 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
         config_path: Some(second_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -506,6 +510,7 @@ async fn redis_backend_shares_session_context_state_between_store_instances_when
         config_path: Some(first_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -513,6 +518,7 @@ async fn redis_backend_shares_session_context_state_between_store_instances_when
         config_path: Some(second_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -572,6 +578,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
         config_path: Some(first_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
@@ -579,6 +586,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
         config_path: Some(second_path.clone()),
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        diagnostics: None,
         panel: PanelRole::ControlPanel,
     })
     .unwrap();

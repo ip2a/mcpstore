@@ -97,6 +97,7 @@ impl StoreSourceArgs {
             config_path: self.config_path.clone(),
             store,
             namespace: self.namespace.clone(),
+            diagnostics: None,
             panel: self.panel_role(),
         }
     }

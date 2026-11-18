@@ -193,31 +193,38 @@ impl Default for GatewayConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DiagnosticsConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default)]
     pub runtime_log: RuntimeLogConfig,
+    pub requests: RequestTelemetryConfig,
+    pub gateway_calls: GatewayCallsConfig,
+    pub frames: FrameTelemetryConfig,
+    pub event_history: EventHistoryConfig,
+    pub stdio_stderr: StdioStderrConfig,
+    pub daemon_output: DaemonOutputConfig,
 }
 
 impl Default for DiagnosticsConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             runtime_log: RuntimeLogConfig::default(),
+            requests: RequestTelemetryConfig::default(),
+            gateway_calls: GatewayCallsConfig::default(),
+            frames: FrameTelemetryConfig::default(),
+            event_history: EventHistoryConfig::default(),
+            stdio_stderr: StdioStderrConfig::default(),
+            daemon_output: DaemonOutputConfig::default(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RuntimeLogConfig {
-    #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_runtime_log_level")]
     pub level: String,
-    #[serde(default = "default_log_max_size_bytes")]
     pub max_size_bytes: u64,
-    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_optional_limit")]
     pub retention_days: Option<u64>,
 }
 
@@ -229,6 +236,152 @@ impl Default for RuntimeLogConfig {
             max_size_bytes: default_log_max_size_bytes(),
             retention_days: None,
         }
+    }
+}
+
+fn deserialize_optional_limit<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Number(value) => value.as_u64().map(Some).ok_or_else(|| {
+            serde::de::Error::custom("limit must be a non-negative integer or 'unlimited'")
+        }),
+        serde_json::Value::String(value) if value == "unlimited" => Ok(None),
+        _ => Err(serde::de::Error::custom(
+            "limit must be a non-negative integer or 'unlimited'",
+        )),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RequestTelemetryConfig {
+    pub enabled: bool,
+    pub capture_tool: bool,
+    pub capture_management: bool,
+    pub capture_cli: bool,
+    pub capture_payload: bool,
+    pub max_payload_bytes: usize,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub retention_days: Option<u64>,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub max_records: Option<u64>,
+}
+
+impl Default for RequestTelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            capture_tool: true,
+            capture_management: true,
+            capture_cli: true,
+            capture_payload: true,
+            max_payload_bytes: 1024 * 1024,
+            retention_days: Some(30),
+            max_records: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GatewayCallsConfig {
+    pub enabled: bool,
+    pub persist: bool,
+    pub memory_capacity: usize,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub retention_days: Option<u64>,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub max_calls: Option<u64>,
+}
+
+impl Default for GatewayCallsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            persist: true,
+            memory_capacity: 256,
+            retention_days: Some(30),
+            max_calls: Some(5_000),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrameTelemetryConfig {
+    pub enabled: bool,
+    pub capture_gateway: bool,
+    pub capture_upstream: bool,
+    pub capture_payload: bool,
+    pub max_payload_bytes: usize,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub retention_days: Option<u64>,
+    #[serde(deserialize_with = "deserialize_optional_limit")]
+    pub max_records: Option<u64>,
+}
+
+impl Default for FrameTelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            capture_gateway: true,
+            capture_upstream: true,
+            capture_payload: true,
+            max_payload_bytes: 1024 * 1024,
+            retention_days: Some(7),
+            max_records: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EventHistoryConfig {
+    pub enabled: bool,
+    pub capacity: usize,
+}
+
+impl Default for EventHistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            capacity: 10_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StdioStderrConfig {
+    pub enabled: bool,
+    pub tail_lines: usize,
+    pub forward_to_runtime_log: bool,
+    pub include_in_error: bool,
+}
+
+impl Default for StdioStderrConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tail_lines: 50,
+            forward_to_runtime_log: true,
+            include_in_error: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DaemonOutputConfig {
+    pub enabled: bool,
+}
+
+impl Default for DaemonOutputConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
