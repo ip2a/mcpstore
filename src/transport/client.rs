@@ -5,6 +5,7 @@ use crate::events::EventBus;
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
+use crate::store::CoreStdioStderrOptions;
 use crate::telemetry::FrameTelemetry;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
@@ -46,6 +47,7 @@ pub struct McpConnection {
     /// Pool-shared sink cell; resolved at connect time so late attachment
     /// still covers the next connection.
     frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn FrameTelemetry>>>>,
+    stdio_stderr: CoreStdioStderrOptions,
 }
 
 impl McpConnection {
@@ -57,6 +59,7 @@ impl McpConnection {
         registry: ServiceRegistry,
         event_bus: EventBus,
         frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn FrameTelemetry>>>>,
+        stdio_stderr: CoreStdioStderrOptions,
     ) -> Self {
         Self {
             instance_id,
@@ -69,6 +72,7 @@ impl McpConnection {
             event_bus,
             subscription_task: None,
             frame_telemetry,
+            stdio_stderr,
         }
     }
 
@@ -106,6 +110,7 @@ impl McpConnection {
             event_bus: crate::events::EventBus::new(),
             subscription_task: None,
             frame_telemetry: Arc::new(std::sync::OnceLock::new()),
+            stdio_stderr: crate::store::CoreDiagnosticsOptions::default().stdio_stderr,
         }
     }
 
@@ -191,6 +196,7 @@ impl McpConnection {
             self.instance_id,
             supervisor,
             self.frame_telemetry(),
+            self.stdio_stderr.clone(),
         )
         .await?;
         tracing::info!("stdio connected: {}", self.name);
@@ -597,6 +603,7 @@ mod tests {
             ServiceRegistry::new(),
             EventBus::new(),
             Arc::new(std::sync::OnceLock::new()),
+            crate::store::CoreDiagnosticsOptions::default().stdio_stderr,
         );
 
         let error = connection.connect(None).await.unwrap_err();
@@ -630,6 +637,7 @@ mod tests {
             ServiceRegistry::new(),
             EventBus::new(),
             Arc::new(std::sync::OnceLock::new()),
+            crate::store::CoreDiagnosticsOptions::default().stdio_stderr,
         )
     }
 

@@ -13,6 +13,7 @@ use crate::error::{Error, FailureCode};
 use crate::events::EventBus;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
+use crate::store::CoreStdioStderrOptions;
 use crate::transport::client::McpConnection;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
@@ -54,6 +55,7 @@ pub struct ConnectionPool {
     event_bus: EventBus,
     task_state: TaskStateStore,
     supervisor: Arc<Mutex<Option<Arc<InstanceSupervisor>>>>,
+    stdio_stderr: CoreStdioStderrOptions,
     /// Frame-telemetry sink. None until the host attaches one; read lazily at
     /// connect time so late attachment still covers the next connection.
     frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn crate::telemetry::FrameTelemetry>>>>,
@@ -71,6 +73,7 @@ impl Clone for ConnectionPool {
             event_bus: self.event_bus.clone(),
             task_state: self.task_state.clone(),
             supervisor: Arc::clone(&self.supervisor),
+            stdio_stderr: self.stdio_stderr.clone(),
             frame_telemetry: Arc::clone(&self.frame_telemetry),
         }
     }
@@ -82,6 +85,7 @@ impl ConnectionPool {
         registry: ServiceRegistry,
         event_bus: EventBus,
         kv: Arc<KvLayerManager>,
+        stdio_stderr: CoreStdioStderrOptions,
     ) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
@@ -93,6 +97,7 @@ impl ConnectionPool {
             event_bus,
             task_state: TaskStateStore::new(kv),
             supervisor: Arc::new(Mutex::new(None)),
+            stdio_stderr,
             frame_telemetry: Arc::new(std::sync::OnceLock::new()),
         }
     }
@@ -149,6 +154,7 @@ impl ConnectionPool {
             self.registry.clone(),
             self.event_bus.clone(),
             Arc::clone(&self.frame_telemetry),
+            self.stdio_stderr.clone(),
         );
         self.connections
             .write()

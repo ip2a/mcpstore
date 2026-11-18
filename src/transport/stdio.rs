@@ -13,6 +13,7 @@ use crate::config::ServerConfig;
 use crate::error::{Error, FailureCode};
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
+use crate::store::CoreStdioStderrOptions;
 use crate::telemetry::FrameTelemetry;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
@@ -67,8 +68,7 @@ impl<R> ObservedStdout<R> {
                         self.line_started,
                     ) {
                         if envelope.get("method").is_none()
-                            && (envelope.get("result").is_some()
-                                || envelope.get("error").is_some())
+                            && (envelope.get("result").is_some() || envelope.get("error").is_some())
                         {
                             if let Some(id) = envelope.get("id").map(|value| match value {
                                 serde_json::Value::String(id) => id.clone(),
@@ -120,9 +120,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for ObservedStdout<R> {
     }
 }
 
-/// How many trailing child stderr lines we keep to surface in handshake errors.
-const STDERR_TAIL_LINES: usize = 50;
-
 pub(super) struct StdioProcess {
     exited: Arc<AtomicBool>,
     shutdown_requested: Arc<AtomicBool>,
@@ -149,6 +146,7 @@ pub(super) async fn connect(
     instance_id: InstanceId,
     supervisor: Option<Arc<InstanceSupervisor>>,
     frame_telemetry: Option<Arc<dyn FrameTelemetry>>,
+    stderr_options: CoreStdioStderrOptions,
 ) -> crate::error::Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
         Error::new(
@@ -190,9 +188,12 @@ pub(super) async fn connect(
     })?;
     let stderr = child.stderr.take();
 
-    // Capture child stderr so we can surface it when the handshake fails, and
-    // keep it visible through tracing while the service runs.
+    // Always drain the piped stderr, even when capture is disabled; otherwise
+    // a noisy child can block on a full OS pipe before completing the handshake.
     let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let capture_stderr = stderr_options.enabled;
+    let tail_lines = stderr_options.tail_lines;
+    let forward_to_runtime_log = stderr_options.forward_to_runtime_log;
     if let Some(stderr) = stderr {
         let tail = Arc::clone(&stderr_tail);
         tokio::spawn(async move {
@@ -203,25 +204,35 @@ pub(super) async fn connect(
                 match reader.read_line(&mut line).await {
                     Ok(0) => break, // EOF — child closed stderr
                     Ok(_) => {
+                        if !capture_stderr {
+                            continue;
+                        }
                         let trimmed = line.trim_end();
                         if trimmed.is_empty() {
                             continue;
                         }
-                        tracing::debug!(
-                            target: "mcpstore::transport::stdio::stderr",
-                            "{trimmed}"
-                        );
+                        if forward_to_runtime_log {
+                            tracing::debug!(
+                                target: "mcpstore::transport::stdio::stderr",
+                                "{trimmed}"
+                            );
+                        }
+                        if tail_lines == 0 {
+                            continue;
+                        }
                         let mut guard = match tail.lock() {
                             Ok(g) => g,
                             Err(p) => p.into_inner(),
                         };
-                        if guard.len() >= STDERR_TAIL_LINES {
+                        if guard.len() >= tail_lines {
                             guard.pop_front();
                         }
                         guard.push_back(trimmed.to_string());
                     }
                     Err(error) => {
-                        tracing::debug!("stdio stderr read failed: {error}");
+                        if capture_stderr {
+                            tracing::debug!("stdio stderr read failed: {error}");
+                        }
                         break;
                     }
                 }
@@ -295,10 +306,15 @@ pub(super) async fn connect(
             .cloned()
             .collect();
             let child_exited = exited.load(Ordering::Acquire);
-            let detail = format_stdio_connect_failure(&err, &tail, child_exited);
+            let error_tail: &[String] = if stderr_options.include_in_error {
+                &tail
+            } else {
+                &[]
+            };
+            let detail = format_stdio_connect_failure(&err, error_tail, child_exited);
             // Keep the full stderr in the log so it is diagnosable even when
             // the user-facing message is trimmed to the cause line.
-            if !tail.is_empty() {
+            if stderr_options.forward_to_runtime_log && !tail.is_empty() {
                 tracing::warn!(
                     target: "mcpstore::transport::stdio::stderr",
                     instance_id = %instance_id,
@@ -427,9 +443,148 @@ fn extract_startup_cause(lines: &[String]) -> Option<String> {
 mod tests {
     use super::{extract_startup_cause, ObservedStdout};
     use crate::identity::InstanceId;
+    use crate::store::{CoreDiagnosticsOptions, CoreStdioStderrOptions};
     use crate::telemetry::{bind_jsonrpc_trace, CallTrace};
     use crate::{ScopeRef, ServiceInstanceKey};
     use std::time::Instant;
+
+    #[cfg(unix)]
+    async fn connect_failure_with_stderr(
+        script: &str,
+        stderr_options: CoreStdioStderrOptions,
+    ) -> crate::Error {
+        use crate::config::ServerConfig;
+        use crate::events::EventBus;
+        use crate::registry::ServiceRegistry;
+        use crate::transport::handler::McpStoreClientHandler;
+
+        let instance_id = instance();
+        let config = ServerConfig {
+            command: Some("/bin/sh".to_string()),
+            args: vec!["-c".to_string(), script.to_string()],
+            ..ServerConfig::default()
+        };
+        let handler =
+            McpStoreClientHandler::new(instance_id, ServiceRegistry::new(), EventBus::new());
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            super::connect(
+                "stdio-stderr-test",
+                &config,
+                handler,
+                instance_id,
+                None,
+                None,
+                stderr_options,
+            ),
+        )
+        .await
+        .expect("child stderr pipe must keep draining");
+        match result {
+            Ok(_) => panic!("non-MCP child unexpectedly completed the handshake"),
+            Err(error) => error,
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn disabled_stderr_capture_still_drains_more_than_the_pipe_capacity() {
+        let mut options = CoreDiagnosticsOptions::default().stdio_stderr;
+        options.enabled = false;
+        let error = connect_failure_with_stderr(
+            "i=0; while [ \"$i\" -lt 4096 ]; do printf 'STDERR_SENTINEL-%s-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\" >&2; i=$((i+1)); done; exit 1",
+            options,
+        )
+        .await;
+        assert!(!error.message().contains("STDERR_SENTINEL"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stderr_tail_and_error_inclusion_are_independently_configurable() {
+        let script = "printf 'STDERR_SENTINEL first\\nSTDERR_SENTINEL final\\n' >&2; exit 1";
+        let captured =
+            connect_failure_with_stderr(script, CoreDiagnosticsOptions::default().stdio_stderr)
+                .await;
+        assert!(captured.message().contains("STDERR_SENTINEL final"));
+
+        let mut no_tail = CoreDiagnosticsOptions::default().stdio_stderr;
+        no_tail.tail_lines = 0;
+        let without_tail = connect_failure_with_stderr(script, no_tail).await;
+        assert!(!without_tail.message().contains("STDERR_SENTINEL"));
+
+        let mut no_error_text = CoreDiagnosticsOptions::default().stdio_stderr;
+        no_error_text.include_in_error = false;
+        let without_error_text = connect_failure_with_stderr(script, no_error_text).await;
+        assert!(!without_error_text.message().contains("STDERR_SENTINEL"));
+        assert!(without_error_text
+            .message()
+            .contains("exited during startup"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stderr_runtime_log_forwarding_is_independently_configurable() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone, Default)]
+        struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+        struct LogGuard(Arc<Mutex<Vec<u8>>>);
+
+        impl<'a> MakeWriter<'a> for LogBuffer {
+            type Writer = LogGuard;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                LogGuard(Arc::clone(&self.0))
+            }
+        }
+
+        impl Write for LogGuard {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let logs = LogBuffer::default();
+        let subscriber = || {
+            tracing_subscriber::fmt()
+                .with_ansi(false)
+                .without_time()
+                .with_max_level(tracing::Level::DEBUG)
+                .with_writer(logs.clone())
+                .finish()
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let script = "printf 'FORWARD_SENTINEL\\n' >&2; exit 1";
+
+        let mut disabled = CoreDiagnosticsOptions::default().stdio_stderr;
+        disabled.forward_to_runtime_log = false;
+        tracing::subscriber::with_default(subscriber(), || {
+            runtime.block_on(connect_failure_with_stderr(script, disabled));
+        });
+        let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        assert!(!output.contains("FORWARD_SENTINEL"), "got: {output}");
+
+        tracing::subscriber::with_default(subscriber(), || {
+            runtime.block_on(connect_failure_with_stderr(
+                script,
+                CoreDiagnosticsOptions::default().stdio_stderr,
+            ));
+        });
+        let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("FORWARD_SENTINEL"));
+        assert!(output.contains("child stderr on connect failure"));
+    }
 
     fn instance() -> InstanceId {
         ServiceInstanceKey::new("stdio-timing-test", ScopeRef::Store).instance_id()
@@ -441,7 +596,11 @@ mod tests {
         let split = CallTrace::register("stdio-split");
         let coalesced = CallTrace::register("stdio-coalesced");
         bind_jsonrpc_trace(&instance_id.to_string(), "41".to_string(), split.clone());
-        bind_jsonrpc_trace(&instance_id.to_string(), "42".to_string(), coalesced.clone());
+        bind_jsonrpc_trace(
+            &instance_id.to_string(),
+            "42".to_string(),
+            coalesced.clone(),
+        );
         let mut stdout = ObservedStdout::new(tokio::io::empty(), instance_id);
 
         stdout.observe_bytes(
@@ -470,7 +629,6 @@ mod tests {
         split.unregister();
         coalesced.unregister();
     }
-
 
     fn lines(raw: &str) -> Vec<String> {
         raw.lines().map(String::from).collect()
