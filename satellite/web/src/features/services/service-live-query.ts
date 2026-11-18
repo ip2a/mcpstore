@@ -19,7 +19,7 @@ export const serviceListLiveQueryOptions = {
 
 /** Single-instance status: same policy as the list. */
 export function serviceStateRefetchInterval(
-  query: Query<ServiceState | null | undefined, Error, ServiceState | null | undefined, readonly unknown[]>,
+  query: Query<ServiceState | null, Error, ServiceState | null, readonly unknown[]>,
 ): number | false {
   return isServiceTransitioning(query.state.data ?? undefined) ? 3_000 : false
 }
