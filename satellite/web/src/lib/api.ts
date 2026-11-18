@@ -338,11 +338,50 @@ export type SettingsPayload = {
 }
 
 export type DiagnosticsSettingsPayload = {
-  enabled?: boolean
   runtime_log?: {
     enabled?: boolean
+    level?: string
     max_size_bytes?: number
     retention_days?: number | null
+  }
+  requests?: {
+    enabled?: boolean
+    capture_tool?: boolean
+    capture_management?: boolean
+    capture_cli?: boolean
+    capture_payload?: boolean
+    max_payload_bytes?: number
+    retention_days?: number | null
+    max_records?: number | null
+  }
+  gateway_calls?: {
+    enabled?: boolean
+    persist?: boolean
+    memory_capacity?: number
+    retention_days?: number | null
+    max_calls?: number | null
+  }
+  frames?: {
+    enabled?: boolean
+    capture_gateway?: boolean
+    capture_upstream?: boolean
+    capture_payload?: boolean
+    max_payload_bytes?: number
+    retention_days?: number | null
+    max_records?: number | null
+  }
+  event_history?: {
+    enabled?: boolean
+    capacity?: number
+  }
+  stdio_stderr?: {
+    enabled?: boolean
+    tail_lines?: number
+    forward_to_runtime_log?: boolean
+    include_in_error?: boolean
+  }
+  daemon_output?: {
+    enabled?: boolean
   }
 }
 

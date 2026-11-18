@@ -21,6 +21,97 @@ export type HostDraft = {
   urls: string[]
 }
 
+export type DiagnosticsDraft = {
+  runtime_log: {
+    enabled: boolean
+    level: string
+    max_size_bytes: number
+    retention_days: number | null
+  }
+  requests: {
+    enabled: boolean
+    capture_tool: boolean
+    capture_management: boolean
+    capture_cli: boolean
+    capture_payload: boolean
+    max_payload_bytes: number
+    retention_days: number | null
+    max_records: number | null
+  }
+  gateway_calls: {
+    enabled: boolean
+    persist: boolean
+    memory_capacity: number
+    retention_days: number | null
+    max_calls: number | null
+  }
+  frames: {
+    enabled: boolean
+    capture_gateway: boolean
+    capture_upstream: boolean
+    capture_payload: boolean
+    max_payload_bytes: number
+    retention_days: number | null
+    max_records: number | null
+  }
+  event_history: {
+    enabled: boolean
+    capacity: number
+  }
+  stdio_stderr: {
+    enabled: boolean
+    tail_lines: number
+    forward_to_runtime_log: boolean
+    include_in_error: boolean
+  }
+  daemon_output: {
+    enabled: boolean
+  }
+}
+
+const defaultDiagnostics: DiagnosticsDraft = {
+  runtime_log: {
+    enabled: true,
+    level: "info",
+    max_size_bytes: 5 * 1024 * 1024,
+    retention_days: null,
+  },
+  requests: {
+    enabled: true,
+    capture_tool: true,
+    capture_management: true,
+    capture_cli: true,
+    capture_payload: true,
+    max_payload_bytes: 1024 * 1024,
+    retention_days: 30,
+    max_records: null,
+  },
+  gateway_calls: {
+    enabled: true,
+    persist: true,
+    memory_capacity: 256,
+    retention_days: 30,
+    max_calls: 5000,
+  },
+  frames: {
+    enabled: true,
+    capture_gateway: true,
+    capture_upstream: true,
+    capture_payload: true,
+    max_payload_bytes: 1024 * 1024,
+    retention_days: 7,
+    max_records: null,
+  },
+  event_history: { enabled: true, capacity: 10_000 },
+  stdio_stderr: {
+    enabled: true,
+    tail_lines: 50,
+    forward_to_runtime_log: true,
+    include_in_error: true,
+  },
+  daemon_output: { enabled: true },
+}
+
 export type SettingsDraft = {
   language: UiLanguage
   hosts: HostsConfig
@@ -31,12 +122,7 @@ export type SettingsDraft = {
     port: number
     auth: boolean
   }
-  diagnostics: {
-    enabled: boolean
-    runtime_enabled: boolean
-    runtime_max_size_bytes: number
-    runtime_retention_days: number | null
-  }
+  diagnostics: DiagnosticsDraft
   serviceTabs: ServiceTabsPrefs
 }
 
@@ -57,12 +143,17 @@ export function hostsToList(hosts: HostsConfig): HostDraft[] {
   }))
 }
 
+function withDefaults<T extends object>(defaults: T, patch?: Partial<T>): T {
+  return { ...defaults, ...patch }
+}
+
 export function settingsDraft(settings: SettingsPayload): SettingsDraft {
   if (!settings.hosts || !settings.api || !settings.web) {
     throw new Error("Settings payload is missing required sections")
   }
 
   const hosts = parseHostsPayload(settings.hosts)
+  const diagnostics = settings.diagnostics
 
   return {
     language: settings.language ?? "auto",
@@ -75,13 +166,13 @@ export function settingsDraft(settings: SettingsPayload): SettingsDraft {
       auth: settings.web.auth === true,
     },
     diagnostics: {
-      enabled: settings.diagnostics?.enabled !== false,
-      runtime_enabled: settings.diagnostics?.runtime_log?.enabled === true,
-      runtime_max_size_bytes: settings.diagnostics?.runtime_log?.max_size_bytes ?? 5 * 1024 * 1024,
-      runtime_retention_days:
-        typeof settings.diagnostics?.runtime_log?.retention_days === "number"
-          ? settings.diagnostics.runtime_log.retention_days
-          : null,
+      runtime_log: withDefaults(defaultDiagnostics.runtime_log, diagnostics?.runtime_log),
+      requests: withDefaults(defaultDiagnostics.requests, diagnostics?.requests),
+      gateway_calls: withDefaults(defaultDiagnostics.gateway_calls, diagnostics?.gateway_calls),
+      frames: withDefaults(defaultDiagnostics.frames, diagnostics?.frames),
+      event_history: withDefaults(defaultDiagnostics.event_history, diagnostics?.event_history),
+      stdio_stderr: withDefaults(defaultDiagnostics.stdio_stderr, diagnostics?.stdio_stderr),
+      daemon_output: withDefaults(defaultDiagnostics.daemon_output, diagnostics?.daemon_output),
     },
     serviceTabs: parseServiceTabsPrefs(settings.service_tabs),
   }
@@ -93,14 +184,7 @@ export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
     api: draft.api,
     web: draft.web,
     hosts: serializeHostsPayload(draft.hosts) as HostsPayload,
-    diagnostics: {
-      enabled: draft.diagnostics.enabled,
-      runtime_log: {
-        enabled: draft.diagnostics.runtime_enabled,
-        max_size_bytes: draft.diagnostics.runtime_max_size_bytes,
-        retention_days: draft.diagnostics.runtime_retention_days,
-      },
-    },
+    diagnostics: draft.diagnostics,
     service_tabs: {
       sort: draft.serviceTabs.sort,
       show_disconnected: draft.serviceTabs.showDisconnected,
