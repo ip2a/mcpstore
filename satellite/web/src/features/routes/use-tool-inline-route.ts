@@ -140,12 +140,13 @@ export function useToolInlineRoute(
     toast.success(t("saved"))
   }
 
-  async function saveDisplayName(next: string) {
+  async function saveDisplayName(next: string, extras?: { enabled?: boolean }) {
     if (!originalToolName) return
     const body = bodyFromRule(rule)
     const trimmed = next.trim()
     if (trimmed) body.display_name = trimmed
     else delete body.display_name
+    if (extras?.enabled !== undefined) body.enabled = extras.enabled
     const projectedName = trimmed || originalToolName
     await setRoute.mutateAsync(body)
     // Patch cache + rewrite route before refetch so the detail view never
@@ -250,6 +251,8 @@ export function useToolInlineRoute(
 
   return {
     enabled,
+    /** Gateway visibility for this tool route (`enabled=false` hides from catalog). */
+    toolRouteEnabled: rule?.enabled !== false,
     rule,
     busy: setRoute.isPending || (routesQuery.isPending && !rule),
     nameOverridden: Boolean(rule?.display_name?.trim()),

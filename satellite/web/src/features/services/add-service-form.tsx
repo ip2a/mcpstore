@@ -72,6 +72,7 @@ export function AddServiceForm({
     setStartupPolicy,
     startupPolicy,
     submitting,
+    submittingIntent,
   } = useAddServiceForm({
     initialScope,
     onAdded,
@@ -184,16 +185,61 @@ export function AddServiceForm({
             <DialogFormFooter
               start={fillFromExistingButton}
               onCancel={onCancel}
-              submitLabel={submitting ? t("adding") : t("navAddService")}
-              submitting={submitting}
-            />
+              submitLabel={
+                submittingIntent === "add" ? t("adding") : t("navAddService")
+              }
+              submitting={submittingIntent === "add"}
+              submitDisabled={submitting}
+              submitButtonProps={{
+                name: "intent",
+                value: "add",
+                variant: "outline",
+              }}
+            >
+              <Button
+                type="submit"
+                name="intent"
+                value="add-connect"
+                disabled={submitting}
+              >
+                {submittingIntent === "add-connect" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {submittingIntent === "add-connect"
+                  ? t("adding")
+                  : t("addServiceAndConnect")}
+              </Button>
+            </DialogFormFooter>
           ) : (
             <div className="flex items-center justify-between gap-2">
               {fillFromExistingButton}
-              <Button type="submit" disabled={submitting}>
-                {submitting ? <Spinner data-icon="inline-start" /> : null}
-                {submitting ? t("adding") : t("navAddService")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="add"
+                  variant="outline"
+                  disabled={submitting}
+                >
+                  {submittingIntent === "add" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : null}
+                  {submittingIntent === "add" ? t("adding") : t("navAddService")}
+                </Button>
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="add-connect"
+                  disabled={submitting}
+                >
+                  {submittingIntent === "add-connect" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : null}
+                  {submittingIntent === "add-connect"
+                    ? t("adding")
+                    : t("addServiceAndConnect")}
+                </Button>
+              </div>
             </div>
           )}
         </div>

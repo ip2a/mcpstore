@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   getFrameHistory,
@@ -51,6 +51,41 @@ function framesForInstanceSince(
  * - Connecting: poll recent upstream frames and stream them as they land (backend
  *   already writes live; no extra daemon stream endpoint needed).
  */
+function summaryFromFrames(
+  frames: FrameRecord[],
+  instanceId: string,
+): FrameSessionSummary | null {
+  if (frames.length === 0) return null
+  const first = frames[0]!
+  const last = frames[frames.length - 1]!
+  let requestBytes = 0
+  let responseBytes = 0
+  for (const frame of frames) {
+    if (frame.direction === "up") requestBytes += frame.size_bytes
+    else responseBytes += frame.size_bytes
+  }
+  return {
+    session_id: last.session_id,
+    face: "upstream",
+    caller: last.caller,
+    peer: last.peer,
+    instance_id: instanceId,
+    first_ts_unix_ms: first.ts_unix_ms,
+    last_ts_unix_ms: last.ts_unix_ms,
+    frame_count: frames.length,
+    request_bytes: requestBytes,
+    response_bytes: responseBytes,
+  }
+}
+
+/**
+ * Service-card session frames.
+ * - Idle open: one-shot latest session + history.
+ * - Connecting: poll recent upstream frames and stream them as they land (backend
+ *   already writes live; no extra daemon stream endpoint needed).
+ * - Live → idle: seed idle caches from the last live window so the rail does not
+ *   flash empty / skeleton, then soft-refetch history for the shared key.
+ */
 export function useServiceCardSessionFrames(
   instanceId: string,
   enabled: boolean,
@@ -61,12 +96,16 @@ export function useServiceCardSessionFrames(
     notBeforeMs?: number
   },
 ) {
+  const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const followLatest = options?.followLatest ?? false
   const notBeforeMs = options?.notBeforeMs ?? 0
   const live = followLatest || notBeforeMs > 0
   const prevSessionId = useRef<string | null>(null)
   const pinnedSessionId = useRef<string | null>(null)
+  /** Survives live query-key change when the connect watermark is cleared. */
+  const heldLiveFrames = useRef<FrameRecord[]>([])
+  const wasLive = useRef(false)
 
   // Live connect: pull recent upstream frames frequently and filter client-side.
   // Backend tees each JSON-RPC message into SQLite as it happens — this is the
@@ -91,9 +130,33 @@ export function useServiceCardSessionFrames(
   const liveSessionId = liveFrames[liveFrames.length - 1]?.session_id ?? null
 
   useEffect(() => {
+    if (live && liveFrames.length > 0) heldLiveFrames.current = liveFrames
     if (live && liveSessionId) pinnedSessionId.current = liveSessionId
-    if (!enabled) pinnedSessionId.current = null
-  }, [enabled, live, liveSessionId])
+    if (!enabled) {
+      pinnedSessionId.current = null
+      heldLiveFrames.current = []
+    }
+  }, [enabled, live, liveFrames, liveSessionId])
+
+  // Before paint: hand live frames to idle caches so the first idle render is warm.
+  useLayoutEffect(() => {
+    if (live) {
+      wasLive.current = true
+      return
+    }
+    if (!wasLive.current) return
+    wasLive.current = false
+    const held = heldLiveFrames.current
+    const sid = pinnedSessionId.current || held[held.length - 1]?.session_id || null
+    if (!sid || held.length === 0) return
+    const sessionsKey = [...queryKeys.gatewayFrameSessions, "by-instance", instanceId] as const
+    const historyKey = queryKeys.gatewayFrameHistory(sid)
+    const summary = summaryFromFrames(held, instanceId)
+    if (summary) queryClient.setQueryData(sessionsKey, summary)
+    queryClient.setQueryData(historyKey, held)
+    // Soft refresh shared history (also used by Traces) without clearing the seed.
+    void queryClient.invalidateQueries({ queryKey: historyKey })
+  }, [instanceId, live, queryClient])
 
   // Idle: resolve the latest session once (or the session we just streamed).
   const sessionsQuery = useQuery({
@@ -120,7 +183,9 @@ export function useServiceCardSessionFrames(
     staleTime: 30_000,
   })
 
-  const frames = live ? liveFrames : (idleHistoryQuery.data ?? [])
+  const frames = live
+    ? liveFrames
+    : (idleHistoryQuery.data ?? heldLiveFrames.current)
   const sessionId = live ? liveSessionId : idleSessionId
   useEffect(() => {
     if (prevSessionId.current === sessionId) return
@@ -147,9 +212,11 @@ export function useServiceCardSessionFrames(
     [frames, selectedId],
   )
 
-  const loading = live
-    ? liveRecentQuery.isLoading && frames.length === 0
-    : sessionsQuery.isLoading || (Boolean(idleSessionId) && idleHistoryQuery.isLoading)
+  // Never skeleton over frames we already have (live stream or seeded idle).
+  const loading = frames.length === 0 && (live
+    ? liveRecentQuery.isLoading
+    : (!idleSessionId && sessionsQuery.isLoading) ||
+      (Boolean(idleSessionId) && idleHistoryQuery.isLoading))
 
   return {
     frames,

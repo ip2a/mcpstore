@@ -1,7 +1,7 @@
 import { useCallback } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 
-import { type AppView, useViewTitle } from "@/app/app-view"
+import { type AppView, type InstanceOrigin, useViewTitle } from "@/app/app-view"
 import { useServiceDetailQuery } from "@/features/services/queries"
 import type { ScopeRef, ServiceAddress, ServiceInstance } from "@/lib/api"
 
@@ -47,7 +47,9 @@ export function useAppView(services: ServiceInstance[]) {
   )
   const goBack = useCallback(() => {
     if (view.name === "tool") {
-      navigate("/tools", { replace: location.key === "default" })
+      navigate(pathForView({ name: "tools", instanceId: view.instanceId }), {
+        replace: location.key === "default",
+      })
       return
     }
     if (view.name === "resource") {
@@ -60,6 +62,12 @@ export function useAppView(services: ServiceInstance[]) {
     }
     if (view.name === "traceSession") {
       navigate("/traces", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "instance" && view.origin?.kind === "scope") {
+      const scopePath = `/scope?id=${encodeURIComponent(view.origin.scopeId)}`
+      if (location.key !== "default") navigate(-1)
+      else navigate(scopePath, { replace: true })
       return
     }
     if (location.key !== "default") navigate(-1)
@@ -94,7 +102,10 @@ function viewFromPath(pathname: string, search: string): AppView {
     const scopeId = new URLSearchParams(search).get("id")?.trim()
     return scopeId ? { name: "scope", scopeId } : { name: "scope" }
   }
-  if (pathname === "/tools") return { name: "tools" }
+  if (pathname === "/tools") {
+    const instanceId = new URLSearchParams(search).get("instance")?.trim()
+    return instanceId ? { name: "tools", instanceId } : { name: "tools" }
+  }
   if (pathname === "/resources") return { name: "resources" }
   if (pathname === "/prompts") return { name: "prompts" }
   if (pathname.startsWith("/tools/")) {
@@ -151,9 +162,21 @@ function viewFromPath(pathname: string, search: string): AppView {
     } catch {
       service_name = raw
     }
-    return { name: "instance", addr: { service_name, scope: scopeFromSearch(search) } }
+    return {
+      name: "instance",
+      addr: { service_name, scope: scopeFromSearch(search) },
+      origin: originFromSearch(search),
+    }
   }
   return { name: "home" }
+}
+
+function originFromSearch(search: string): InstanceOrigin | undefined {
+  const params = new URLSearchParams(search)
+  if (params.get("from") !== "scope") return undefined
+  const scopeId = params.get("from_id")?.trim()
+  if (!scopeId) return undefined
+  return { kind: "scope", scopeId }
 }
 
 function parseRegistryDetailPath(rest: string): { instanceId: string; key: string } | null {
@@ -208,11 +231,22 @@ function pathForView(view: AppView): string {
   }
   if (view.name === "instance") {
     const base = `/services/${encodeURIComponent(view.addr.service_name)}`
-    const query =
-      view.addr.scope.type === "agent"
-        ? `?scope=agent&agent_id=${encodeURIComponent(view.addr.scope.agent_id)}`
-        : "?scope=store"
-    return `${base}${query}`
+    const params = new URLSearchParams()
+    if (view.addr.scope.type === "agent") {
+      params.set("scope", "agent")
+      params.set("agent_id", view.addr.scope.agent_id)
+    } else {
+      params.set("scope", "store")
+    }
+    if (view.origin?.kind === "scope") {
+      params.set("from", "scope")
+      params.set("from_id", view.origin.scopeId)
+    }
+    const query = params.toString()
+    return query ? `${base}?${query}` : base
+  }
+  if (view.name === "tools" && view.instanceId) {
+    return `/tools?instance=${encodeURIComponent(view.instanceId)}`
   }
   if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
   if (view.name === "traces" && view.tab) return `/traces?tab=${encodeURIComponent(view.tab)}`

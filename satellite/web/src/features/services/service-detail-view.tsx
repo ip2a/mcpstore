@@ -10,6 +10,7 @@ import { PanelCard } from "@/components/shared/panel-card"
 import {
   breadcrumbUppercase,
   WorkspaceBreadcrumb,
+  type WorkspaceCrumb,
 } from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
@@ -137,6 +138,8 @@ export function ServiceDetailView(props: {
   busy: string | null
   refreshToken?: number
   onBack: () => void
+  /** Crumbs before the service name — set by the menu that opened this detail. */
+  trailPrefix?: WorkspaceCrumb[]
   onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
   isToolRunning?: (tool: ToolInfo) => boolean
   onToolDetail: (
@@ -541,31 +544,52 @@ export function ServiceDetailView(props: {
   }
 
   const headerSubtitle = [transport, description].filter(Boolean).join(" · ")
-  const scopeLabel = breadcrumbUppercase(
-    service.scope.type === "store"
-      ? t("store")
-      : service.scope.type === "agent"
-        ? service.scope.agent_id
-        : t("filterAll"),
-  )
-  const headerCrumbs = useMemo(() => {
-    const crumbs: Array<{ label: string; onClick?: () => void }> = [
+  const defaultTrailPrefix = useMemo((): WorkspaceCrumb[] => {
+    const scopeLabel = breadcrumbUppercase(
+      service.scope.type === "store"
+        ? t("store")
+        : service.scope.type === "agent"
+          ? service.scope.agent_id
+          : t("filterAll"),
+    )
+    return [
       { label: t("servicesWorkspaceTitle"), onClick: props.onBack },
       { label: scopeLabel, onClick: props.onBack },
+    ]
+  }, [props.onBack, service.scope, t])
+  const trailPrefix = props.trailPrefix ?? defaultTrailPrefix
+  const headerCrumbs = useMemo(() => {
+    const crumbs: WorkspaceCrumb[] = [
+      ...trailPrefix,
       {
         label: service.service_name,
-        onClick: activeTab === "service" ? undefined : () => setActiveTab("service"),
+        onClick:
+          activeTab === "service"
+            ? undefined
+            : () => {
+                setActiveTab("service")
+                setSelectedToolKey(null)
+                setSelectedPromptKey(null)
+                setSelectedResourceKey(null)
+                setSelectedTemplateKey(null)
+              },
       },
     ]
 
     if (activeTab === "tools") {
-      crumbs.push({ label: breadcrumbUppercase(t("tools")) })
+      crumbs.push({
+        label: breadcrumbUppercase(t("tools")),
+        onClick: selectedTool ? () => setSelectedToolKey(null) : undefined,
+      })
       if (selectedTool) crumbs.push({ label: selectedTool.name })
       return crumbs
     }
 
     if (activeTab === "prompts") {
-      crumbs.push({ label: breadcrumbUppercase(t("prompts")) })
+      crumbs.push({
+        label: breadcrumbUppercase(t("prompts")),
+        onClick: selectedPrompt ? () => setSelectedPromptKey(null) : undefined,
+      })
       if (selectedPrompt) {
         crumbs.push({ label: selectedPrompt.title || selectedPrompt.name })
       }
@@ -573,7 +597,18 @@ export function ServiceDetailView(props: {
     }
 
     if (activeTab === "resources") {
-      crumbs.push({ label: breadcrumbUppercase(t("resources")) })
+      const hasLeaf =
+        (resourceSubTab === "templates" && selectedTemplate) ||
+        (resourceSubTab !== "templates" && selectedResource)
+      crumbs.push({
+        label: breadcrumbUppercase(t("resources")),
+        onClick: hasLeaf
+          ? () => {
+              setSelectedResourceKey(null)
+              setSelectedTemplateKey(null)
+            }
+          : undefined,
+      })
       if (resourceSubTab === "templates" && selectedTemplate) {
         crumbs.push({
           label:
@@ -592,15 +627,14 @@ export function ServiceDetailView(props: {
     return crumbs
   }, [
     activeTab,
-    props.onBack,
     resourceSubTab,
-    scopeLabel,
     selectedPrompt,
     selectedResource,
     selectedTemplate,
     selectedTool,
     service.service_name,
     t,
+    trailPrefix,
   ])
 
   return (

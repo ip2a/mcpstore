@@ -1,10 +1,14 @@
 import { useState, useMemo } from "react"
-import { ChevronRightIcon, ListChecksIcon } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { PlusIcon } from "lucide-react"
+import { toast } from "sonner"
 
+import { AgentIdPicker } from "@/components/shared/agent-id-picker"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
+import { ServiceListCard } from "@/components/shared/service-list-card"
 import {
   WORKSPACE_LIST_INSET_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
@@ -17,17 +21,30 @@ import {
   WorkspacePageHeader,
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Spinner } from "@/components/ui/spinner"
 import { useScopeServicesQuery, useScopesQuery } from "@/features/agents/queries"
-import { useToolRoutesQuery } from "@/features/routes/queries"
-import { ToolConfigRow } from "@/features/scope/tool-config-row"
-import { ToolPolicyDialog } from "@/features/scope/tool-policy-dialog"
+import { getAgentId } from "@/features/agents/model"
 import {
   deriveServiceDisplayStatus,
   type ServiceDisplayStatus,
 } from "@/features/services/service-display-status"
 import { serviceListLiveQueryOptions } from "@/features/services/service-live-query"
-import type { ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
+import {
+  createAgentShell,
+  type AgentItem,
+  type ScopeSummary,
+  type ScopeView,
+  type ServiceInstance,
+} from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
@@ -47,12 +64,6 @@ const SCOPE_STATUS_COLOR: Record<ServiceDisplayStatus, string> = {
 
 const SCOPE_LIST_GRID_CLASSNAME =
   "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
-
-function sameScopeRefView(a: { type: string; agent_id?: string }, scope: ScopeView): boolean {
-  if (scope.type === "all") return true
-  if (scope.type === "store") return a.type === "store"
-  return a.type === "agent" && a.agent_id === scope.agent_id
-}
 
 function scopeIdFromSummary(summary: ScopeSummary): string {
   return summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
@@ -89,10 +100,13 @@ function servicesForScope(
 
 export function ScopeView(props: {
   services: ServiceInstance[]
+  agents?: AgentItem[]
   scopeId?: string
   onScopeIdChange?: (scopeId: string | null) => void
+  onOpenService?: (service: ServiceInstance) => void
 }) {
   const { t } = useI18n()
+  const client = useQueryClient()
   const scopesQuery = useScopesQuery()
   const scopes = useMemo(
     () => (scopesQuery.data || []).filter((summary) => summary.scope.type !== "all"),
@@ -102,24 +116,24 @@ export function ScopeView(props: {
   const selectedScopeId = props.onScopeIdChange ? (props.scopeId ?? null) : localScopeId
   const setSelectedScopeId = props.onScopeIdChange ?? setLocalScopeId
   const [searchQuery, setSearchQuery] = useState("")
-  const toolRoutesQuery = useToolRoutesQuery()
-  const toolRoutes = toolRoutesQuery.data?.routes || []
+  const [addScopeOpen, setAddScopeOpen] = useState(false)
+  const existingAgentIds = useMemo(
+    () => [
+      ...new Set([
+        ...(props.agents || []).map(getAgentId).filter(Boolean),
+        ...scopes
+          .filter((summary) => summary.scope.type === "agent")
+          .map((summary) => (summary.scope.type === "agent" ? summary.scope.agent_id : ""))
+          .filter(Boolean),
+      ]),
+    ],
+    [props.agents, scopes],
+  )
 
   const selectedScope: ScopeView | null = useMemo(
     () => (selectedScopeId ? scopeViewFromId(selectedScopeId) : null),
     [selectedScopeId],
   )
-
-  const overrideSet = useMemo(() => {
-    const set = new Set<string>()
-    if (!selectedScope) return set
-    for (const override of toolRoutes) {
-      if (sameScopeRefView(route.scope, selectedScope)) {
-        set.add(`${route.service_name}::${route.tool_name}`)
-      }
-    }
-    return set
-  }, [toolRoutes, selectedScope])
 
   const liveServicesQuery = useScopeServicesQuery(selectedScope ?? { type: "all" }, {
     enabled: Boolean(selectedScope),
@@ -134,33 +148,19 @@ export function ScopeView(props: {
     error instanceof Error ? error.message : error ? String(error) : "Failed to load scope"
 
   // List payload already embeds tools[] — no per-service /tools/list fan-out.
-  const serviceTools = useMemo(
-    () =>
-      scopeServices.map((service) => ({
-        service,
-        tools: service.tools || [],
-      })),
-    [scopeServices],
-  )
-
-  const filteredServiceTools = useMemo(() => {
+  const filteredServices = useMemo(() => {
     const needle = searchQuery.trim().toLowerCase()
-    if (!needle) return serviceTools
+    if (!needle) return scopeServices
 
-    return serviceTools
-      .map(({ service, tools }) => ({
-        service,
-        tools: tools.filter((tool) => {
-          const displayName = tool.title?.trim() || tool.name
-          const text = `${displayName} ${tool.description} ${tool.name}`.toLowerCase()
-          return text.includes(needle)
-        }),
-      }))
-      .filter(
-        ({ service, tools }) =>
-          tools.length > 0 || service.service_name.toLowerCase().includes(needle),
-      )
-  }, [serviceTools, searchQuery])
+    return scopeServices.filter((service) => {
+      if (service.service_name.toLowerCase().includes(needle)) return true
+      return (service.tools || []).some((tool) => {
+        const displayName = tool.title?.trim() || tool.name
+        const text = `${displayName} ${tool.description} ${tool.name}`.toLowerCase()
+        return text.includes(needle)
+      })
+    })
+  }, [scopeServices, searchQuery])
 
   const selectedSummary = scopes.find((summary) => scopeIdFromSummary(summary) === selectedScopeId)
   const selectedTitle = selectedSummary
@@ -174,7 +174,6 @@ export function ScopeView(props: {
       (selectedScope.type !== "agent" || Boolean(selectedScope.agent_id))
     await Promise.all([
       scopesQuery.refetch(),
-      toolRoutesQuery.refetch(),
       canRefetchServices ? liveServicesQuery.refetch() : Promise.resolve(),
     ])
   }
@@ -188,11 +187,11 @@ export function ScopeView(props: {
     <>
       {selectedScope ? (
         <WorkspaceBreadcrumb
-          ariaLabel={t("scopeConfigurationTitle")}
+          ariaLabel={t("navAgents")}
           subtitle={t("scopeConfigurationDescription")}
           crumbs={[
             {
-              label: breadcrumbUppercase(t("allScopes")),
+              label: t("navAgents"),
               onClick: backToOverview,
             },
             { label: selectedTitle },
@@ -200,7 +199,7 @@ export function ScopeView(props: {
         />
       ) : (
         <WorkspacePageHeader
-          title={<h1 className="text-lg font-semibold">{t("scopeConfigurationTitle")}</h1>}
+          title={<h1 className="text-lg font-semibold">{t("navAgents")}</h1>}
           subtitle={t("allScopesDescription")}
         />
       )}
@@ -228,62 +227,170 @@ export function ScopeView(props: {
 
           <ScrollPane
             className="min-h-0 flex-1"
-            innerClassName={
-              !selectedScope && scopes.length > 0
-                ? cn(WORKSPACE_LIST_INSET_CLASSNAME, SCOPE_LIST_GRID_CLASSNAME)
-                : undefined
-            }
+            innerClassName={cn(WORKSPACE_LIST_INSET_CLASSNAME, SCOPE_LIST_GRID_CLASSNAME)}
           >
             {error ? (
               <PageError
+                className="col-span-full"
                 title={t("scopeFailedToLoad")}
                 message={errorMessage}
                 onRefresh={handleRefresh}
               />
             ) : !selectedScope ? (
               scopesQuery.isFetching && !scopes.length ? (
-                <PageSkeleton />
-              ) : !scopes.length ? (
-                <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
+                <PageSkeleton className="col-span-full" />
               ) : (
-                scopes.map((summary) => {
-                  const scopeId = scopeIdFromSummary(summary)
-                  const title = scopeTitleFromSummary(summary, t)
-                  const scoped = servicesForScope(props.services, summary.scope)
-                  return (
-                    <ScopeListCard
-                      key={scopeId}
-                      title={title}
-                      services={scoped}
-                      onSelect={() => setSelectedScopeId(scopeId)}
+                <>
+                  {!scopes.length ? (
+                    <PageEmpty
+                      className="col-span-full"
+                      title={t("noScopes")}
+                      description={t("noScopesDescription")}
                     />
-                  )
-                })
+                  ) : (
+                    scopes.map((summary) => {
+                      const scopeId = scopeIdFromSummary(summary)
+                      const title = scopeTitleFromSummary(summary, t)
+                      const scoped = servicesForScope(props.services, summary.scope)
+                      return (
+                        <ScopeListCard
+                          key={scopeId}
+                          title={title}
+                          services={scoped}
+                          onSelect={() => setSelectedScopeId(scopeId)}
+                        />
+                      )
+                    })
+                  )}
+                  <AddScopeCard onSelect={() => setAddScopeOpen(true)} />
+                </>
               )
-            ) : loading && !serviceTools.length ? (
-              <PageSkeleton />
-            ) : !filteredServiceTools.length ? (
-              <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+            ) : loading && !scopeServices.length ? (
+              <PageSkeleton className="col-span-full" />
+            ) : !filteredServices.length ? (
+              <div className="col-span-full flex h-full items-center justify-center p-8 text-center text-muted-foreground">
                 {searchQuery ? t("noSearchResults") : t("noServices")}
               </div>
             ) : (
-              <div className="space-y-3 p-4">
-                {filteredServiceTools.map(({ service, tools }) => (
-                  <ServiceToolGroup
-                    key={service.instance_id}
-                    service={service}
-                    tools={tools}
-                    scope={selectedScope}
-                    overrideSet={overrideSet}
-                    onPolicyChange={handleRefresh}
-                  />
-                ))}
-              </div>
+              filteredServices.map((service) => (
+                <ServiceListCard
+                  key={service.instance_id}
+                  service={service}
+                  onSelect={() => props.onOpenService?.(service)}
+                />
+              ))
             )}
           </ScrollPane>
         </div>
       </PanelCard>
+
+      <AddAgentShellDialog
+        agentIds={existingAgentIds}
+        open={addScopeOpen}
+        onOpenChange={setAddScopeOpen}
+        onCreated={async (agentId) => {
+          await client.invalidateQueries({ queryKey: queryKeys.scopes })
+          setSelectedScopeId(agentId)
+        }}
+      />
     </>
+  )
+}
+
+function AddScopeCard({ onSelect }: { onSelect: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="group flex min-h-[9.5rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+        <PlusIcon className="size-4" />
+      </span>
+      <span className="text-sm font-medium">{t("addScope")}</span>
+    </div>
+  )
+}
+
+function AddAgentShellDialog({
+  agentIds,
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  agentIds: string[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onCreated: (agentId: string) => Promise<void>
+}) {
+  const { t } = useI18n()
+  const [agentId, setAgentId] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const trimmed = agentId.trim()
+  const canSubmit = Boolean(trimmed) && !submitting
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!trimmed) return
+    setSubmitting(true)
+    try {
+      await createAgentShell(trimmed)
+      toast.success(t("saved"))
+      onOpenChange(false)
+      setAgentId("")
+      await onCreated(trimmed)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next)
+        if (!next) setAgentId("")
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={(event) => void onSubmit(event)}>
+          <DialogHeader>
+            <DialogTitle>{t("addScope")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Field>
+              <FieldLabel htmlFor="add-agent-shell-id">{t("agentId")}</FieldLabel>
+              <AgentIdPicker
+                id="add-agent-shell-id"
+                agentIds={agentIds}
+                value={agentId}
+                onChange={setAgentId}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t("addAgentShellHint")}</p>
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {t("cancel")}
+            </Button>
+            <Button type="submit" disabled={!canSubmit}>
+              {submitting ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              {submitting ? t("adding") : t("addScope")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -357,94 +464,3 @@ function ScopeListCard({
   )
 }
 
-function ServiceToolGroup({
-  service,
-  tools,
-  scope,
-  overrideSet,
-  onPolicyChange,
-}: {
-  service: ServiceInstance
-  tools: Array<{ name: string; description: string; title?: string | null }>
-  scope: ScopeView
-  overrideSet: Set<string>
-  onPolicyChange: () => void
-}) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
-  const isAllView = scope.type === "all"
-
-  return (
-    <>
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <div className="rounded-lg border border-border/50 bg-card">
-          <div className="flex items-center gap-2 px-4 py-3">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="flex flex-1 min-w-0 items-center gap-2 text-left transition-colors hover:bg-muted/40 rounded-md -m-1 p-1"
-              >
-                <ChevronRightIcon
-                  className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
-                />
-                <span className="flex-1 font-medium">
-                  {service.service_name}
-                  {isAllView && service.scope.type === "agent" ? (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      ({service.scope.agent_id})
-                    </span>
-                  ) : null}
-                </span>
-                <span className="text-sm text-muted-foreground">{tools.length} tools</span>
-              </button>
-            </CollapsibleTrigger>
-
-            {!isAllView ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setPolicyDialogOpen(true)}
-                title={t("toolPolicyTitle")}
-              >
-                <ListChecksIcon className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-
-          <CollapsibleContent>
-            <div className="border-t border-border/50">
-              {isAllView ? (
-                <div className="px-4 py-3 text-sm text-muted-foreground">
-                  {t("scopeAllReadOnlyHint")}
-                </div>
-              ) : null}
-              {tools.map((tool) => {
-                const overrideKey = `${service.service_name}::${tool.name}`
-                const hasOverride = overrideSet.has(overrideKey)
-                return (
-                  <ToolConfigRow
-                    key={tool.name}
-                    service={service}
-                    tool={tool}
-                    scope={scope}
-                    readOnly={isAllView}
-                    hasOverride={hasOverride}
-                  />
-                )
-              })}
-            </div>
-          </CollapsibleContent>
-        </div>
-      </Collapsible>
-
-      <ToolPolicyDialog
-        open={policyDialogOpen}
-        onOpenChange={setPolicyDialogOpen}
-        service={service}
-        allTools={tools}
-        onSuccess={onPolicyChange}
-      />
-    </>
-  )
-}

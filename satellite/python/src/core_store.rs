@@ -834,6 +834,20 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    /// Create an empty agent scope shell (no services declared yet).
+    fn create_agent_shell(&self, agent_id: &str) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.create_agent_shell(agent_id))
+            .map_err(map_store_err)
+    }
+
+    /// Remove empty-shell registration; declared service instances are kept.
+    fn remove_agent_shell(&self, agent_id: &str) -> PyResult<bool> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.remove_agent_shell(agent_id))
+            .map_err(map_store_err)
+    }
+
     /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
     fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<()> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;

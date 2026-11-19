@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -93,40 +92,37 @@ export function ProjectionPanel() {
           <TableHeader>
             <TableRow>
               <TableHead className={TRACE_COL1_CLASSNAME}>
-                {t("gatewayProjectionColMount")}
+                {t("gatewayProjectionColKind")}
               </TableHead>
               <TableHead className={TRACE_COL2_CLASSNAME}>
-                {t("gatewayProjectionColService")}
+                {t("gatewayProjectionColReason")}
               </TableHead>
-              <TableHead>{t("gatewayProjectionColKind")}</TableHead>
+              <TableHead>{t("gatewayProjectionColMount")}</TableHead>
               <TableHead>{t("gatewayProjectionColTool")}</TableHead>
-              <TableHead>{t("gatewayProjectionColReason")}</TableHead>
+              <TableHead>{t("gatewayProjectionColService")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.key}>
-                <TableCell className={TRACE_COL1_CELL_CLASSNAME} title={row.mount}>
-                  {row.mount}
+                <TableCell className={TRACE_COL1_CELL_CLASSNAME}>
+                  {row.kind === "down"
+                    ? t("gatewayProjectionIssueDown")
+                    : row.kind === "skipped"
+                      ? t("gatewayProjectionIssueSkipped")
+                      : t("gatewayProjectionIssueDegraded")}
                 </TableCell>
-                <TableCell className={TRACE_COL2_CELL_CLASSNAME} title={row.service}>
-                  {row.service}
+                <TableCell
+                  className={`${TRACE_COL2_CELL_CLASSNAME} text-xs text-muted-foreground`}
+                  title={row.reason}
+                >
+                  <span className="line-clamp-2">{row.reason}</span>
                 </TableCell>
-                <TableCell>
-                  {row.kind === "down" ? (
-                    <Badge variant="destructive">{t("gatewayProjectionIssueDown")}</Badge>
-                  ) : row.kind === "skipped" ? (
-                    <Badge variant="outline">{t("gatewayProjectionIssueSkipped")}</Badge>
-                  ) : (
-                    <Badge variant="secondary">{t("gatewayProjectionIssueDegraded")}</Badge>
-                  )}
-                </TableCell>
+                <TableCell title={row.mount}>{row.mount}</TableCell>
                 <TableCell className="max-w-[10rem] truncate font-mono text-xs" title={row.tool}>
                   {row.tool}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground" title={row.reason}>
-                  <span className="line-clamp-2">{row.reason}</span>
-                </TableCell>
+                <TableCell title={row.service}>{row.service}</TableCell>
               </TableRow>
             ))}
           </TableBody>

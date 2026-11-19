@@ -55,6 +55,22 @@ export async function listScopes(): Promise<ScopeSummary[]> {
   return data.scopes
 }
 
+/** Create an empty agent scope shell (no services). */
+export async function createAgentShell(agentId: string): Promise<ScopeSummary> {
+  return api<ScopeSummary>("/scopes/agents", {
+    method: "POST",
+    body: JSON.stringify({ agent_id: agentId }),
+  })
+}
+
+/** Remove empty-shell registration; declared instances are kept. */
+export async function removeAgentShell(agentId: string): Promise<{ agent_id: string; removed: boolean }> {
+  return api<{ agent_id: string; removed: boolean }>(
+    `/scopes/agents/${encodeURIComponent(agentId)}`,
+    { method: "DELETE" },
+  )
+}
+
 export async function listAgents(): Promise<AgentItem[]> {
   const data = await api<{ agents: AgentItem[] }>("/agents/list")
   return data.agents

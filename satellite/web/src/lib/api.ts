@@ -490,6 +490,8 @@ export {
   health,
   listServices,
   listScopes,
+  createAgentShell,
+  removeAgentShell,
   listAgents,
   listAgentServices,
   getServiceInstance,

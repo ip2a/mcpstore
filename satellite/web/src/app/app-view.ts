@@ -16,13 +16,18 @@ import type { ServiceAddress } from "@/lib/api"
 import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 
+/** Where the instance detail was opened from — drives breadcrumb root, not the page body. */
+export type InstanceOrigin =
+  | { kind: "services" }
+  | { kind: "scope"; scopeId: string }
+
 export type AppView =
   | { name: "home" }
   | { name: "services"; cardInstanceId?: string; cardTab?: "sessions" }
   | { name: "scope"; scopeId?: string }
   | { name: "clients" }
   | { name: "plugins"; tab?: "installed" | "services" | "agents" }
-  | { name: "tools" }
+  | { name: "tools"; instanceId?: string }
   | { name: "tool"; instanceId: string; toolName: string }
   | { name: "resources" }
   | { name: "resource"; instanceId: string; resourceUri: string }
@@ -43,7 +48,7 @@ export type AppView =
     }
   | { name: "traceSession"; sessionId: string; face: "gateway" | "upstream" }
   | { name: "settings" }
-  | { name: "instance"; addr: ServiceAddress }
+  | { name: "instance"; addr: ServiceAddress; origin?: InstanceOrigin }
 
 export type NavViewName = Exclude<
   AppView["name"],

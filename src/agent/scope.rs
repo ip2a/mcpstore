@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use crate::store::prelude::*;
 
@@ -67,8 +68,71 @@ impl MCPStore {
         Ok(instances)
     }
 
+    fn agent_shells_registry_path(&self) -> Option<PathBuf> {
+        self.config_manager()
+            .app_config_path()
+            .parent()
+            .map(|parent| parent.join("agent-shells.json"))
+    }
+
+    fn client_agents_registry_path(&self) -> Option<PathBuf> {
+        self.config_manager()
+            .app_config_path()
+            .parent()
+            .map(|parent| parent.join("client-agents.json"))
+    }
+
+    /// Agent ids that exist as empty shells (no services required): agent-shells
+    /// registry + client-agent binding targets.
+    pub(crate) fn listed_shell_agent_ids(&self) -> Result<HashSet<String>> {
+        let mut ids = HashSet::new();
+        if let Some(path) = self.agent_shells_registry_path() {
+            let registry = crate::agent_shell::load_agent_shell_registry(&path)?;
+            ids.extend(registry.shells.into_keys());
+        }
+        if let Some(path) = self.client_agents_registry_path() {
+            match crate::client_agent::load_client_agent_registry(&path) {
+                Ok(registry) => {
+                    for binding in registry.bindings.into_values() {
+                        ids.insert(binding.agent_id);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "listed_shell_agent_ids: failed to load client-agents registry: {}",
+                        error
+                    );
+                }
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Create (or keep) an empty agent scope shell. Does not declare any service.
+    pub async fn create_agent_shell(&self, agent_id: &str) -> Result<()> {
+        let path = self.agent_shells_registry_path().ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                "Cannot resolve agent-shells registry path",
+            )
+        })?;
+        crate::agent_shell::ensure_agent_shell(&path, agent_id)
+    }
+
+    /// Drop the empty-shell registration. Declared service instances are untouched;
+    /// the agent remains listed while it still has instances or a client binding.
+    pub async fn remove_agent_shell(&self, agent_id: &str) -> Result<bool> {
+        let path = self.agent_shells_registry_path().ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                "Cannot resolve agent-shells registry path",
+            )
+        })?;
+        crate::agent_shell::remove_agent_shell(&path, agent_id)
+    }
+
     /// Scope registry: root + store + each agent, each entry carrying its runtime service count (from the registry).
-    /// Also includes agents from client-agent bindings even if they have no services yet.
+    /// Also includes empty shells (agent-shells.json + client-agent bindings).
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
         let instances = self.kernel.control.registry.list_instances().await;
         let mut agent_counts: HashMap<String, usize> = HashMap::new();
@@ -82,23 +146,8 @@ impl MCPStore {
             }
         }
 
-        // Include agents from client-agent bindings even if they have no services
-        let app_config_path = self.config_manager().app_config_path();
-        tracing::debug!("list_scopes: app_config_path={:?}", app_config_path);
-        if let Some(parent_dir) = app_config_path.parent() {
-            let registry_path = parent_dir.join("client-agents.json");
-            tracing::debug!("list_scopes: registry_path={:?}", registry_path);
-            match crate::client_agent::load_client_agent_registry(&registry_path) {
-                Ok(registry) => {
-                    tracing::debug!("list_scopes: loaded {} bindings", registry.bindings.len());
-                    for binding in registry.bindings.values() {
-                        agent_counts.entry(binding.agent_id.clone()).or_insert(0);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("list_scopes: failed to load client-agents registry: {}", e);
-                }
-            }
+        for agent_id in self.listed_shell_agent_ids()? {
+            agent_counts.entry(agent_id).or_insert(0);
         }
 
         let mut summaries = Vec::with_capacity(2 + agent_counts.len());
@@ -127,7 +176,8 @@ impl MCPStore {
         Ok(scopes.into_iter().find(|summary| &summary.scope == view))
     }
 
-    /// Single agent entity (agent_id + its instance ids); returns None if absent.
+    /// Single agent entity (agent_id + its instance ids). Empty shells return
+    /// `instance_ids: []` instead of None.
     pub async fn find_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
         let instance_ids = self
             .kernel
@@ -135,12 +185,18 @@ impl MCPStore {
             .registry
             .list_agent_instance_ids(agent_id)
             .await;
-        if instance_ids.is_empty() {
-            return Ok(None);
+        if !instance_ids.is_empty() {
+            return Ok(Some(AgentInfo {
+                agent_id: agent_id.to_string(),
+                instance_ids,
+            }));
         }
-        Ok(Some(AgentInfo {
-            agent_id: agent_id.to_string(),
-            instance_ids,
-        }))
+        if self.listed_shell_agent_ids()?.contains(agent_id) {
+            return Ok(Some(AgentInfo {
+                agent_id: agent_id.to_string(),
+                instance_ids: Vec::new(),
+            }));
+        }
+        Ok(None)
     }
 }

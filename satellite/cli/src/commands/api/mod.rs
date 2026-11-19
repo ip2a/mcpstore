@@ -405,7 +405,11 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         .route("/scopes/list", get(service::scopes_list))
         .route("/scopes/all", get(service::scope_info_all))
         .route("/scopes/store", get(service::scope_info_store))
-        .route("/scopes/agents/:agent_id", get(service::scope_info_agent))
+        .route("/scopes/agents", post(service::create_agent_shell))
+        .route(
+            "/scopes/agents/:agent_id",
+            get(service::scope_info_agent).delete(service::remove_agent_shell),
+        )
         .route(
             "/scopes/agents/:agent_id/config",
             get(service::agent_show_config),

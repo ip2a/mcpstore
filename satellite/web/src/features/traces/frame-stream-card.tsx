@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 
 import { useIsFetching, useQueryClient } from "@tanstack/react-query"
 
@@ -9,6 +9,10 @@ import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
+import {
+  FramesFilterDialog,
+  type FrameSessionSortBy,
+} from "@/features/traces/frames-filter-dialog"
 import { FrameSessionsPanel } from "@/features/traces/frame-sessions-panel"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -60,6 +64,14 @@ export function FrameStreamCard(props: {
     normalizeFrameView(props.initialView) ?? "sessions",
   )
   const [kvQuery, setKvQuery] = useState("")
+  const [sessionQuery, setSessionQuery] = useState("")
+  const [sessionScopeFilter, setSessionScopeFilter] = useState("all")
+  const [sessionSortBy, setSessionSortBy] = useState<FrameSessionSortBy | null>(null)
+  const [sessionScopes, setSessionScopes] = useState<string[]>([])
+
+  const onSessionScopesChange = useCallback((scopes: string[]) => {
+    setSessionScopes(scopes)
+  }, [])
 
   useEffect(() => {
     setView(normalizeFrameView(props.initialView) ?? "sessions")
@@ -164,6 +176,24 @@ export function FrameStreamCard(props: {
                 onChange={setKvQuery}
               />
             ) : null}
+            {view === "sessions" ? (
+              <>
+                <UiverseSearchInput
+                  id="frame-session-list-search"
+                  placeholder={t("searchSessions")}
+                  value={sessionQuery}
+                  onChange={setSessionQuery}
+                />
+                <FramesFilterDialog
+                  activeFilterCount={sessionScopeFilter !== "all" ? 1 : 0}
+                  onScopeFilterChange={setSessionScopeFilter}
+                  onSort={setSessionSortBy}
+                  scopeFilter={sessionScopeFilter}
+                  scopes={sessionScopes}
+                  sortBy={sessionSortBy}
+                />
+              </>
+            ) : null}
             <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
               <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
               {t("refresh")}
@@ -192,7 +222,13 @@ export function FrameStreamCard(props: {
           </TabsContent>
         ) : null}
         <TabsContent value="sessions" className={tabContentClassName}>
-          <FrameSessionsPanel onOpenSession={props.onOpenSession} />
+          <FrameSessionsPanel
+            onOpenSession={props.onOpenSession}
+            onScopesChange={onSessionScopesChange}
+            query={sessionQuery}
+            scopeFilter={sessionScopeFilter}
+            sortBy={sessionSortBy}
+          />
         </TabsContent>
       </Tabs>
     </PanelCard>

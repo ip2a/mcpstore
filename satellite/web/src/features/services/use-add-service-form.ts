@@ -3,6 +3,7 @@ import { toast } from "sonner"
 
 import {
   addServiceFromConfig,
+  connectInstance,
   type ScopeView,
   type ServiceRestartPolicy,
   type ServiceStartupPolicy,
@@ -18,6 +19,7 @@ import {
 
 export type AddServiceScope = "store" | "agent"
 export type AddServiceTransport = ServiceConfigTransport
+export type AddServiceIntent = "add" | "add-connect"
 
 function defaultsFromScope(initialScope?: ScopeView): {
   scope: AddServiceScope
@@ -27,6 +29,15 @@ function defaultsFromScope(initialScope?: ScopeView): {
     return { scope: "agent", agentId: initialScope.agent_id.trim() }
   }
   return { scope: "store", agentId: "" }
+}
+
+function resolveIntent(event: FormEvent<HTMLFormElement>): AddServiceIntent {
+  const submitter = (event.nativeEvent as SubmitEvent).submitter
+  if (submitter instanceof HTMLButtonElement && submitter.value === "add-connect") {
+    return "add-connect"
+  }
+  const data = new FormData(event.currentTarget)
+  return data.get("intent") === "add-connect" ? "add-connect" : "add"
 }
 
 export function useAddServiceForm({
@@ -48,12 +59,13 @@ export function useAddServiceForm({
   const [agentId, setAgentId] = useState(initial.agentId)
   const [startupPolicy, setStartupPolicy] = useState<ServiceStartupPolicy>("lazy")
   const [restartPolicy, setRestartPolicy] = useState<ServiceRestartPolicy>("no")
-  const [submitting, setSubmitting] = useState(false)
+  const [submittingIntent, setSubmittingIntent] = useState<AddServiceIntent | null>(null)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const intent = resolveIntent(event)
     const data = new FormData(event.currentTarget)
-    setSubmitting(true)
+    setSubmittingIntent(intent)
     try {
       const name = serviceName.trim() || String(data.get("name") || "").trim()
       if (!name) {
@@ -86,13 +98,20 @@ export function useAddServiceForm({
         lifecycle,
         handshakeMode: configFields.handshakeMode,
       })
-      toast.success("Service added")
+
+      if (intent === "add-connect") {
+        // One-shot connect for this add only — does not change startup_policy.
+        await connectInstance({ service_name: name, scope: scopeRef })
+        toast.success("Service added and connecting")
+      } else {
+        toast.success("Service added")
+      }
       await onAdded()
       onBack()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Add service failed")
     } finally {
-      setSubmitting(false)
+      setSubmittingIntent(null)
     }
   }
 
@@ -112,6 +131,7 @@ export function useAddServiceForm({
     setServiceName,
     setStartupPolicy,
     startupPolicy,
-    submitting,
+    submitting: submittingIntent !== null,
+    submittingIntent,
   }
 }

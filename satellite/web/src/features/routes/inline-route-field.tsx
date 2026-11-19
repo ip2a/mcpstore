@@ -12,9 +12,15 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
+
+export type InlineRouteSaveExtras = {
+  /** Gateway visibility: false hides this tool from the catalog. */
+  enabled?: boolean
+}
 
 type Props = {
   value: string
@@ -27,8 +33,16 @@ type Props = {
   busy?: boolean
   className?: string
   textClassName?: string
+  /**
+   * When set, show a "disable this tool" switch under the original value.
+   * Saved together with the text field on confirm.
+   */
+  enabledValue?: boolean
   /** Return `false` to keep the dialog open (e.g. validation failed). */
-  onSave: (next: string) => Promise<boolean | void> | boolean | void
+  onSave: (
+    next: string,
+    extras?: InlineRouteSaveExtras,
+  ) => Promise<boolean | void> | boolean | void
   children?: ReactNode
 }
 
@@ -46,27 +60,36 @@ export function InlineRouteField({
   busy = false,
   className,
   textClassName,
+  enabledValue,
   onSave,
   children,
 }: Props) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
+  const [draftEnabled, setDraftEnabled] = useState(true)
   const [saving, setSaving] = useState(false)
   const baseline = originalValue ?? value
+  const showEnabledSwitch = enabledValue !== undefined
 
   useEffect(() => {
-    if (open) setDraft(value)
-  }, [open, value])
+    if (!open) return
+    setDraft(value)
+    if (enabledValue !== undefined) setDraftEnabled(enabledValue)
+  }, [open, value, enabledValue])
 
   async function submit() {
-    if (draft === value) {
+    const enabledChanged = showEnabledSwitch && draftEnabled !== enabledValue
+    if (draft === value && !enabledChanged) {
       setOpen(false)
       return
     }
     setSaving(true)
     try {
-      const ok = await onSave(draft)
+      const ok = await onSave(
+        draft,
+        showEnabledSwitch ? { enabled: draftEnabled } : undefined,
+      )
       if (ok === false) return
       setOpen(false)
     } finally {
@@ -80,9 +103,7 @@ export function InlineRouteField({
 
   return (
     <>
-      <span
-        className={cn("group/inline-override inline-flex max-w-full items-start gap-1.5", className)}
-      >
+      <span className={cn("group/inline-route max-w-full", className)}>
         <span
           className={cn(
             "min-w-0 break-words",
@@ -91,21 +112,21 @@ export function InlineRouteField({
           )}
         >
           {display}
+          {editable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="ms-1 inline-flex align-text-bottom bg-transparent hover:bg-transparent dark:hover:bg-transparent opacity-0 transition-opacity group-hover/inline-route:opacity-100 focus-visible:opacity-100"
+              aria-label={t("edit")}
+              title={t("edit")}
+              disabled={busy || saving}
+              onClick={() => setOpen(true)}
+            >
+              <PencilIcon />
+            </Button>
+          ) : null}
         </span>
-        {editable ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover/inline-override:opacity-100 focus-visible:opacity-100"
-            aria-label={t("edit")}
-            title={t("edit")}
-            disabled={busy || saving}
-            onClick={() => setOpen(true)}
-          >
-            <PencilIcon />
-          </Button>
-        ) : null}
       </span>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -116,28 +137,58 @@ export function InlineRouteField({
 
           {/* Filter dialog is often ~637px wide — @min-[640px] never hits; use 480px. */}
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-4 py-4 @min-[480px]:grid-cols-2 @min-[480px]:gap-5 @min-[480px]:px-5">
-            <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+            <div
+              className={cn(
+                "flex min-w-0 flex-col gap-2",
+                multiline ? "min-h-0 overflow-hidden" : "",
+              )}
+            >
               <Label className="shrink-0 text-muted-foreground">{t("routeOriginalValue")}</Label>
-              <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted/30 px-3 py-2">
+              <div
+                className={cn(
+                  "overflow-auto rounded-md border bg-muted/30 px-3",
+                  multiline
+                    ? "min-h-0 flex-1 py-2"
+                    : "flex h-9 items-center py-1",
+                )}
+              >
                 <p
                   className={cn(
-                    "break-words whitespace-pre-wrap text-sm text-muted-foreground",
+                    "break-words text-sm text-muted-foreground",
+                    multiline ? "whitespace-pre-wrap" : "truncate font-mono",
                     !baseline.trim() && "italic",
-                    !multiline && "font-mono",
                   )}
                 >
                   {originalText}
                 </p>
               </div>
+              {showEnabledSwitch ? (
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <Label htmlFor="inline-route-disable" className="text-sm font-normal">
+                    {t("routeDisableTool")}
+                  </Label>
+                  <Switch
+                    id="inline-route-disable"
+                    checked={!draftEnabled}
+                    disabled={saving || busy}
+                    onCheckedChange={(disabledTool) => setDraftEnabled(!disabledTool)}
+                  />
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-              <Label htmlFor="inline-override-draft" className="shrink-0">
+            <div
+              className={cn(
+                "flex min-w-0 flex-col gap-2",
+                multiline ? "min-h-0 overflow-hidden" : "",
+              )}
+            >
+              <Label htmlFor="inline-route-draft" className="shrink-0">
                 {t("routeNewValue")}
               </Label>
               {multiline ? (
                 <Textarea
-                  id="inline-override-draft"
+                  id="inline-route-draft"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   className="min-h-0 flex-1 resize-none"
@@ -145,7 +196,7 @@ export function InlineRouteField({
                 />
               ) : (
                 <Input
-                  id="inline-override-draft"
+                  id="inline-route-draft"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   className="font-mono"

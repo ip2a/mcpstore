@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 pub(crate) mod agent;
+pub mod agent_shell;
 pub mod agents;
 pub mod auth;
 pub mod client_agent;
@@ -61,6 +62,10 @@ pub use events::{Event, EventBus};
 pub use facade::{Prompt, Resource, ResourceTemplate, ScopeContext, Service, ServiceTarget, Tool};
 
 // Facade re-exports: service instance identity
+pub use agent_shell::{
+    ensure_agent_shell, load_agent_shell_registry, remove_agent_shell, validate_agent_shell_id,
+    AgentShell, AgentShellRegistry,
+};
 pub use identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 // Facade re-exports: registry

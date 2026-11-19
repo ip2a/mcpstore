@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { useAppActions } from "@/app/use-app-actions"
 import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
@@ -6,6 +6,11 @@ import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppBottomBar } from "@/components/layout/app-bottom-bar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
+import {
+  breadcrumbUppercase,
+  type WorkspaceCrumb,
+} from "@/components/shared/workspace-page-header"
+import { useI18n } from "@/lib/i18n-context"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
@@ -34,6 +39,7 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
 
 export function App() {
+  const { t } = useI18n()
   const { services, agents, kvStore, loading, error: dashboardError, refresh } = useDashboard()
   // Remount resource views when the selected daemon changes: queries rebuild
   // host-scoped keys and view-local state (telemetry cursor, dialogs) resets.
@@ -102,6 +108,21 @@ export function App() {
     await refreshServiceRegistryQueries()
   }
 
+  const instanceTrailPrefix = useMemo((): WorkspaceCrumb[] | undefined => {
+    if (view.name !== "instance" || view.origin?.kind !== "scope") return undefined
+    const scopeId = view.origin.scopeId
+    const scopeLabel =
+      scopeId === "store"
+        ? breadcrumbUppercase(t("store"))
+        : scopeId === "all"
+          ? breadcrumbUppercase(t("filterAll"))
+          : breadcrumbUppercase(scopeId)
+    return [
+      { label: t("navAgents"), onClick: () => setView({ name: "scope" }) },
+      { label: scopeLabel, onClick: () => setView({ name: "scope", scopeId }) },
+    ]
+  }, [setView, t, view])
+
   return (
     <TooltipProvider>
       <div className="flex h-dvh flex-col overflow-hidden bg-background">
@@ -122,6 +143,7 @@ export function App() {
                       busy={busy}
                       refreshToken={serviceDetailRevision}
                       onBack={goBack}
+                      trailPrefix={instanceTrailPrefix}
                       onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
                       isToolRunning={(tool) =>
                         isToolRunning(selectedService.instance_id, tool.name)
@@ -151,6 +173,12 @@ export function App() {
                   <ToolsView
                     agents={agents}
                     services={services}
+                    focusInstanceId={view.instanceId}
+                    onFocusConsumed={() => {
+                      if (view.name === "tools" && view.instanceId) {
+                        setView({ name: "tools" }, { replace: true })
+                      }
+                    }}
                     onOpenTool={(instanceId, toolName) =>
                       setView({ name: "tool", instanceId, toolName })
                     }
@@ -177,6 +205,9 @@ export function App() {
                     toolName={view.toolName}
                     services={services}
                     onBack={goBack}
+                    onOpenTools={(instanceId) =>
+                      setView(instanceId ? { name: "tools", instanceId } : { name: "tools" })
+                    }
                     onRunTool={runToolFromDialogState}
                     onToolNameChange={handleToolNameChange}
                     isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
@@ -198,9 +229,20 @@ export function App() {
                 ) : view.name === "scope" ? (
                   <ScopeView
                     services={services}
+                    agents={agents}
                     scopeId={view.scopeId}
                     onScopeIdChange={(scopeId) =>
                       setView(scopeId ? { name: "scope", scopeId } : { name: "scope" })
+                    }
+                    onOpenService={(service) =>
+                      setView({
+                        name: "instance",
+                        addr: service,
+                        origin:
+                          view.scopeId != null
+                            ? { kind: "scope", scopeId: view.scopeId }
+                            : undefined,
+                      })
                     }
                   />
                 ) : view.name === "clients" ? (
@@ -208,7 +250,10 @@ export function App() {
                 ) : view.name === "plugins" ? (
                   <PluginsView initialTab={view.tab} />
                 ) : view.name === "gateway" ? (
-                  <GatewayView onOpenScope={(scopeId) => setView({ name: "scope", scopeId })} />
+                  <GatewayView
+                    onOpenAgents={() => setView({ name: "clients" })}
+                    onOpenScope={(scopeId) => setView({ name: "scope", scopeId })}
+                  />
                 ) : view.name === "traces" ? (
                   <TracesView
                     initialTab={view.tab}

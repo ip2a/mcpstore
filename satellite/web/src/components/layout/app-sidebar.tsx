@@ -47,9 +47,12 @@ function SidebarGroupLabel({ children, className }: { children: string; classNam
 }
 
 function isItemActive(view: AppView, viewName: AppView["name"]): boolean {
+  if (view.name === "instance") {
+    if (view.origin?.kind === "scope") return viewName === "scope"
+    return viewName === "services"
+  }
   return (
     view.name === viewName ||
-    (view.name === "instance" && viewName === "services") ||
     (view.name === "tool" && viewName === "tools") ||
     (view.name === "resource" && viewName === "resources") ||
     (view.name === "prompt" && viewName === "prompts") ||

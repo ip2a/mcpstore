@@ -165,6 +165,62 @@ pub(super) async fn scope_info_agent(
     scope_info_for(&state, ScopeView::Agent { agent_id }).await
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct CreateAgentShellBody {
+    pub agent_id: String,
+}
+
+/// `POST /scopes/agents` — create an empty agent scope shell (no services).
+pub(super) async fn create_agent_shell(
+    State(state): State<Arc<ApiState>>,
+    Json(body): Json<CreateAgentShellBody>,
+) -> ApiResult {
+    let agent_id = body.agent_id.trim().to_string();
+    state
+        .store
+        .create_agent_shell(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scope = state
+        .store
+        .scope_info(&ScopeView::Agent {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::ServiceNotFound,
+                format!("Agent scope '{agent_id}' was created but could not be loaded"),
+                Some("agent_id"),
+                None,
+            )
+        })?;
+    Ok(success("Agent scope shell created", json!(scope)))
+}
+
+/// `DELETE /scopes/agents/:agent_id` — remove empty-shell registration only.
+/// Declared service instances are kept; the agent stays listed while it has
+/// instances or a client-agent binding.
+pub(super) async fn remove_agent_shell(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    let removed = state
+        .store
+        .remove_agent_shell(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        if removed {
+            "Agent scope shell removed"
+        } else {
+            "Agent scope shell was not present"
+        },
+        json!({ "agent_id": agent_id, "removed": removed }),
+    ))
+}
+
 async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
     let scope = state
         .store

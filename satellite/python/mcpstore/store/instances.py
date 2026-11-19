@@ -25,6 +25,12 @@ def scope_info(
 def find_agent(backend, agent_id: str) -> Optional[Dict[str, Any]]:
     return _record_value(backend._inner.find_agent(agent_id))
 
+def create_agent_shell(backend, agent_id: str) -> None:
+    backend._inner.create_agent_shell(agent_id)
+
+def remove_agent_shell(backend, agent_id: str) -> bool:
+    return bool(backend._inner.remove_agent_shell(agent_id))
+
 def list_services_viewed(
     backend,
     view: ScopeView | Dict[str, Any],

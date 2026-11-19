@@ -54,6 +54,8 @@ class RustStoreBackend:
     list_scopes = instances.list_scopes
     scope_info = instances.scope_info
     find_agent = instances.find_agent
+    create_agent_shell = instances.create_agent_shell
+    remove_agent_shell = instances.remove_agent_shell
     list_services_viewed = instances.list_services_viewed
     list_instances_scoped = instances.list_instances_scoped
     find_instance = instances.find_instance

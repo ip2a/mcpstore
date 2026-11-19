@@ -1,8 +1,7 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
-import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,10 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  FramesFilterDialog,
-  type FrameSessionSortBy,
-} from "@/features/traces/frames-filter-dialog"
+import type { FrameSessionSortBy } from "@/features/traces/frames-filter-dialog"
 import {
   TRACE_COL1_CELL_CLASSNAME,
   TRACE_COL1_CLASSNAME,
@@ -159,15 +155,20 @@ function faceTag(face: FrameFace): string {
 /** Unified inbound + outbound frame-session table; direction shows in the tags column. */
 export function FrameSessionsPanel({
   onOpenSession,
+  onScopesChange,
+  query,
+  scopeFilter,
+  sortBy,
 }: {
   onOpenSession?: (session: FrameSessionSummary) => void
+  onScopesChange?: (scopes: string[]) => void
+  query: string
+  scopeFilter: string
+  sortBy: FrameSessionSortBy | null
 }) {
   const { t } = useI18n()
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
-  const [query, setQuery] = useState("")
-  const [scopeFilter, setScopeFilter] = useState("all")
-  const [sortBy, setSortBy] = useState<FrameSessionSortBy | null>(null)
 
   const offset = page * pageSize
   const sessions = useQuery({
@@ -188,22 +189,19 @@ export function FrameSessionsPanel({
   )
   const total = sessions.data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const activeFilterCount = scopeFilter !== "all" ? 1 : 0
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + items.length, total)
 
+  useEffect(() => {
+    onScopesChange?.(scopes)
+  }, [onScopesChange, scopes])
+
+  useEffect(() => {
+    setPage(0)
+  }, [query, scopeFilter, sortBy])
+
   function changePageSize(value: string) {
     setPageSize(Number(value) as (typeof PAGE_SIZES)[number])
-    setPage(0)
-  }
-
-  function changeQuery(value: string) {
-    setQuery(value)
-    setPage(0)
-  }
-
-  function changeScopeFilter(value: string) {
-    setScopeFilter(value)
     setPage(0)
   }
 
@@ -251,22 +249,6 @@ export function FrameSessionsPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
-        <UiverseSearchInput
-          id="frame-session-list-search"
-          placeholder={t("searchSessions")}
-          value={query}
-          onChange={changeQuery}
-        />
-        <FramesFilterDialog
-          activeFilterCount={activeFilterCount}
-          onScopeFilterChange={changeScopeFilter}
-          onSort={setSortBy}
-          scopeFilter={scopeFilter}
-          scopes={scopes}
-          sortBy={sortBy}
-        />
-      </div>
       {total === 0 && !sessions.isLoading ? (
         <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayFramesEmpty")}</p>
       ) : (

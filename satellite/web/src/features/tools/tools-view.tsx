@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ToolListCard } from "@/components/shared/tool-list-card"
@@ -28,6 +28,9 @@ import { toolKey } from "@/lib/tool-info"
 export function ToolsView(props: {
   agents: AgentItem[]
   services: ServiceInstance[]
+  /** Select this service tab when arriving from tool-detail breadcrumb / deep link. */
+  focusInstanceId?: string
+  onFocusConsumed?: () => void
   onOpenTool: (instanceId: string, toolName: string) => void
 }) {
   const { t } = useI18n()
@@ -55,6 +58,38 @@ export function ToolsView(props: {
     visibilityFilter,
     visibleTools,
   } = useToolsRegistry({ agents: props.agents, services: props.services })
+
+  // Breadcrumb / deep-link: switch scope filter then land on the service tab once.
+  const focusInstanceId = props.focusInstanceId
+  const onFocusConsumed = props.onFocusConsumed
+  useEffect(() => {
+    if (!focusInstanceId) return
+    const focused = props.services.find((service) => service.instance_id === focusInstanceId)
+    if (focused?.scope.type === "agent") {
+      if (scope !== "agent" || agentId !== focused.scope.agent_id) {
+        setScope("agent")
+        setAgentId(focused.scope.agent_id)
+        return
+      }
+    } else if (focused && scope !== "store") {
+      setScope("store")
+      return
+    }
+    if (!scopeInstances.some((instance) => instance.instance_id === focusInstanceId)) return
+    if (instanceId !== focusInstanceId) setInstanceId(focusInstanceId)
+    onFocusConsumed?.()
+  }, [
+    agentId,
+    focusInstanceId,
+    instanceId,
+    onFocusConsumed,
+    props.services,
+    scope,
+    scopeInstances,
+    setAgentId,
+    setInstanceId,
+    setScope,
+  ])
 
   const sortedTools = useMemo(() => {
     const items = [...visibleTools]

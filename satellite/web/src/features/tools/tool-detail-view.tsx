@@ -34,6 +34,8 @@ export function ToolDetailView(props: {
   toolName: string
   services: ServiceInstance[]
   onBack: () => void
+  /** Jump to Tools list; pass instanceId to select that service tab. */
+  onOpenTools?: (instanceId?: string) => void
   onRunTool: (state: NonNullable<ToolDialogState>) => void
   /** Keep URL / breadcrumb on the projected name after display_name route. */
   onToolNameChange?: (toolName: string) => void
@@ -98,12 +100,17 @@ export function ToolDetailView(props: {
         .join(" · ")
     : undefined
 
+  function openTools(instanceId?: string) {
+    if (props.onOpenTools) props.onOpenTools(instanceId)
+    else props.onBack()
+  }
+
   if (!instance) {
     return (
       <>
         <WorkspaceBreadcrumb
           ariaLabel={t("tool")}
-          crumbs={[{ label: t("navTools"), onClick: props.onBack }, { label: toolLabel }]}
+          crumbs={[{ label: t("navTools"), onClick: () => openTools() }, { label: toolLabel }]}
         />
         <PanelCard className="h-full min-h-0 flex-1">
           <PageEmpty
@@ -121,11 +128,11 @@ export function ToolDetailView(props: {
       <WorkspaceBreadcrumb
         ariaLabel={t("tool")}
         crumbs={[
-          { label: t("navTools"), onClick: props.onBack },
-          { label: scopeCrumbLabel!, onClick: props.onBack },
+          { label: t("navTools"), onClick: () => openTools() },
+          { label: scopeCrumbLabel!, onClick: () => openTools() },
           {
             label: breadcrumbUppercase(instance.service_name),
-            onClick: props.onBack,
+            onClick: () => openTools(instance.instance_id),
           },
           { label: toolLabel },
         ]}

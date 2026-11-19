@@ -70,8 +70,10 @@ const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
 }
 
 export function GatewayView({
+  onOpenAgents,
   onOpenScope,
 }: {
+  onOpenAgents?: () => void
   onOpenScope?: (scopeId: string) => void
 } = {}) {
   const { t } = useI18n()
@@ -167,9 +169,9 @@ export function GatewayView({
       <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
         <div className={WORKSPACE_TABS_CLASSNAME}>
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-            <span className="text-sm font-medium uppercase text-foreground/60">
-              {t("gatewayRequestsTitle")}
-            </span>
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+              {t("gatewayFlowOverviewBlurb")}
+            </p>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               {status.data?.running ? (
                 <Badge variant="default">{t("homeRunning")}</Badge>
@@ -217,6 +219,7 @@ export function GatewayView({
           >
             <CallFlowDiagram
               labelById={labelById}
+              onOpenAgents={onOpenAgents}
               onOpenScope={onOpenScope}
               recent={[...records].slice(-5).reverse()}
               status={status.data ?? null}
@@ -225,43 +228,8 @@ export function GatewayView({
 
             <div className="shrink-0 border-t border-border/50" />
 
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 py-2">
-              <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                {t("gatewayFlowOverviewBlurb")}
-              </p>
-              <div className="flex shrink-0 items-end gap-6 sm:gap-8">
-                {(
-                  [
-                    {
-                      value: records.length,
-                      label: t("gatewayFlowStatRequests"),
-                    },
-                    {
-                      value: new Set(
-                        records.map((r) => r.service_name).filter(Boolean),
-                      ).size,
-                      label: t("gatewayFlowStatServices"),
-                    },
-                    {
-                      value: records.filter((r) => r.success).length,
-                      label: t("gatewayFlowStatSuccess"),
-                    },
-                  ] as const
-                ).map((stat) => (
-                  <div key={stat.label} className="flex flex-col items-center gap-0.5">
-                    <span className="text-2xl font-semibold tabular-nums leading-none">
-                      {stat.value}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{stat.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="shrink-0 border-t border-border/50" />
-
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden py-1">
-              <h3 className="shrink-0 text-sm font-semibold">{t("gatewayFlowLatestTitle")}</h3>
+              <h3 className="shrink-0 text-base font-semibold">{t("gatewayFlowLatestTitle")}</h3>
               <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 <LatestCallNarrative
                   callerLabel={latest?.caller ? labelById.get(latest.caller) : undefined}
@@ -770,7 +738,6 @@ function LatestCallNarrative({
           <span
             className={cn(
               "min-w-0 break-words leading-snug",
-              step.kind === "detail" && "font-mono text-xs text-muted-foreground",
               step.kind === "error" && "text-destructive",
             )}
           >
@@ -782,14 +749,12 @@ function LatestCallNarrative({
       {record.error ? (
         <li className="flex items-start gap-2.5">
           <NarrativeMarker kind="error" />
-          <span className="min-w-0 break-words font-mono text-xs leading-snug text-destructive">
-            {record.error}
-          </span>
+          <span className="min-w-0 break-words leading-snug text-destructive">{record.error}</span>
         </li>
       ) : null}
       <li className="flex items-start gap-2.5">
         <NarrativeMarker kind="detail" />
-        <span className="min-w-0 break-all font-mono text-xs leading-snug text-muted-foreground">
+        <span className="min-w-0 break-all leading-snug">
           {t("gatewayFlowNarrativeCallId", { id: record.call_id })}
         </span>
       </li>
@@ -804,12 +769,14 @@ function scopeIdFromWired(entry: WiredEntry): string {
 /** Agent → mcpstore → MCP three-column call topology. */
 function CallFlowDiagram({
   labelById,
+  onOpenAgents,
   onOpenScope,
   recent,
   status,
   wired,
 }: {
   labelById: Map<string, string>
+  onOpenAgents?: () => void
   onOpenScope?: (scopeId: string) => void
   recent: GatewayRequestRecord[]
   status: GatewayStatus | null
@@ -825,11 +792,25 @@ function CallFlowDiagram({
   const fresh = latest ? isGatewayRequestActive(latest) : false
 
   return (
-    <div className="flex w-full min-w-0 items-stretch gap-0">
+    <div className="flex min-h-52 w-full min-w-0 shrink-0 items-stretch gap-0">
       <div className="flex min-w-0 flex-[0.65] basis-0 flex-col justify-center gap-2">
         {wired.length === 0 ? (
-          <FlowNodeCard className="border-dashed">
-            <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyAgent")}</p>
+          <FlowNodeCard
+            className={cn(
+              "items-center border-dashed",
+              onOpenAgents && "cursor-pointer transition-colors hover:bg-muted/40",
+            )}
+            onClick={onOpenAgents}
+          >
+            <span
+              aria-hidden
+              className="flex size-7 items-center justify-center rounded-md bg-muted/40 text-[10px] font-medium uppercase text-muted-foreground"
+            >
+              …
+            </span>
+            <span className="truncate text-sm font-semibold leading-tight text-muted-foreground">
+              {t("gatewayFlowEmptyAgent")}
+            </span>
           </FlowNodeCard>
         ) : (
           wired.map((entry) => (

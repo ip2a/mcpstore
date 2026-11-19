@@ -192,6 +192,10 @@ impl MCPStore {
                     .push(instance.instance_id);
             }
         }
+        // Empty shells (agent-shells.json + client-agent bindings) with no instances yet.
+        for agent_id in self.listed_shell_agent_ids()? {
+            by_agent.entry(agent_id).or_insert_with(Vec::new);
+        }
         Ok(by_agent
             .into_iter()
             .map(|(agent_id, instance_ids)| {

@@ -123,6 +123,7 @@ export function ToolDetailDocHeader({
           label={t("routeDisplayName")}
           disabled={!route.enabled}
           busy={route.busy}
+          enabledValue={route.enabled ? route.toolRouteEnabled : undefined}
           className="w-full"
           textClassName="font-mono text-xl font-semibold tracking-tight"
           onSave={route.saveDisplayName}
