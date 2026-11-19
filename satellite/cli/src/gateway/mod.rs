@@ -615,6 +615,43 @@ mod tool_binding_tests {
             assert!(picked.tool_name == "b" || picked.tool_name == "c");
         }
     }
+
+    #[test]
+    fn merged_tools_suppresses_the_colliding_helper_with_an_issue() {
+        // A business tool owns "search_tools": that helper drops out of the
+        // surface with a recorded issue; the business tool keeps its name.
+        let search_helper = Tool::new_with_raw(
+            SEARCH_TOOLS_HELPER,
+            Some("find tools".into()),
+            Arc::new(Map::new()),
+        );
+        let prompt_helper = Tool::new_with_raw(
+            SEARCH_PROMPT_HELPER,
+            Some("find prompts".into()),
+            Arc::new(Map::new()),
+        );
+        let binding = ToolBinding {
+            tool: Tool::new_with_raw(
+                SEARCH_TOOLS_HELPER,
+                Some("real upstream search".into()),
+                Arc::new(Map::new()),
+            ),
+            candidates: vec![candidate("search_tools", 0)],
+        };
+        let mut bindings = HashMap::new();
+        bindings.insert(SEARCH_TOOLS_HELPER.to_string(), binding);
+        let management = GatewayManagementTools::default();
+        let (tools, kept, issues) =
+            merged_tools(&bindings, &management, &[search_helper, prompt_helper])
+                .expect("no management families involved");
+        assert_eq!(issues.len(), 1);
+        assert!(matches!(
+            &issues[0],
+            ProjectionIssue::SearchHelperSuppressed { helper } if helper == SEARCH_TOOLS_HELPER
+        ));
+        assert_eq!(kept.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>(), [SEARCH_PROMPT_HELPER]);
+        assert!(tools.iter().any(|tool| tool.name.as_ref() == SEARCH_TOOLS_HELPER));
+    }
 }
 
 struct GatewayToolsChangedNotification {
@@ -1258,20 +1295,35 @@ impl GatewayCatalog {
             std::collections::BTreeSet::new()
         };
         let names = active_helper_names(self.search_enabled, &tool_keys, &rows);
+        let helpers: Vec<Tool> = names
+            .iter()
+            .map(|name| self.search_helper_defs[*name].clone())
+            .collect();
+        let (tools, helpers, issues) = merged_tools(&snapshot.bindings, &self.management, &helpers)
+            .expect("management families validated at the last build; bindings are unchanged");
+        // The suppression set rides the projection report: a helper that a
+        // business tool renamed out of the surface stays visible as a defect,
+        // even when the kept helper set itself is unchanged.
+        if !issues.is_empty() {
+            if let Ok(mut report) = self.projection.lock() {
+                report.retain(|issue| {
+                    !matches!(issue, ProjectionIssue::SearchHelperSuppressed { .. })
+                });
+                report.extend(issues);
+            }
+        }
+        let kept: Vec<&str> = helpers
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect();
         let current: Vec<&str> = snapshot
             .search_helpers
             .iter()
             .map(|tool| tool.name.as_ref())
             .collect();
-        if current == names {
+        if current == kept {
             return false;
         }
-        let helpers: Vec<Tool> = names
-            .iter()
-            .map(|name| self.search_helper_defs[*name].clone())
-            .collect();
-        let (tools, helpers, _issues) = merged_tools(&snapshot.bindings, &self.management, &helpers)
-            .expect("management families validated at the last build; bindings are unchanged");
         *self.snapshot.write().unwrap() = Arc::new(CatalogSnapshot {
             bindings: snapshot.bindings.clone(),
             tools,

@@ -96,20 +96,16 @@ pub(super) fn active_helper_names(
         return Vec::new();
     }
     let mut names = Vec::new();
-    if tool_keys.len() >= SEARCH_ACTIVATION_THRESHOLD && !tool_keys.contains(SEARCH_TOOLS_HELPER) {
+    if tool_keys.len() >= SEARCH_ACTIVATION_THRESHOLD {
         names.push(SEARCH_TOOLS_HELPER);
     }
     if let Some(prompts) = &rows.prompts {
-        if prompts.len() >= SEARCH_ACTIVATION_THRESHOLD
-            && !tool_keys.contains(SEARCH_PROMPT_HELPER)
-        {
+        if prompts.len() >= SEARCH_ACTIVATION_THRESHOLD {
             names.push(SEARCH_PROMPT_HELPER);
         }
     }
     if let Some((entries, _, _)) = resource_view(rows) {
-        if entries.len() >= SEARCH_ACTIVATION_THRESHOLD
-            && !tool_keys.contains(SEARCH_RESOURCE_HELPER)
-        {
+        if entries.len() >= SEARCH_ACTIVATION_THRESHOLD {
             names.push(SEARCH_RESOURCE_HELPER);
         }
     }
@@ -673,14 +669,19 @@ mod tests {
     }
 
     #[test]
-    fn business_collision_suppresses_only_that_helper() {
-        // 10 business keys, one of them named "search_prompt": that helper is
-        // suppressed while the other two keep working.
+    fn business_collision_stays_threshold_active_until_the_merge() {
+        // 10 business keys, one of them named "search_prompt": activation is
+        // purely threshold-based; the merge suppresses the colliding helper
+        // with a SearchHelperSuppressed issue (covered in mod.rs tests).
         let tool_keys = keys(&["search_prompt", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"]);
         let full = rows(entries(10, EntryKind::Prompt, "p"), entries(6, EntryKind::Resource, "r"), entries(4, EntryKind::ResourceTemplate, "t"));
         assert_eq!(
             active_helper_names(true, &tool_keys, &full),
-            [SEARCH_TOOLS_HELPER, SEARCH_RESOURCE_HELPER],
+            [
+                SEARCH_TOOLS_HELPER,
+                SEARCH_PROMPT_HELPER,
+                SEARCH_RESOURCE_HELPER
+            ],
         );
     }
 

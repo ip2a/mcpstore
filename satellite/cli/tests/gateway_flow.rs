@@ -89,13 +89,19 @@ fn assert_success(output: &Output, step: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+// Wall-clock cap only guards against hangs (daemon never binds, fixture
+// never answers). Full flows spawn daemon + Python fixture + gateway and
+// run alongside ~9 sibling tests; under that load 20s tripped legitimate
+// runs (~15% flake), so the cap sits well above worst-case healthy time.
+const TEST_TIMEOUT_SECS: u64 = 120;
+
 async fn run_test_with_timeout<F>(name: &str, future: F) -> TestResult
 where
     F: Future<Output = TestResult>,
 {
-    tokio::time::timeout(Duration::from_secs(20), future)
+    tokio::time::timeout(Duration::from_secs(TEST_TIMEOUT_SECS), future)
         .await
-        .map_err(|_| format!("{name} timed out after 20s"))?
+        .map_err(|_| format!("{name} timed out after {TEST_TIMEOUT_SECS}s"))?
 }
 
 #[tokio::test]
@@ -180,35 +186,32 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
         .iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    let first_tool = format!("{first_namespace}__greet");
-    let second_tool = format!("{second_namespace}__greet");
-    assert_eq!(tool_names, vec![first_tool.clone(), second_tool.clone()]);
-    for (tool_name, expected) in [
-        (first_tool, "FIRST: Hello, Conflict!"),
-        (second_tool, "SECOND: Hello, Conflict!"),
-    ] {
-        let result = client
-            .call_tool(
-                CallToolRequestParams::new(tool_name).with_arguments(
-                    serde_json::json!({"name": "Conflict"})
-                        .as_object()
-                        .cloned()
-                        .unwrap(),
-                ),
-            )
-            .await?;
-        assert_eq!(
-            result
-                .content
-                .first()
-                .and_then(ContentBlock::as_text)
-                .map(|text| text.text.as_str()),
-            Some(expected)
-        );
-    }
+    // Same exposed name from both services merges into one list entry; calls
+    // pick a max-weight candidate, and equal weights tie randomly.
+    assert_eq!(tool_names, vec!["greet".to_string()]);
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new("greet").with_arguments(
+                serde_json::json!({"name": "Conflict"})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
+        )
+        .await?;
+    let greeting = result
+        .content
+        .first()
+        .and_then(ContentBlock::as_text)
+        .map(|text| text.text.to_string());
+    assert!(
+        greeting.as_deref() == Some("FIRST: Hello, Conflict!")
+            || greeting.as_deref() == Some("SECOND: Hello, Conflict!"),
+        "merged greet must route to one of the two upstream candidates, got {greeting:?}"
+    );
 
     let resources = client.list_all_resources().await?;
-    assert_eq!(resources.len(), 4);
+    assert_eq!(resources.len(), 2);
     for (namespace, expected) in [
         (
             &first_namespace,
@@ -232,17 +235,16 @@ async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestRes
         }
     }
 
-    let projected_templates = resources
-        .iter()
-        .filter(|resource| resource.uri.contains("%7Bname%7D"))
-        .collect::<Vec<_>>();
+    let projected_templates = client.list_all_resource_templates().await?;
     assert_eq!(projected_templates.len(), 2);
     assert!(projected_templates
         .iter()
-        .any(|resource| resource.uri.contains(&first_namespace)));
+        .any(|resource| resource.uri_template.contains(&first_namespace)
+            && resource.uri_template.contains("%7Bname%7D")));
     assert!(projected_templates
         .iter()
-        .any(|resource| resource.uri.contains(&second_namespace)));
+        .any(|resource| resource.uri_template.contains(&second_namespace)
+            && resource.uri_template.contains("%7Bname%7D")));
 
     let prompts = client.list_all_prompts().await?;
     let public_catalog = serde_json::to_string(&(&tools, &resources, &prompts))?;
@@ -624,40 +626,138 @@ async fn gateway_command_exposes_session_scope_over_stdio_inner(redis_url: Strin
     Ok(())
 }
 
-#[tokio::test]
-async fn gateway_exposes_search_meta_tool_when_flag_is_set() -> TestResult {
-    run_test_with_timeout(
-        "gateway_exposes_search_meta_tool_when_flag_is_set",
-        gateway_exposes_search_meta_tool_when_flag_is_set_inner(),
-    )
-    .await
-}
-
-async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult {
-    let temp_dir = unique_temp_dir();
-    let config_path = temp_dir.join("mcp.json");
+/// Shared `mcpstore add` arguments for the fixture server plus the
+/// catalog-scale knobs the search tests need.
+fn fixture_add_args(
+    config_path: &Path,
+    service_name: &str,
+    extra_env: &[(&str, String)],
+) -> Vec<String> {
     let pythonpath = format!(
         "{}:{}",
         repo_root().join("satellite/python").display(),
         repo_root().join("satellite/cli/tests/fixtures").display()
     );
-    let fixture = fixture_script();
-
-    let add_args = vec![
+    let mut args = vec![
         "add".to_string(),
-        "demo".to_string(),
+        service_name.to_string(),
         "--config-path".to_string(),
         config_path.display().to_string(),
         "--transport".to_string(),
         "stdio".to_string(),
         "--env".to_string(),
         format!("PYTHONPATH={pythonpath}"),
-        "--".to_string(),
-        "python3".to_string(),
-        fixture.display().to_string(),
     ];
-    let add_stdout = assert_success(&run_cli(&add_args), "add");
-    assert!(add_stdout.contains("[Success] Service added: demo"));
+    for (key, value) in extra_env {
+        args.push("--env".to_string());
+        args.push(format!("{key}={value}"));
+    }
+    args.push("--".to_string());
+    args.push("python3".to_string());
+    args.push(fixture_script().display().to_string());
+    args
+}
+
+fn call_args(arguments: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    arguments.as_object().cloned().unwrap()
+}
+
+#[tokio::test]
+async fn gateway_search_flag_off_exposes_no_helper_names() -> TestResult {
+    run_test_with_timeout(
+        "gateway_search_flag_off_exposes_no_helper_names",
+        gateway_search_flag_off_exposes_no_helper_names_inner(),
+    )
+    .await
+}
+
+async fn gateway_search_flag_off_exposes_no_helper_names_inner() -> TestResult {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    assert_success(
+        &run_cli(&fixture_add_args(&config_path, "demo", &[])),
+        "add demo",
+    );
+
+    let store_args = vec![
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
+    let gateway_child = spawn_gateway(&daemon, &[]).await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "search-off gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+
+    let names: Vec<String> = client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert_eq!(names, vec!["greet".to_string()]);
+
+    // With the flag off the helper names are not declared and not
+    // dispatchable — a hand-written call falls through to unknown-tool.
+    for helper in ["search_tools", "search_prompt", "search_resource"] {
+        let error = client
+            .call_tool(
+                CallToolRequestParams::new(helper)
+                    .with_arguments(call_args(serde_json::json!({"query": "greet"}))),
+            )
+            .await;
+        assert!(error.is_err(), "inactive {helper} must be an unknown tool");
+    }
+
+    client.cancel().await?;
+    let _ = gateway_child.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_search_helpers_activate_per_kind() -> TestResult {
+    run_test_with_timeout(
+        "gateway_search_helpers_activate_per_kind",
+        gateway_search_helpers_activate_per_kind_inner(),
+    )
+    .await
+}
+
+/// Acceptance vector (tools, prompts, resources, templates) = (9, 10, 6, 4):
+/// only search_prompt and search_resource may appear, and a hot search never
+/// touches the upstream.
+async fn gateway_search_helpers_activate_per_kind_inner() -> TestResult {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    let call_log_path = temp_dir.join("fixture-calls.log");
+    assert_success(
+        &run_cli(
+            &fixture_add_args(
+                &config_path,
+                "demo",
+                &[
+                    ("MCPSTORE_FIXTURE_EXTRA_TOOLS", "8".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_PROMPTS", "9".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_RESOURCES", "5".to_string()),
+                    ("MCPSTORE_FIXTURE_TEMPLATES", "4".to_string()),
+                    (
+                        "MCPSTORE_FIXTURE_CALL_LOG",
+                        call_log_path.display().to_string(),
+                    ),
+                ],
+            ),
+        ),
+        "add demo",
+    );
 
     let store_args = vec![
         "--config-path".to_string(),
@@ -678,59 +778,538 @@ async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult
         }
     };
 
-    // The search meta-tool surfaces alongside the downstream tool only when the
-    // flag is on (other tests assert it is absent by default).
-    let tools = client.list_all_tools().await?;
-    let tool_names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
-    assert!(tool_names.contains(&"demo__greet".to_string()));
-    assert!(tool_names.contains(&"mcpstore_search_tools".to_string()));
-
-    // Searching for "greet" returns the downstream tool; searching for nonsense
-    // returns nothing.
-    let hit = client
-        .call_tool(
-            CallToolRequestParams::new("mcpstore_search_tools").with_arguments(
-                serde_json::json!({"query": "greet", "top_k": 5})
-                    .as_object()
-                    .cloned()
-                    .unwrap(),
-            ),
-        )
-        .await?;
-    let hit_text = hit
-        .content
-        .first()
-        .and_then(ContentBlock::as_text)
-        .map(|t| t.text.as_str().to_string())
-        .expect("search result must be text");
-    assert!(
-        hit_text.contains("demo__greet"),
-        "search for 'greet' must surface demo__greet: {hit_text}"
+    // Cold mount: only the tools snapshot is known, no helper may appear.
+    let names: Vec<String> = client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    let mut business = names.clone();
+    business.sort();
+    assert_eq!(
+        business,
+        (0..8)
+            .map(|index| format!("extra_tool_{index}"))
+            .chain(["greet".to_string()])
+            .collect::<Vec<_>>()
     );
 
-    let miss = client
+    // Complete native pages publish the discovery rows: 10 prompts activate
+    // search_prompt; 6 resources + 4 templates activate search_resource. Nine
+    // tools stay below the threshold, so search_tools never appears.
+    assert_eq!(client.list_all_prompts().await?.len(), 10);
+    assert_eq!(client.list_all_resources().await?.len(), 6);
+    assert_eq!(client.list_all_resource_templates().await?.len(), 4);
+    let names: Vec<String> = client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    let mut expected = business.clone();
+    expected.push("search_prompt".to_string());
+    expected.push("search_resource".to_string());
+    expected.sort();
+    assert_eq!(names, expected);
+
+    // search_prompt: prompt hit carries the public name and no unknownKinds.
+    let hit = client
         .call_tool(
-            CallToolRequestParams::new("mcpstore_search_tools").with_arguments(
-                serde_json::json!({"query": "zzzznotoolsmatchthis"})
-                    .as_object()
-                    .cloned()
-                    .unwrap(),
-            ),
+            CallToolRequestParams::new("search_prompt").with_arguments(call_args(
+                serde_json::json!({"query": "extra prompt three"}),
+            )),
         )
         .await?;
-    let miss_text = miss
-        .content
-        .first()
-        .and_then(ContentBlock::as_text)
-        .map(|t| t.text.as_str().to_string())
-        .expect("search result must be text");
+    let structured = hit.structured_content.expect("structured payload");
+    assert_eq!(structured["items"][0]["kind"], "prompt");
+    assert_eq!(structured["items"][0]["name"], "extra_prompt_3");
+    assert_eq!(structured["unknownKinds"], serde_json::json!([]));
+
+    // limit is honored, misses stay empty.
+    let limited = client
+        .call_tool(
+            CallToolRequestParams::new("search_prompt").with_arguments(call_args(
+                serde_json::json!({"query": "extra", "limit": 2}),
+            )),
+        )
+        .await?;
     assert!(
-        !miss_text.contains("demo__greet"),
-        "search for unrelated term must not surface demo__greet: {miss_text}"
+        limited.structured_content.expect("structured payload")["items"]
+            .as_array()
+            .expect("items array")
+            .len()
+            <= 2
+    );
+    let miss = client
+        .call_tool(
+            CallToolRequestParams::new("search_prompt").with_arguments(call_args(
+                serde_json::json!({"query": "zzzznothingmatchesthis"}),
+            )),
+        )
+        .await?;
+    assert!(miss.structured_content.expect("structured payload")["items"]
+        .as_array()
+        .expect("items array")
+        .is_empty());
+
+    // search_resource: a concrete resource hit is readable through its
+    // returned public uri; a template hit reports uriTemplate only.
+    let resource_hit = client
+        .call_tool(
+            CallToolRequestParams::new("search_resource").with_arguments(call_args(
+                serde_json::json!({"query": "readme"}),
+            )),
+        )
+        .await?;
+    let structured = resource_hit.structured_content.expect("structured payload");
+    assert_eq!(structured["items"][0]["kind"], "resource");
+    let uri = structured["items"][0]["uri"]
+        .as_str()
+        .expect("resource uri")
+        .to_string();
+    let read = client
+        .read_resource(ReadResourceRequestParams::new(uri))
+        .await?;
+    match &read.contents[0] {
+        ResourceContents::TextResourceContents { text, .. } => {
+            assert_eq!(text, "This is the MCPStore fixture resource.");
+        }
+        other => panic!("unexpected resource content: {other:?}"),
+    }
+    let template_hit = client
+        .call_tool(
+            CallToolRequestParams::new("search_resource").with_arguments(call_args(
+                serde_json::json!({"query": "template 2"}),
+            )),
+        )
+        .await?;
+    let structured = template_hit.structured_content.expect("structured payload");
+    assert_eq!(structured["items"][0]["kind"], "resource_template");
+    assert!(structured["items"][0].get("uriTemplate").is_some());
+
+    // Below-threshold search_tools is not dispatchable.
+    let error = client
+        .call_tool(
+            CallToolRequestParams::new("search_tools").with_arguments(call_args(
+                serde_json::json!({"query": "greet"}),
+            )),
+        )
+        .await;
+    assert!(error.is_err(), "9 tools must not activate search_tools");
+
+    // Strict input contract: retired top_k and a foreign session key are
+    // both invalid_params, never silently tolerated.
+    for bad in [
+        serde_json::json!({"query": "x", "top_k": 3}),
+        serde_json::json!({"query": "", "limit": 0}),
+        serde_json::json!({"query": "x", "_mcpstore_session_key": "store:elsewhere"}),
+    ] {
+        let error = client
+            .call_tool(
+                CallToolRequestParams::new("search_prompt").with_arguments(call_args(bad)),
+            )
+            .await;
+        assert!(error.is_err(), "invalid arguments must be rejected: {error:?}");
+    }
+
+    // Zero extra upstream access from hot searches: the fixture logs every
+    // tool/prompt/resource invocation, and none of the searches may add lines.
+    // 50 iterations × 2 kinds = the 100 hot searches the acceptance calls for.
+    let log_before = std::fs::read_to_string(&call_log_path).unwrap_or_default();
+    for _ in 0..50 {
+        client
+            .call_tool(
+                CallToolRequestParams::new("search_prompt").with_arguments(call_args(
+                    serde_json::json!({"query": "explain"}),
+                )),
+            )
+            .await?;
+        client
+            .call_tool(
+                CallToolRequestParams::new("search_resource").with_arguments(call_args(
+                    serde_json::json!({"query": "extra resource"}),
+                )),
+            )
+            .await?;
+    }
+    let log_after = std::fs::read_to_string(&call_log_path).unwrap_or_default();
+    assert_eq!(
+        log_before, log_after,
+        "search helpers must not invoke any upstream tool/prompt/resource"
     );
 
     client.cancel().await?;
     let _ = gateway_child.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_search_tools_helper_needs_ten_tools() -> TestResult {
+    run_test_with_timeout(
+        "gateway_search_tools_helper_needs_ten_tools",
+        gateway_search_tools_helper_needs_ten_tools_inner(),
+    )
+    .await
+}
+
+/// Same fixture at (10, 10, 6, 4): all three helpers appear, and a hit tool
+/// name round-trips through tools/call.
+async fn gateway_search_tools_helper_needs_ten_tools_inner() -> TestResult {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    assert_success(
+        &run_cli(
+            &fixture_add_args(
+                &config_path,
+                "demo",
+                &[
+                    ("MCPSTORE_FIXTURE_EXTRA_TOOLS", "9".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_PROMPTS", "9".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_RESOURCES", "5".to_string()),
+                    ("MCPSTORE_FIXTURE_TEMPLATES", "4".to_string()),
+                ],
+            ),
+        ),
+        "add demo",
+    );
+
+    let store_args = vec![
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
+    let gateway_child = spawn_gateway(&daemon, &["--expose-search-tools".to_string()]).await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "search gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+
+    assert_eq!(client.list_all_prompts().await?.len(), 10);
+    assert_eq!(client.list_all_resources().await?.len(), 6);
+    assert_eq!(client.list_all_resource_templates().await?.len(), 4);
+
+    let hit = client
+        .call_tool(
+            CallToolRequestParams::new("search_tools").with_arguments(call_args(
+                serde_json::json!({"query": "extra tool four"}),
+            )),
+        )
+        .await?;
+    let structured = hit.structured_content.expect("structured payload");
+    assert_eq!(structured["items"][0]["kind"], "tool");
+    let name = structured["items"][0]["name"]
+        .as_str()
+        .expect("tool name")
+        .to_string();
+    assert_eq!(name, "extra_tool_4");
+
+    // The hit name is a normal public tool name.
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new(name.clone())
+                .with_arguments(call_args(serde_json::json!({"query": "Search"}))),
+        )
+        .await?;
+    assert_eq!(
+        result
+            .content
+            .first()
+            .and_then(ContentBlock::as_text)
+            .map(|text| text.text.as_str()),
+        Some("extra tool 4: Search")
+    );
+
+    // All three helpers are now declared.
+    let names: Vec<String> = client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    for helper in ["search_tools", "search_prompt", "search_resource"] {
+        assert!(names.contains(&helper.to_string()), "{helper} must be declared");
+    }
+
+    client.cancel().await?;
+    let _ = gateway_child.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_search_collision_suppresses_helper_but_keeps_business_tool() -> TestResult {
+    run_test_with_timeout(
+        "gateway_search_collision_suppresses_helper_but_keeps_business_tool",
+        gateway_search_collision_suppresses_helper_but_keeps_business_tool_inner(),
+    )
+    .await
+}
+
+/// A real upstream tool named search_tools owns the name: the helper stays
+/// suppressed (recorded as a projection issue), the business tool keeps
+/// routing upstream, and the other helpers keep working.
+async fn gateway_search_collision_suppresses_helper_but_keeps_business_tool_inner() -> TestResult {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    assert_success(
+        &run_cli(
+            &fixture_add_args(
+                &config_path,
+                "demo",
+                &[
+                    ("MCPSTORE_FIXTURE_EXTRA_TOOLS", "8".to_string()),
+                    ("MCPSTORE_FIXTURE_COLLISION", "1".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_PROMPTS", "9".to_string()),
+                    ("MCPSTORE_FIXTURE_EXTRA_RESOURCES", "5".to_string()),
+                    ("MCPSTORE_FIXTURE_TEMPLATES", "4".to_string()),
+                ],
+            ),
+        ),
+        "add demo",
+    );
+
+    let store_args = vec![
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
+    let gateway_child = spawn_gateway(&daemon, &["--expose-search-tools".to_string()]).await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "collision gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+
+    assert_eq!(client.list_all_prompts().await?.len(), 10);
+    assert_eq!(client.list_all_resources().await?.len(), 6);
+    assert_eq!(client.list_all_resource_templates().await?.len(), 4);
+
+    let names: Vec<String> = client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert_eq!(
+        names.iter().filter(|name| *name == "search_tools").count(),
+        1,
+        "exactly one search_tools may be declared (the business tool)"
+    );
+    assert!(names.contains(&"search_prompt".to_string()));
+    assert!(names.contains(&"search_resource".to_string()));
+
+    // The business tool keeps its name and routes upstream.
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new("search_tools")
+                .with_arguments(call_args(serde_json::json!({"query": "mine"}))),
+        )
+        .await?;
+    assert_eq!(
+        result
+            .content
+            .first()
+            .and_then(ContentBlock::as_text)
+            .map(|text| text.text.as_str()),
+        Some("upstream search_tools: mine")
+    );
+
+    // The suppression is visible as a projection issue on the mount.
+    let projection: serde_json::Value = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/projection", gateway_child.port))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let suppressed = serde_json::to_string(&projection)?;
+    assert!(
+        suppressed.contains("SearchHelperSuppressed"),
+        "projection must record the suppressed helper: {suppressed}"
+    );
+
+    // The other two helpers still search their own kinds.
+    let hit = client
+        .call_tool(
+            CallToolRequestParams::new("search_prompt").with_arguments(call_args(
+                serde_json::json!({"query": "extra prompt one"}),
+            )),
+        )
+        .await?;
+    assert_eq!(
+        hit.structured_content.expect("structured payload")["items"][0]["name"],
+        "extra_prompt_1"
+    );
+
+    client.cancel().await?;
+    let _ = gateway_child.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_search_partial_scope_never_publishes_and_mounts_stay_isolated() -> TestResult {
+    run_test_with_timeout(
+        "gateway_search_partial_scope_never_publishes_and_mounts_stay_isolated",
+        gateway_search_partial_scope_never_publishes_and_mounts_stay_isolated_inner(),
+    )
+    .await
+}
+
+/// A scope page that skipped a failed instance is partial and never publishes
+/// as the catalog — no helper may appear even though 10 prompts are visible.
+/// A daemon serves one gateway face at a time, so the instance mount over the
+/// healthy service starts afterwards: a fresh mount has zero discovery rows
+/// (nothing leaks in from the scope face) and publishes search_prompt only
+/// from its own complete page.
+async fn gateway_search_partial_scope_never_publishes_and_mounts_stay_isolated_inner() -> TestResult {
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    assert_success(
+        &run_cli(
+            &fixture_add_args(
+                &config_path,
+                "demo",
+                &[("MCPSTORE_FIXTURE_EXTRA_PROMPTS", "9".to_string())],
+            ),
+        ),
+        "add demo",
+    );
+    // Registered but never connectable: the scope page over it must skip it.
+    let dead_args = vec![
+        "add".to_string(),
+        "dead".to_string(),
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+        "--transport".to_string(),
+        "stdio".to_string(),
+        "--".to_string(),
+        "definitely-not-a-real-binary-xyz".to_string(),
+    ];
+    assert_success(&run_cli(&dead_args), "add dead");
+
+    let store_args = vec![
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ];
+    let daemon = TestDaemon::start(&store_args).await?;
+    daemon.connect_service("demo", "scope=store").await?;
+
+    // Scope mount over {demo, dead}: every prompt/resource page skips the
+    // dead instance, so no discovery row may ever publish.
+    let scope_child = spawn_gateway(&daemon, &["--expose-search-tools".to_string()]).await?;
+    let scope_url = format!("http://127.0.0.1:{}/mcp", scope_child.port);
+    let scope_client = match connect_http_client(&scope_url).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = scope_child.shutdown().await;
+            return Err(format!(
+                "scope gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+    assert_eq!(scope_client.list_all_prompts().await?.len(), 10);
+    assert_eq!(scope_client.list_all_resources().await?.len(), 1);
+    assert_eq!(scope_client.list_all_resource_templates().await?.len(), 0);
+    let names: Vec<String> = scope_client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert_eq!(names, vec!["greet".to_string()]);
+    for helper in ["search_tools", "search_prompt", "search_resource"] {
+        let error = scope_client
+            .call_tool(
+                CallToolRequestParams::new(helper)
+                    .with_arguments(call_args(serde_json::json!({"query": "greet"}))),
+            )
+            .await;
+        assert!(
+            error.is_err(),
+            "partial scope must never activate {helper}"
+        );
+    }
+    scope_client.cancel().await?;
+    let _ = scope_child.shutdown().await;
+
+    // Instance mount over the same daemon, same healthy service. Cold start:
+    // a fresh mount owns zero discovery rows — no helper may pre-exist.
+    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
+    let instance_child = spawn_gateway(
+        &daemon,
+        &[
+            "--instance-id".to_string(),
+            instance_id.to_string(),
+            "--expose-search-tools".to_string(),
+        ],
+    )
+    .await?;
+    let instance_url = format!("http://127.0.0.1:{}/mcp", instance_child.port);
+    let instance_client = match connect_http_client(&instance_url).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = instance_child.shutdown().await;
+            return Err(format!(
+                "instance gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+    let cold: Vec<String> = instance_client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert_eq!(cold, vec!["greet".to_string()]);
+
+    // Its own complete prompt page publishes search_prompt; the other kinds
+    // stay below threshold.
+    assert_eq!(instance_client.list_all_prompts().await?.len(), 10);
+    let names: Vec<String> = instance_client
+        .list_all_tools()
+        .await?
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert!(
+        names.contains(&"search_prompt".to_string()),
+        "instance mount with a complete prompt page must activate search_prompt"
+    );
+    assert!(!names.contains(&"search_tools".to_string()));
+    assert!(!names.contains(&"search_resource".to_string()));
+    let hit = instance_client
+        .call_tool(
+            CallToolRequestParams::new("search_prompt")
+                .with_arguments(call_args(serde_json::json!({"query": "greet"}))),
+        )
+        .await?;
+    assert_eq!(
+        hit.structured_content.expect("structured payload")["items"]
+            .as_array()
+            .expect("items array")
+            .len(),
+        0,
+        "prompt catalog has no greet entry; an empty hit is correct"
+    );
+
+    instance_client.cancel().await?;
+    let _ = instance_child.shutdown().await;
     Ok(())
 }
 
@@ -772,7 +1351,7 @@ async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
-    let tool_name = "demo__greet".to_string();
+    let tool_name = "greet".to_string();
 
     let store_args = vec![
         "--config-path".to_string(),
@@ -874,7 +1453,7 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
-    let tool_name = "demo__greet".to_string();
+    let tool_name = "greet".to_string();
 
     let store_args = vec![
         "--config-path".to_string(),
@@ -1009,7 +1588,11 @@ impl TestDaemon {
             .spawn()?;
         let core_url = format!("http://127.0.0.1:{core_port}");
         let client = reqwest::Client::new();
-        for _ in 0..100 {
+        // Deadline, not iteration count: a fully parallel suite boots ~10
+        // daemons + fixtures at once and daemon startup (plugin materialize,
+        // KV, core bind) legitimately exceeds 5s under that load.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while tokio::time::Instant::now() < deadline {
             if let Some(status) = child.try_wait()? {
                 return Err(format!("test daemon exited with {status}").into());
             }
@@ -1040,7 +1623,8 @@ impl TestDaemon {
         if !response.status().is_success() {
             return Err(format!("service connect failed: {}", response.text().await?).into());
         }
-        for _ in 0..100 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while tokio::time::Instant::now() < deadline {
             let state: serde_json::Value = client
                 .get(format!("{base}/state?{scope_query}"))
                 .send()
@@ -1048,12 +1632,40 @@ impl TestDaemon {
                 .json()
                 .await?;
             match state["data"]["phase"].as_str() {
-                Some("running") => return Ok(()),
+                Some("running") => break,
                 Some("failed") => return Err(format!("service failed to connect: {state}").into()),
                 _ => tokio::time::sleep(Duration::from_millis(50)).await,
             }
         }
-        Err(format!("service {service_name} did not become ready").into())
+        // /connect is fire-and-forget: phase flips to running at
+        // TransportConnected, but the instance lands in the registry only
+        // after tool sync. Gateway mounts enumerate the scoped registry
+        // catalog, so wait for that same view to become non-empty — polling
+        // phase alone loses the race under parallel load (mount sees 0 tools).
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while tokio::time::Instant::now() < deadline {
+            let catalog: serde_json::Value = client
+                .get(format!("{}/tools/list?{scope_query}", self.core_url))
+                .send()
+                .await?
+                .json()
+                .await?;
+            let registered = catalog["data"]["tools"]
+                .as_array()
+                .is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool["service_name"].as_str() == Some(service_name))
+                });
+            if registered {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Err(format!(
+            "service {service_name} registered but its scope catalog stayed empty"
+        )
+        .into())
     }
 }
 
@@ -1104,7 +1716,8 @@ async fn spawn_gateway(
     if !response.status().is_success() {
         return Err(format!("gateway start failed: {}", response.text().await?).into());
     }
-    for _ in 0..200 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while tokio::time::Instant::now() < deadline {
         let status: serde_json::Value = client
             .get(format!("{}/gateway/status?port={port}", daemon.core_url))
             .send()
@@ -1142,8 +1755,8 @@ async fn connect_http_client(
     base_url: &str,
 ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ()>, Box<dyn std::error::Error>> {
     let mut last_error = String::new();
-
-    for _ in 0..40 {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
         let transport = StreamableHttpClientTransport::from_config(
             StreamableHttpClientTransportConfig::with_uri(base_url.to_string()),
         );
@@ -1156,5 +1769,5 @@ async fn connect_http_client(
         }
     }
 
-    Err(format!("连接 Rust streamable-http MCP server 超时: {last_error}").into())
+    Err(format!("streamable-http MCP handshake timed out: {last_error}").into())
 }
