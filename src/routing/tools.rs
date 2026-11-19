@@ -287,7 +287,7 @@ impl MCPStore {
             tracing::warn!("Failed to write back tool route to route.toml: {error}");
         }
         // Publish after the writeback so projection consumers refresh promptly.
-        self.publish_route_changed(instance_id, &rule.service_name)
+        self.publish_route_changed("tool", instance_id, &rule.service_name)
             .await;
 
         Ok(rule)
@@ -345,7 +345,7 @@ impl MCPStore {
             }
         }
         if let Some(service_name) = service_name.as_deref() {
-            self.publish_route_changed(instance_id, service_name)
+            self.publish_route_changed("tool", instance_id, service_name)
                 .await;
         }
         Ok(())

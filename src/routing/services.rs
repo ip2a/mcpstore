@@ -74,7 +74,7 @@ impl MCPStore {
         // Publish after the writeback: the gateway's route.toml fingerprint
         // tick reads the file, so the persistent channel is consistent before
         // the (faster) event channel fires.
-        self.publish_route_changed(instance_id, &rule.service_name)
+        self.publish_route_changed("service", instance_id, &rule.service_name)
             .await;
         Ok(rule)
     }
@@ -131,7 +131,7 @@ impl MCPStore {
             }
         }
         if let Some(service_name) = service_name.as_deref() {
-            self.publish_route_changed(instance_id, service_name)
+            self.publish_route_changed("service", instance_id, service_name)
                 .await;
         }
         Ok(())

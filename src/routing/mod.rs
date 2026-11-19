@@ -112,12 +112,14 @@ pub(crate) fn is_route_visible(common: &RouteFields) -> bool {
 }
 
 impl MCPStore {
-    /// Fire `McpToolsChanged` after an route write so projection consumers
+    /// Fire `McpToolsChanged` after a route write so projection consumers
     /// (the gateway mount catalog, subscription notifications) rebuild
-    /// promptly. The payload carries the instance so per-instance mounts can
-    /// filter; `wait=false` keeps the write path non-blocking.
+    /// promptly. The payload carries the routed kind (`tool` or `service`)
+    /// and the instance so per-instance mounts can filter; `wait=false`
+    /// keeps the write path non-blocking.
     pub(crate) async fn publish_route_changed(
         &self,
+        kind: &'static str,
         instance_id: InstanceId,
         service_name: &str,
     ) {
@@ -129,6 +131,7 @@ impl MCPStore {
                     crate::events::types::EventKind::McpToolsChanged.as_str(),
                     serde_json::json!({
                         "reason": "route_changed",
+                        "kind": kind,
                         "instanceId": instance_id.to_string(),
                         "service": service_name,
                     }),
@@ -211,7 +214,7 @@ impl MCPStore {
                             .await
                             .map(|instance| instance.service_name);
                         if let Some(service_name) = service_name.as_deref() {
-                            self.publish_route_changed(instance_id, service_name)
+                            self.publish_route_changed("tool", instance_id, service_name)
                                 .await;
                         }
                     }

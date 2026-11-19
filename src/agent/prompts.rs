@@ -3,6 +3,16 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_prompts_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
+        Ok(self.collect_scope_prompts_scoped(scope).await?.entries)
+    }
+
+    /// Scope-wide prompt catalog with skip accounting. A non-zero
+    /// `skipped_instances` means the page is partial — gateway discovery
+    /// sampling refuses to publish it as a complete catalog.
+    pub async fn list_prompts_scoped_page(
+        &self,
+        scope: &ScopeRef,
+    ) -> Result<ScopedCatalogPage<serde_json::Value>> {
         self.collect_scope_prompts_scoped(scope).await
     }
 
