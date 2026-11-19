@@ -27,9 +27,9 @@ import {
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import type { ScopeRef, ToolInfo } from "@/lib/api"
-import { InlineOverrideField } from "@/features/overrides/inline-override-field"
-import { OverrideEditor } from "@/features/overrides/override-editor"
-import { useToolInlineOverride } from "@/features/overrides/use-tool-inline-override"
+import { InlineRouteField } from "@/features/routes/inline-route-field"
+import { RouteEditor } from "@/features/routes/route-editor"
+import { useToolInlineRoute } from "@/features/routes/use-tool-inline-route"
 import { buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
 import {
@@ -108,7 +108,7 @@ export function ToolDetailDocHeader({
 }) {
   const { t } = useI18n()
   const originalToolName = getOriginalToolName(tool)
-  const override = useToolInlineOverride(serviceName, originalToolName, scope, {
+  const route = useToolInlineRoute(serviceName, originalToolName, scope, {
     onDisplayNameApplied,
   })
   const description = tool.description?.trim() || t("noDescription")
@@ -116,34 +116,34 @@ export function ToolDetailDocHeader({
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
       <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
-        <InlineOverrideField
+        <InlineRouteField
           value={tool.name}
           originalValue={originalToolName}
-          overridden={override.nameOverridden}
-          label={t("overrideDisplayName")}
-          disabled={!override.enabled}
-          busy={override.busy}
+          overridden={route.nameOverridden}
+          label={t("routeDisplayName")}
+          disabled={!route.enabled}
+          busy={route.busy}
           className="w-full"
           textClassName="font-mono text-xl font-semibold tracking-tight"
-          onSave={override.saveDisplayName}
+          onSave={route.saveDisplayName}
         />
       </TypographyH2>
-      {override.enabled ? (
-        <InlineOverrideField
+      {route.enabled ? (
+        <InlineRouteField
           value={tool.description || ""}
           originalValue={
-            override.descriptionOverridden ? undefined : tool.description || ""
+            route.descriptionOverridden ? undefined : tool.description || ""
           }
-          overridden={override.descriptionOverridden}
-          label={t("overrideDescription")}
+          overridden={route.descriptionOverridden}
+          label={t("routeDescription")}
           multiline
-          busy={override.busy}
+          busy={route.busy}
           className="w-full"
           textClassName="break-words text-sm leading-relaxed"
-          onSave={override.saveDescription}
+          onSave={route.saveDescription}
         >
           {description}
-        </InlineOverrideField>
+        </InlineRouteField>
       ) : (
         <ToolDescriptionBlock
           description={tool.description}
@@ -239,7 +239,7 @@ export function ToolDetailDocBody({
       <ToolAnnotationsSection tool={tool} />
       <ToolMetaSection tool={tool} />
       {serviceName && scope ? (
-        <OverrideEditor
+        <RouteEditor
           kind="tool"
           serviceName={serviceName}
           componentKey={originalToolName || getOriginalToolName(tool)}

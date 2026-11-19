@@ -1,7 +1,7 @@
-use crate::config::{ComponentOverride as ConfigComponentOverride, RouteConfig};
-use crate::kv::models::ToolArgumentOverride;
-use crate::overrides::{
-    PromptOverridePatch, ResourceOverridePatch, ServiceOverridePatch, ToolOverridePatch,
+use crate::config::{ComponentRoute as ConfigComponentRoute, RouteConfig};
+use crate::kv::models::ToolArgumentRoute;
+use crate::routing::{
+    PromptRoutePatch, ResourceRoutePatch, ServiceRoutePatch, ToolRoutePatch,
 };
 use crate::store::prelude::*;
 
@@ -30,9 +30,16 @@ impl MCPStore {
             })
     }
 
-    /// Legacy path kept for one-time migration from scopes.toml → route.toml.
-    pub fn scopes_config_path(&self) -> Result<std::path::PathBuf> {
-        self.config_manager()
+    /// Resolve `route.toml`. If it is missing and a same-schema file formerly
+    /// written as `scopes.toml` is present, copy once so existing rules are not
+    /// dropped. This is a data-dir rename, not an API shim.
+    pub fn ensure_route_toml_migrated(&self) -> Result<std::path::PathBuf> {
+        let route_path = self.route_config_path()?;
+        if route_path.exists() {
+            return Ok(route_path);
+        }
+        let former_path = self
+            .config_manager()
             .mcp_path()
             .parent()
             .map(|dir| dir.join("scopes.toml"))
@@ -41,19 +48,8 @@ impl MCPStore {
                     FailureCode::ConfigInvalid,
                     "cannot resolve data directory from mcp.json path",
                 )
-            })
-    }
-
-    /// Resolve the live route.toml path, copying legacy scopes.toml once when
-    /// route.toml is still missing. Public so API export/import/writeback share
-    /// the same migration gate.
-    pub fn ensure_route_toml_migrated(&self) -> Result<std::path::PathBuf> {
-        let route_path = self.route_config_path()?;
-        if route_path.exists() {
-            return Ok(route_path);
-        }
-        let scopes_path = self.scopes_config_path()?;
-        if scopes_path.exists() {
+            })?;
+        if former_path.exists() {
             if let Some(parent) = route_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|error| {
                     Error::new(
@@ -62,23 +58,69 @@ impl MCPStore {
                     )
                 })?;
             }
-            std::fs::copy(&scopes_path, &route_path).map_err(|error| {
+            std::fs::copy(&former_path, &route_path).map_err(|error| {
                 Error::new(
                     FailureCode::ConfigInvalid,
                     format!(
-                        "failed to migrate {} → {}: {error}",
-                        scopes_path.display(),
+                        "failed to move {} → {}: {error}",
+                        former_path.display(),
                         route_path.display()
                     ),
                 )
             })?;
             tracing::info!(
-                "Migrated gateway route rules from {} to {}",
-                scopes_path.display(),
+                "Moved gateway route rules from {} to {}",
+                former_path.display(),
                 route_path.display()
             );
         }
         Ok(route_path)
+    }
+
+    /// One-shot KV rename: `*_overrides` state types → `*_routes`.
+    async fn migrate_legacy_route_kv_types(&self) -> Result<()> {
+        const PAIRS: &[(&str, &str)] = &[
+            ("tool_overrides", "tool_routes"),
+            ("prompt_overrides", "prompt_routes"),
+            ("resource_overrides", "resource_routes"),
+            ("resource_template_overrides", "resource_template_routes"),
+            ("service_overrides", "service_routes"),
+        ];
+        for &(old_type, new_type) in PAIRS {
+            let entries = self
+                .kernel
+                .persistence
+                .kv
+                .get_all_states_async(old_type)
+                .await?;
+            if entries.is_empty() {
+                continue;
+            }
+            for (key, value) in entries {
+                if self
+                    .kernel
+                    .persistence
+                    .kv
+                    .get_state(new_type, &key)
+                    .await?
+                    .is_none()
+                {
+                    self.kernel
+                        .persistence
+                        .kv
+                        .put_state(new_type, &key, value)
+                        .await?;
+                }
+                let _ = self
+                    .kernel
+                    .persistence
+                    .kv
+                    .delete_state(old_type, &key)
+                    .await;
+            }
+            tracing::info!("Migrated KV state type {old_type} → {new_type}");
+        }
+        Ok(())
     }
 
     /// Load route.toml and populate openkeyv with gateway route rules.
@@ -94,14 +136,13 @@ impl MCPStore {
     /// too. Panel-made rules never enter the journal and are never
     /// touched by reconciliation.
     ///
-    /// Migration: if `route.toml` is missing but legacy `scopes.toml` exists,
-    /// copy it once into `route.toml` (same schema) and load from there.
     pub async fn load_route_config(&self) -> Result<()> {
         // Connect-completion replays this concurrently with API reloads; the
         // journal is read-modify-write, so serialize the whole load.
         static ROUTE_LOAD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _guard = ROUTE_LOAD_LOCK.lock().await;
         let path = self.ensure_route_toml_migrated()?;
+        self.migrate_legacy_route_kv_types().await?;
         let config = RouteConfig::load_if_exists(&path)
             .map_err(|error| {
                 Error::new(
@@ -197,7 +238,7 @@ impl MCPStore {
         // against the synced tool list, so it applies even before a first
         // connect.
         {
-            let mut common = crate::overrides::ComponentOverrideCommon::default();
+            let mut common = crate::routing::RouteFields::default();
             common.display_name = cfg.display_name.clone();
             common.description = cfg.description.clone();
             common.enabled = cfg.enabled;
@@ -205,11 +246,11 @@ impl MCPStore {
             common.meta = cfg.meta.clone();
             common.annotations = cfg.annotations.clone();
             common.icons = service_icons_json(cfg.icons.as_ref());
-            if common != crate::overrides::ComponentOverrideCommon::default() {
-                let patch = ServiceOverridePatch { common };
-                self.set_service_override(instance_id, patch).await?;
+            if common != crate::routing::RouteFields::default() {
+                let patch = ServiceRoutePatch { common };
+                self.set_service_route(instance_id, patch).await?;
                 applied.push((
-                    crate::overrides::services::SERVICE_OVERRIDES_STATE_TYPE.to_string(),
+                    crate::routing::services::SERVICE_ROUTES_STATE_TYPE.to_string(),
                     instance_id.to_string(),
                 ));
             }
@@ -251,47 +292,47 @@ impl MCPStore {
             ));
         }
 
-        // Apply tool overrides
-        for (tool_name, override_cfg) in &cfg.tools.overrides {
-            let patch = self.config_override_to_tool_patch(override_cfg);
+        // Apply tool routes
+        for (tool_name, override_cfg) in &cfg.tools.routes {
+            let patch = self.config_to_tool_route_patch(override_cfg);
             let rule = self
-                .set_tool_override(instance_id, tool_name, patch)
+                .set_tool_route(instance_id, tool_name, patch)
                 .await?;
             applied.push((
-                crate::overrides::tools::TOOL_OVERRIDES_STATE_TYPE.to_string(),
-                Self::component_override_key(rule.instance_id, &rule.tool_name),
+                crate::routing::tools::TOOL_ROUTES_STATE_TYPE.to_string(),
+                Self::component_route_key(rule.instance_id, &rule.tool_name),
             ));
         }
 
-        // Apply prompt overrides
-        for (prompt_name, override_cfg) in &cfg.prompts.overrides {
-            let patch = self.config_override_to_prompt_patch(override_cfg);
+        // Apply prompt routes
+        for (prompt_name, override_cfg) in &cfg.prompts.routes {
+            let patch = self.config_to_prompt_route_patch(override_cfg);
             let rule = self
-                .set_prompt_override(instance_id, prompt_name, patch)
+                .set_prompt_route(instance_id, prompt_name, patch)
                 .await?;
             applied.push((
-                crate::overrides::prompts::PROMPT_OVERRIDES_STATE_TYPE.to_string(),
-                Self::component_override_key(rule.instance_id, &rule.prompt_name),
+                crate::routing::prompts::PROMPT_ROUTES_STATE_TYPE.to_string(),
+                Self::component_route_key(rule.instance_id, &rule.prompt_name),
             ));
         }
 
-        // Apply resource overrides
-        for (resource_uri, override_cfg) in &cfg.resources.overrides {
-            let patch = self.config_override_to_resource_patch(override_cfg);
+        // Apply resource routes
+        for (resource_uri, override_cfg) in &cfg.resources.routes {
+            let patch = self.config_to_resource_route_patch(override_cfg);
             let rule = self
-                .set_resource_override(instance_id, resource_uri, patch)
+                .set_resource_route(instance_id, resource_uri, patch)
                 .await?;
             applied.push((
-                crate::overrides::resources::RESOURCE_OVERRIDES_STATE_TYPE.to_string(),
-                Self::component_override_key(rule.instance_id, &rule.uri),
+                crate::routing::resources::RESOURCE_ROUTES_STATE_TYPE.to_string(),
+                Self::component_route_key(rule.instance_id, &rule.uri),
             ));
         }
 
         Ok(())
     }
 
-    fn config_override_to_tool_patch(&self, cfg: &ConfigComponentOverride) -> ToolOverridePatch {
-        let mut patch = ToolOverridePatch::default();
+    fn config_to_tool_route_patch(&self, cfg: &ConfigComponentRoute) -> ToolRoutePatch {
+        let mut patch = ToolRoutePatch::default();
 
         if let Some(ref name) = cfg.display_name {
             patch = patch.with_display_name(name);
@@ -301,6 +342,9 @@ impl MCPStore {
         }
         if let Some(enabled) = cfg.enabled {
             patch = patch.enabled(enabled);
+        }
+        if cfg.weight != 0 {
+            patch = patch.with_weight(cfg.weight);
         }
         if !cfg.tags.is_empty() {
             patch.common.tags = cfg.tags.clone();
@@ -319,27 +363,33 @@ impl MCPStore {
         }
         if let Some(ref args) = cfg.arguments {
             for (arg_name, arg_override) in args {
-                if let Some(ref default) = arg_override.default {
-                    patch = patch.with_argument(ToolArgumentOverride {
-                        original_name: arg_name.clone(),
-                        new_name: None,
-                        hidden: false,
-                        default_value: Some(default.clone()),
-                        description: None,
-                        validation_schema: None,
-                    });
+                let has_fields = arg_override.new_name.is_some()
+                    || arg_override.hidden
+                    || arg_override.default.is_some()
+                    || arg_override.description.is_some()
+                    || arg_override.validation_schema.is_some();
+                if !has_fields {
+                    continue;
                 }
+                patch = patch.with_argument(ToolArgumentRoute {
+                    original_name: arg_name.clone(),
+                    new_name: arg_override.new_name.clone(),
+                    hidden: arg_override.hidden,
+                    default_value: arg_override.default.clone(),
+                    description: arg_override.description.clone(),
+                    validation_schema: arg_override.validation_schema.clone(),
+                });
             }
         }
 
         patch
     }
 
-    fn config_override_to_prompt_patch(
+    fn config_to_prompt_route_patch(
         &self,
-        cfg: &ConfigComponentOverride,
-    ) -> PromptOverridePatch {
-        let mut patch = PromptOverridePatch::default();
+        cfg: &ConfigComponentRoute,
+    ) -> PromptRoutePatch {
+        let mut patch = PromptRoutePatch::default();
 
         if let Some(ref name) = cfg.display_name {
             patch = patch.with_display_name(name);
@@ -363,11 +413,11 @@ impl MCPStore {
         patch
     }
 
-    fn config_override_to_resource_patch(
+    fn config_to_resource_route_patch(
         &self,
-        cfg: &ConfigComponentOverride,
-    ) -> ResourceOverridePatch {
-        let mut patch = ResourceOverridePatch::default();
+        cfg: &ConfigComponentRoute,
+    ) -> ResourceRoutePatch {
+        let mut patch = ResourceRoutePatch::default();
 
         if let Some(ref name) = cfg.display_name {
             patch = patch.with_display_name(name);
@@ -393,8 +443,8 @@ impl MCPStore {
 }
 
 /// route.toml `icons = { light = …, dark = … }` → the JSON shape the
-/// override rules carry. `None` when neither key is present.
-fn service_icons_json(icons: Option<&crate::config::IconsOverride>) -> Option<serde_json::Value> {
+/// route rules carry. `None` when neither key is present.
+fn service_icons_json(icons: Option<&crate::config::RouteIcons>) -> Option<serde_json::Value> {
     let icons = icons?;
     let mut map = serde_json::Map::new();
     if let Some(light) = &icons.light {
@@ -424,7 +474,7 @@ mod tests {
     fn journal_round_trips_through_object_value() {
         let journal = AppliedJournal {
             entries: vec![
-                ("tool_overrides".to_string(), "inst-1:orig_tool".to_string()),
+                ("tool_routes".to_string(), "inst-1:orig_tool".to_string()),
                 (
                     "context_tool_visibility".to_string(),
                     "store:inst-1".to_string(),
@@ -454,7 +504,7 @@ mod tests {
         std::fs::write(&mcp_path, "{}").unwrap();
         let scopes_path = dir.join("scopes.toml");
         let route_path = dir.join("route.toml");
-        let legacy = r#"[store.services.weather.tools.overrides.get_weather]
+        let legacy = r#"[store.services.weather.tools.routes.get_weather]
 display_name = "Weather"
 "#;
         std::fs::write(&scopes_path, legacy).unwrap();
@@ -465,6 +515,7 @@ display_name = "Weather"
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("route-migrate-{}", uuid::Uuid::new_v4())),
             panel: PanelRole::ControlPanel,
+            ..StoreOptions::default()
         })
         .unwrap();
 

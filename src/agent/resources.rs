@@ -1,5 +1,5 @@
 use crate::agent::models::insert_instance_identity;
-use crate::overrides::resources::apply_resource;
+use crate::routing::resources::apply_resource;
 use crate::store::prelude::*;
 impl MCPStore {
     pub async fn list_resources_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
@@ -18,12 +18,12 @@ impl MCPStore {
             .map(|resource| resource.uri.clone())
             .collect();
         // One batched read for the whole set — never one KV read per resource.
-        let overrides = self
-            .enabled_resource_overrides_for_uris(instance_id, &uris)
+        let routes = self
+            .enabled_resource_routes_for_uris(instance_id, &uris)
             .await?;
         let mut out = Vec::with_capacity(resources.len());
         for resource in resources {
-            let Some(mut value) = apply_resource(overrides.get(&resource.uri), &resource)? else {
+            let Some(mut value) = apply_resource(routes.get(&resource.uri), &resource)? else {
                 continue;
             };
             insert_instance_identity(
@@ -100,12 +100,12 @@ impl MCPStore {
             .map(|template| template.uri_template.clone())
             .collect();
         // One batched read for the whole set — never one KV read per template.
-        let overrides = self
-            .enabled_resource_template_overrides_for_keys(instance_id, &keys)
+        let routes = self
+            .enabled_resource_template_routes_for_keys(instance_id, &keys)
             .await?;
         let mut out = Vec::with_capacity(templates.len());
         for template in templates {
-            let Some(mut value) = apply_resource(overrides.get(&template.uri_template), &template)?
+            let Some(mut value) = apply_resource(routes.get(&template.uri_template), &template)?
             else {
                 continue;
             };
@@ -159,14 +159,14 @@ impl MCPStore {
             .collect();
         let original = self
             .ensure_original_key_for_component(
-                crate::overrides::ComponentKind::Resource,
+                crate::routing::ComponentKind::Resource,
                 instance_id,
                 uri,
                 &raw_uris,
             )
             .await?;
         if self
-            .load_resource_override(instance_id, &original)
+            .load_resource_route(instance_id, &original)
             .await?
             .is_some_and(|rule| rule.common.enabled == Some(false))
         {

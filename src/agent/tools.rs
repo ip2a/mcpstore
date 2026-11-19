@@ -1,5 +1,5 @@
-use crate::overrides::tools::applied_override;
-use crate::overrides::ToolOverrideRule;
+use crate::routing::tools::applied_route;
+use crate::routing::ToolRouteRule;
 use crate::registry::ToolInfo;
 use crate::store::prelude::*;
 use std::collections::HashMap;
@@ -16,19 +16,23 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let mut tools = self.list_tools(instance_id).await?;
         tools.sort_by(|left, right| left.name.cmp(&right.name));
-        let overrides = self
-            .enabled_tool_overrides_for_instance(instance_id)
+        let routes = self
+            .tool_routes_for_instance(instance_id)
             .await?;
 
         let mut payload = Vec::with_capacity(tools.len());
         for tool in tools {
             let tool_name = tool.name.clone();
-            let transformed = applied_override(
+            let rule = routes.get(&tool_name);
+            if rule.is_some_and(|rule| !rule.common.enabled.unwrap_or(true)) {
+                continue;
+            }
+            let transformed = applied_route(
                 tool.name,
                 tool.description,
                 tool.input_schema,
                 tool.icons.clone(),
-                overrides.get(&tool_name),
+                rule,
             );
             payload.push(serde_json::json!({
                 "name": transformed.display_name,
@@ -43,6 +47,7 @@ impl MCPStore {
                 "instance_id": instance_id,
                 "service_name": instance.service_name,
                 "scope": instance.scope,
+                "weight": rule.map(|rule| rule.common.weight).unwrap_or(0),
             }));
         }
         Ok(payload)
@@ -70,7 +75,7 @@ impl MCPStore {
     }
 
     /// Scope-view tool catalog in one page: a single batched read of every
-    /// instance's override rules, then one concurrent fetch per instance (each
+    /// instance's route rules, then one concurrent fetch per instance (each
     /// on its own pooled connection). A failed instance (disconnected, auth
     /// pending) is skipped — counted in `skipped_instances`, never blanks the
     /// page; the per-instance route stays loud.
@@ -81,14 +86,14 @@ impl MCPStore {
     ) -> Result<ScopedCatalogPage<ScopedToolEntry>> {
         use crate::agent::tool_visibility::{EffectiveToolPolicy, ToolVisibilityFilter};
         let instances = self.list_view_instances(view).await?;
-        let overrides_by_instance = self.enabled_tool_overrides_by_instance().await?;
+        let overrides_by_instance = self.tool_routes_by_instance().await?;
         let empty_overrides = HashMap::new();
         let (overrides_by_instance, empty_overrides) = (&overrides_by_instance, &empty_overrides);
         let results = futures::future::join_all(instances.iter().map(|instance| async move {
-            let overrides = overrides_by_instance
+            let routes = overrides_by_instance
                 .get(&instance.instance_id)
                 .unwrap_or(&empty_overrides);
-            EffectiveToolPolicy::resolve_with_overrides(self, instance.instance_id, overrides)
+            EffectiveToolPolicy::resolve_with_routes(self, instance.instance_id, routes)
                 .await
                 .map(|policy| match filter {
                     ToolVisibilityFilter::All => policy.all,
@@ -152,7 +157,7 @@ impl MCPStore {
     }
 
     /// Entries from an instance identity plus freshly read tools: the enabled
-    /// override rules are read once for the whole set and applied in memory.
+    /// route rules are read once for the whole set and applied in memory.
     /// Callers that already hold the instance must not re-read it per tool.
     pub(crate) async fn tool_entries(
         &self,
@@ -160,31 +165,35 @@ impl MCPStore {
         mut tools: Vec<ToolInfo>,
     ) -> Result<Vec<ScopedToolEntry>> {
         tools.sort_by(|left, right| left.name.cmp(&right.name));
-        let overrides = self
-            .enabled_tool_overrides_for_instance(instance.instance_id)
+        let routes = self
+            .tool_routes_for_instance(instance.instance_id)
             .await?;
-        Ok(self.project_tool_entries(instance, tools, &overrides))
+        Ok(self.project_tool_entries(instance, tools, &routes))
     }
 
-    /// Pure projection of tool rows through their instance's override map —
-    /// no shared-store reads. Catalog paths read the overrides once per scope
+    /// Pure projection of tool rows through their instance's route map —
+    /// no shared-store reads. Catalog paths read the route entrys once per scope
     /// and reuse this across instances.
     pub(crate) fn project_tool_entries(
         &self,
         instance: &ServiceInstance,
         mut tools: Vec<ToolInfo>,
-        overrides: &HashMap<String, ToolOverrideRule>,
+        routes: &HashMap<String, ToolRouteRule>,
     ) -> Vec<ScopedToolEntry> {
         tools.sort_by(|left, right| left.name.cmp(&right.name));
         let mut entries = Vec::with_capacity(tools.len());
         for tool in tools {
             let tool_name = tool.name.clone();
-            let transformed = applied_override(
+            let rule = routes.get(&tool_name);
+            if rule.is_some_and(|rule| !rule.common.enabled.unwrap_or(true)) {
+                continue;
+            }
+            let transformed = applied_route(
                 tool.name,
                 tool.description,
                 tool.input_schema,
                 tool.icons.clone(),
-                overrides.get(&tool_name),
+                rule,
             );
             entries.push(ScopedToolEntry {
                 name: transformed.display_name,
@@ -199,6 +208,7 @@ impl MCPStore {
                 instance_id: instance.instance_id,
                 service_name: instance.service_name.clone(),
                 scope: instance.scope.clone(),
+                weight: rule.map(|rule| rule.common.weight).unwrap_or(0),
             });
         }
         entries

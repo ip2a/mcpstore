@@ -16,8 +16,8 @@ use mcpstore::{
     },
     events::{bus::EventHandler, Event},
     ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
-    ResourceTemplateOverridePatch, ScopeRef, ToolOverridePatch,
+    OpenApiImportOptions, OpenApiRefCachePolicy, PromptRoutePatch, ResourceRoutePatch,
+    ResourceTemplateRoutePatch, ScopeRef, ToolRoutePatch,
 };
 use rmcp::{
     model::{
@@ -53,9 +53,9 @@ pub struct GatewayOptions {
     pub path: String,
     pub session_key: Option<String>,
     pub expose_session_state_tools: bool,
-    pub expose_tool_override_tools: bool,
-    pub expose_prompt_override_tools: bool,
-    pub expose_resource_override_tools: bool,
+    pub expose_tool_route_tools: bool,
+    pub expose_prompt_route_tools: bool,
+    pub expose_resource_route_tools: bool,
     pub expose_openapi_tools: bool,
     pub expose_service_tools: bool,
     pub expose_kv_tools: bool,
@@ -72,9 +72,9 @@ impl Default for GatewayOptions {
             path: "/mcp".to_string(),
             session_key: None,
             expose_session_state_tools: false,
-            expose_tool_override_tools: false,
-            expose_prompt_override_tools: false,
-            expose_resource_override_tools: false,
+            expose_tool_route_tools: false,
+            expose_prompt_route_tools: false,
+            expose_resource_route_tools: false,
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_kv_tools: false,
@@ -291,7 +291,6 @@ impl GatewayCallLog {
         Arc::new(Self {
             records: std::sync::Mutex::new(records),
             latest: std::sync::atomic::AtomicU64::new(latest),
-            next_call_id: std::sync::atomic::AtomicU64::new(0),
             history,
             config,
             changed,
@@ -507,22 +506,22 @@ const SESSION_STATE_DELETE_TOOL: &str = "mcpstore_session_state_delete";
 const SESSION_STATE_CLEAR_TOOL: &str = "mcpstore_session_state_clear";
 const SESSION_SNAPSHOT_EXPORT_TOOL: &str = "mcpstore_session_snapshot_export";
 const SESSION_SNAPSHOT_IMPORT_TOOL: &str = "mcpstore_session_snapshot_import";
-const TOOL_OVERRIDE_LIST_TOOL: &str = "mcpstore_tool_override_list";
-const TOOL_OVERRIDE_GET_TOOL: &str = "mcpstore_tool_override_get";
-const TOOL_OVERRIDE_SET_TOOL: &str = "mcpstore_tool_override_set";
-const TOOL_OVERRIDE_DELETE_TOOL: &str = "mcpstore_tool_override_delete";
-const PROMPT_OVERRIDE_LIST_TOOL: &str = "mcpstore_prompt_override_list";
-const PROMPT_OVERRIDE_GET_TOOL: &str = "mcpstore_prompt_override_get";
-const PROMPT_OVERRIDE_SET_TOOL: &str = "mcpstore_prompt_override_set";
-const PROMPT_OVERRIDE_DELETE_TOOL: &str = "mcpstore_prompt_override_delete";
-const RESOURCE_OVERRIDE_LIST_TOOL: &str = "mcpstore_resource_override_list";
-const RESOURCE_OVERRIDE_GET_TOOL: &str = "mcpstore_resource_override_get";
-const RESOURCE_OVERRIDE_SET_TOOL: &str = "mcpstore_resource_override_set";
-const RESOURCE_OVERRIDE_DELETE_TOOL: &str = "mcpstore_resource_override_delete";
-const RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL: &str = "mcpstore_resource_template_override_list";
-const RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL: &str = "mcpstore_resource_template_override_get";
-const RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL: &str = "mcpstore_resource_template_override_set";
-const RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL: &str = "mcpstore_resource_template_override_delete";
+const TOOL_ROUTE_LIST_TOOL: &str = "mcpstore_tool_route_list";
+const TOOL_ROUTE_GET_TOOL: &str = "mcpstore_tool_route_get";
+const TOOL_ROUTE_SET_TOOL: &str = "mcpstore_tool_route_set";
+const TOOL_ROUTE_DELETE_TOOL: &str = "mcpstore_tool_route_delete";
+const PROMPT_ROUTE_LIST_TOOL: &str = "mcpstore_prompt_route_list";
+const PROMPT_ROUTE_GET_TOOL: &str = "mcpstore_prompt_route_get";
+const PROMPT_ROUTE_SET_TOOL: &str = "mcpstore_prompt_route_set";
+const PROMPT_ROUTE_DELETE_TOOL: &str = "mcpstore_prompt_route_delete";
+const RESOURCE_ROUTE_LIST_TOOL: &str = "mcpstore_resource_route_list";
+const RESOURCE_ROUTE_GET_TOOL: &str = "mcpstore_resource_route_get";
+const RESOURCE_ROUTE_SET_TOOL: &str = "mcpstore_resource_route_set";
+const RESOURCE_ROUTE_DELETE_TOOL: &str = "mcpstore_resource_route_delete";
+const RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL: &str = "mcpstore_resource_template_route_list";
+const RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL: &str = "mcpstore_resource_template_route_get";
+const RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL: &str = "mcpstore_resource_template_route_set";
+const RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL: &str = "mcpstore_resource_template_route_delete";
 const OPENAPI_IMPORT_LIST_TOOL: &str = "mcpstore_openapi_import_list";
 const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
@@ -544,14 +543,74 @@ const KV_INSPECT_TOOL: &str = "mcpstore_kv_inspect";
 const KV_SWITCH_TOOL: &str = "mcpstore_kv_switch";
 const SEARCH_TOOL: &str = "mcpstore_search_tools";
 
+/// One upstream route behind an exposed gateway tool name.
 #[derive(Clone)]
-struct ToolBinding {
-    tool: Tool,
+struct ToolRouteCandidate {
     instance_id: InstanceId,
     tool_name: String,
     service_name: String,
     namespace_applied: bool,
     name_mapped: bool,
+    weight: i32,
+}
+
+/// Gateway-facing tool: one list entry, one or more weighted upstream routes.
+/// Same exposed name keeps all candidates; call picks max weight, ties random.
+#[derive(Clone)]
+struct ToolBinding {
+    tool: Tool,
+    candidates: Vec<ToolRouteCandidate>,
+}
+
+impl ToolBinding {
+    fn pick_route(&self) -> &ToolRouteCandidate {
+        let max_weight = self
+            .candidates
+            .iter()
+            .map(|candidate| candidate.weight)
+            .max()
+            .unwrap_or(0);
+        let top: Vec<&ToolRouteCandidate> = self
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.weight == max_weight)
+            .collect();
+        debug_assert!(!top.is_empty());
+        if top.len() == 1 {
+            return top[0];
+        }
+        let index = rand::Rng::gen_range(&mut rand::thread_rng(), 0..top.len());
+        top[index]
+    }
+}
+
+#[cfg(test)]
+mod tool_binding_tests {
+    use super::*;
+
+    fn candidate(tool_name: &str, weight: i32) -> ToolRouteCandidate {
+        ToolRouteCandidate {
+            instance_id: "11111111-1111-1111-1111-111111111111".parse().unwrap(),
+            tool_name: tool_name.into(),
+            service_name: "svc".into(),
+            namespace_applied: false,
+            name_mapped: true,
+            weight,
+        }
+    }
+
+    #[test]
+    fn pick_route_keeps_only_highest_weight() {
+        let binding = ToolBinding {
+            tool: Tool::new_with_raw("search", None, Arc::new(Map::new())),
+            candidates: vec![candidate("a", 1), candidate("b", 5), candidate("c", 5)],
+        };
+        for _ in 0..20 {
+            let picked = binding.pick_route();
+            assert_eq!(picked.weight, 5);
+            assert!(picked.tool_name == "b" || picked.tool_name == "c");
+        }
+    }
 }
 
 struct GatewayToolsChangedNotification {
@@ -593,7 +652,7 @@ impl EventHandler for GatewayToolsChangedNotification {
 
 /// Mount-lifetime catalog invalidator: registered once per mount (unlike the
 /// per-subscription notification forwarder above). Local `McpToolsChanged`
-/// events (tool syncs, override writes) mark the snapshot dirty and warm the
+/// events (tool syncs, route writes) mark the snapshot dirty and warm the
 /// rebuild; the next request — or this warm task — swaps in fresh state.
 /// Holds the catalog weakly: once the mount is unmounted and all server
 /// clones drop, the bus's retain_alive reaps the handler on its next publish.
@@ -676,9 +735,9 @@ pub(crate) struct GatewayServer {
 #[derive(Default)]
 pub(crate) struct GatewayManagementTools {
     session_state_tools: Arc<HashMap<String, Tool>>,
-    tool_override_tools: Arc<HashMap<String, Tool>>,
-    prompt_override_tools: Arc<HashMap<String, Tool>>,
-    resource_override_tools: Arc<HashMap<String, Tool>>,
+    tool_route_tools: Arc<HashMap<String, Tool>>,
+    prompt_route_tools: Arc<HashMap<String, Tool>>,
+    resource_route_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
     kv_tools: Arc<HashMap<String, Tool>>,
@@ -695,7 +754,7 @@ pub(crate) struct CatalogSnapshot {
 
 /// The tool catalog of one mount. The snapshot is built at mount build and
 /// swapped by single-flight rebuilds; invalidation comes from local
-/// `McpToolsChanged` events (tool syncs, override writes) and from a
+/// `McpToolsChanged` events (tool syncs, route writes) and from a
 /// call-path lookup miss (detailed in the handler). Readers always clone the
 /// current Arc — a rebuild in flight never blocks them.
 pub(crate) struct GatewayCatalog {
@@ -733,9 +792,9 @@ fn merged_tools(
 ) -> Result<Vec<Tool>, String> {
     let families = [
         &management.session_state_tools,
-        &management.tool_override_tools,
-        &management.prompt_override_tools,
-        &management.resource_override_tools,
+        &management.tool_route_tools,
+        &management.prompt_route_tools,
+        &management.resource_route_tools,
         &management.openapi_tools,
         &management.service_tools,
         &management.kv_tools,

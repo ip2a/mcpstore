@@ -20,29 +20,29 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useI18n } from "@/lib/i18n-context"
 import type {
-  ComponentOverrideCommon,
-  PromptOverrideRule,
-  ResourceOverrideRule,
-  ResourceTemplateOverrideRule,
+  RouteFields,
+  PromptRouteRule,
+  ResourceRouteRule,
+  ResourceTemplateRouteRule,
   ScopeRef,
-  ToolArgumentOverride,
-  ToolOverrideRule,
+  ToolArgumentRoute,
+  ToolRouteRule,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  useDeletePromptOverride,
-  useDeleteResourceOverride,
-  useDeleteResourceTemplateOverride,
-  useDeleteToolOverride,
-  usePromptOverridesQuery,
-  useResourceOverridesQuery,
-  useResourceTemplateOverridesQuery,
-  useSetPromptOverride,
-  useSetResourceOverride,
-  useSetResourceTemplateOverride,
-  useSetToolOverride,
-  useToolOverridesQuery,
+  useDeletePromptRoute,
+  useDeleteResourceRoute,
+  useDeleteResourceTemplateRoute,
+  useDeleteToolRoute,
+  usePromptRoutesQuery,
+  useResourceRoutesQuery,
+  useResourceTemplateRoutesQuery,
+  useSetPromptRoute,
+  useSetResourceRoute,
+  useSetResourceTemplateRoute,
+  useSetToolRoute,
+  useToolRoutesQuery,
 } from "./queries"
 
 type Kind = "tool" | "prompt" | "resource" | "resource_template"
@@ -51,7 +51,7 @@ type Props = {
   serviceName: string
   componentKey: string
   scope: ScopeRef
-  existingOverride?: ComponentOverrideCommon
+  existingRoute?: RouteFields
   onSuccess?: () => void
 }
 
@@ -61,7 +61,7 @@ function sameScope(a: ScopeRef, b: ScopeRef) {
   )
 }
 function ruleKey(
-  item: ToolOverrideRule | PromptOverrideRule | ResourceOverrideRule | ResourceTemplateOverrideRule,
+  item: ToolRouteRule | PromptRouteRule | ResourceRouteRule | ResourceTemplateRouteRule,
   kind: Kind,
 ) {
   if (kind === "tool" && "tool_name" in item) return item.tool_name
@@ -71,35 +71,35 @@ function ruleKey(
   return ""
 }
 
-export function OverrideEditor({
+export function RouteEditor({
   kind,
   serviceName,
   componentKey,
   scope,
-  existingOverride,
+  existingRoute,
   onSuccess,
 }: Props) {
   const { t } = useI18n()
   const client = useQueryClient()
-  const tools = useToolOverridesQuery(kind === "tool")
-  const prompts = usePromptOverridesQuery(kind === "prompt")
-  const resources = useResourceOverridesQuery(kind === "resource")
-  const templates = useResourceTemplateOverridesQuery(kind === "resource_template")
+  const tools = useToolRoutesQuery(kind === "tool")
+  const prompts = usePromptRoutesQuery(kind === "prompt")
+  const resources = useResourceRoutesQuery(kind === "resource")
+  const templates = useResourceTemplateRoutesQuery(kind === "resource_template")
   const rules = useMemo(
     () =>
       ({
-        tool: tools.data?.overrides,
-        prompt: prompts.data?.overrides,
-        resource: resources.data?.overrides,
-        resource_template: templates.data?.overrides,
+        tool: tools.data?.routes,
+        prompt: prompts.data?.routes,
+        resource: resources.data?.routes,
+        resource_template: templates.data?.routes,
       })[kind] || [],
     [kind, tools.data, prompts.data, resources.data, templates.data],
   )
   const rule =
-    existingOverride ||
+    existingRoute ||
     (
       rules as Array<
-        ToolOverrideRule | PromptOverrideRule | ResourceOverrideRule | ResourceTemplateOverrideRule
+        ToolRouteRule | PromptRouteRule | ResourceRouteRule | ResourceTemplateRouteRule
       >
     ).find(
       (item) =>
@@ -114,31 +114,31 @@ export function OverrideEditor({
   const [enabled, setEnabled] = useState(true)
   const [mimeType, setMimeType] = useState("")
   const [iconsText, setIconsText] = useState("")
-  const [arguments_, setArguments] = useState<ToolArgumentOverride[]>([])
+  const [arguments_, setArguments] = useState<ToolArgumentRoute[]>([])
   useEffect(() => {
     setDisplayName(rule?.display_name || "")
     setDescription(rule?.description || "")
     setEnabled(rule?.enabled !== false)
     setMimeType(
-      (rule as ResourceOverrideRule | ResourceTemplateOverrideRule | undefined)?.mime_type || "",
+      (rule as ResourceRouteRule | ResourceTemplateRouteRule | undefined)?.mime_type || "",
     )
     setIconsText(rule?.icons ? JSON.stringify(rule.icons) : "")
     setArguments(
       kind === "tool"
-        ? ((rule as ToolOverrideRule | undefined)?.arguments || []).map((argument) => ({
+        ? ((rule as ToolRouteRule | undefined)?.arguments || []).map((argument) => ({
             ...argument,
           }))
         : [],
     )
   }, [rule, kind])
-  const setTool = useSetToolOverride(serviceName, componentKey, scope)
-  const delTool = useDeleteToolOverride(serviceName, componentKey, scope)
-  const setPrompt = useSetPromptOverride(serviceName, componentKey, scope)
-  const delPrompt = useDeletePromptOverride(serviceName, componentKey, scope)
-  const setResource = useSetResourceOverride(serviceName, componentKey, scope)
-  const delResource = useDeleteResourceOverride(serviceName, componentKey, scope)
-  const setTemplate = useSetResourceTemplateOverride(serviceName, componentKey, scope)
-  const delTemplate = useDeleteResourceTemplateOverride(serviceName, componentKey, scope)
+  const setTool = useSetToolRoute(serviceName, componentKey, scope)
+  const delTool = useDeleteToolRoute(serviceName, componentKey, scope)
+  const setPrompt = useSetPromptRoute(serviceName, componentKey, scope)
+  const delPrompt = useDeletePromptRoute(serviceName, componentKey, scope)
+  const setResource = useSetResourceRoute(serviceName, componentKey, scope)
+  const delResource = useDeleteResourceRoute(serviceName, componentKey, scope)
+  const setTemplate = useSetResourceTemplateRoute(serviceName, componentKey, scope)
+  const delTemplate = useDeleteResourceTemplateRoute(serviceName, componentKey, scope)
   const busy = [
     setTool,
     setPrompt,
@@ -157,7 +157,7 @@ export function OverrideEditor({
         ? prompts.isPending
         : kind === "resource"
           ? resources.isPending
-          : templates.isPending) && !existingOverride
+          : templates.isPending) && !existingRoute
   function patch() {
     const body: Record<string, unknown> = {}
     const supportedFields = [
@@ -179,7 +179,7 @@ export function OverrideEditor({
     if (enabled !== (rule?.enabled !== false)) body.enabled = enabled
     if (kind === "resource" || kind === "resource_template") {
       const old =
-        (rule as ResourceOverrideRule | ResourceTemplateOverrideRule | undefined)?.mime_type || ""
+        (rule as ResourceRouteRule | ResourceTemplateRouteRule | undefined)?.mime_type || ""
       if (mimeType !== old) body.mime_type = mimeType
     }
     const oldIcons = rule?.icons ? JSON.stringify(rule.icons) : ""
@@ -199,7 +199,7 @@ export function OverrideEditor({
   }
   async function refreshAffected() {
     await Promise.all([
-      client.invalidateQueries({ queryKey: queryKeys.overrides(kind) }),
+      client.invalidateQueries({ queryKey: queryKeys.routes(kind) }),
       client.invalidateQueries({
         queryKey: queryKeys.instance({ service_name: serviceName, scope }),
       }),
@@ -230,33 +230,33 @@ export function OverrideEditor({
     <>
       <Collapsible open={open} onOpenChange={setOpen} className="border-b pb-4">
         <CollapsibleTrigger className="flex w-full items-center justify-between py-1 text-left">
-          <span className="font-medium">{t("overrideEditor")}</span>
+          <span className="font-medium">{t("routeEditor")}</span>
           <ChevronDownIcon className="size-4 transition-transform data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-4 pt-3">
           <div className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor={`override-name-${componentKey}`}>{t("overrideDisplayName")}</Label>
+              <Label htmlFor={`route-name-${componentKey}`}>{t("routeDisplayName")}</Label>
               <Input
-                id={`override-name-${componentKey}`}
+                id={`route-name-${componentKey}`}
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor={`override-description-${componentKey}`}>
-                {t("overrideDescription")}
+              <Label htmlFor={`route-description-${componentKey}`}>
+                {t("routeDescription")}
               </Label>
               <Textarea
-                id={`override-description-${componentKey}`}
+                id={`route-description-${componentKey}`}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor={`override-icons-${componentKey}`}>{t("overrideIcons")}</Label>
+              <Label htmlFor={`route-icons-${componentKey}`}>{t("routeIcons")}</Label>
               <Textarea
-                id={`override-icons-${componentKey}`}
+                id={`route-icons-${componentKey}`}
                 className="font-mono text-xs"
                 placeholder='[{"src": "https://…/logo.svg", "mimeType": "image/svg+xml"}]'
                 value={iconsText}
@@ -265,29 +265,29 @@ export function OverrideEditor({
             </div>
             {kind === "resource" || kind === "resource_template" ? (
               <div className="grid gap-1.5">
-                <Label htmlFor={`override-mime-${componentKey}`}>{t("overrideMimeType")}</Label>
+                <Label htmlFor={`route-mime-${componentKey}`}>{t("routeMimeType")}</Label>
                 <Input
-                  id={`override-mime-${componentKey}`}
+                  id={`route-mime-${componentKey}`}
                   value={mimeType}
                   onChange={(event) => setMimeType(event.target.value)}
                 />
               </div>
             ) : null}
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor={`override-enabled-${componentKey}`}>{t("overrideEnabled")}</Label>
+              <Label htmlFor={`route-enabled-${componentKey}`}>{t("routeEnabled")}</Label>
               <Switch
-                id={`override-enabled-${componentKey}`}
+                id={`route-enabled-${componentKey}`}
                 checked={enabled}
                 onCheckedChange={setEnabled}
               />
             </div>
             {kind === "tool" ? (
-              <OverrideArgumentsEditor arguments_={arguments_} onChange={setArguments} />
+              <RouteArgumentsEditor arguments_={arguments_} onChange={setArguments} />
             ) : null}
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={() => void save()} disabled={busy || loading}>
-              {busy ? t("saving") : t("saveOverride")}
+              {busy ? t("saving") : t("saveRoute")}
             </Button>
             {rule ? (
               <Button
@@ -296,7 +296,7 @@ export function OverrideEditor({
                 onClick={() => setDeleteOpen(true)}
                 disabled={busy}
               >
-                {t("deleteOverride")}
+                {t("deleteRoute")}
               </Button>
             ) : null}
           </div>
@@ -305,7 +305,7 @@ export function OverrideEditor({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("deleteOverride")}</AlertDialogTitle>
+            <AlertDialogTitle>{t("deleteRoute")}</AlertDialogTitle>
             <AlertDialogDescription>{t("deleteConfirmDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -320,21 +320,21 @@ export function OverrideEditor({
   )
 }
 
-function OverrideArgumentsEditor({
+function RouteArgumentsEditor({
   arguments_,
   onChange,
 }: {
-  arguments_: ToolArgumentOverride[]
-  onChange: (next: ToolArgumentOverride[]) => void
+  arguments_: ToolArgumentRoute[]
+  onChange: (next: ToolArgumentRoute[]) => void
 }) {
   const { t } = useI18n()
-  function update(index: number, patch: Partial<ToolArgumentOverride>) {
+  function update(index: number, patch: Partial<ToolArgumentRoute>) {
     onChange(arguments_.map((argument, i) => (i === index ? { ...argument, ...patch } : argument)))
   }
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between">
-        <Label>{t("overrideArguments")}</Label>
+        <Label>{t("routeArguments")}</Label>
         <Button
           type="button"
           size="sm"
@@ -356,7 +356,7 @@ function OverrideArgumentsEditor({
           {t("addArgument")}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">{t("overrideArgumentsHint")}</p>
+      <p className="text-xs text-muted-foreground">{t("routeArgumentsHint")}</p>
       {arguments_.map((argument, index) => (
         <ArgumentRow
           key={argument.original_name ? String(argument.original_name) : `row-${index}`}
@@ -374,8 +374,8 @@ function ArgumentRow({
   onUpdate,
   onDelete,
 }: {
-  argument: ToolArgumentOverride
-  onUpdate: (patch: Partial<ToolArgumentOverride>) => void
+  argument: ToolArgumentRoute
+  onUpdate: (patch: Partial<ToolArgumentRoute>) => void
   onDelete: () => void
 }) {
   const { t } = useI18n()

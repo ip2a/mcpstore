@@ -295,7 +295,7 @@ pub struct SessionContextState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolArgumentOverride {
+pub struct ToolArgumentRoute {
     pub original_name: String,
     pub new_name: Option<String>,
     pub hidden: bool,
@@ -306,14 +306,14 @@ pub struct ToolArgumentOverride {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolOverrideSafetyPolicy {
-    #[serde(default = "ToolOverrideSafetyPolicy::default_reject_dangerous_argument_names")]
+pub struct ToolRouteSafetyPolicy {
+    #[serde(default = "ToolRouteSafetyPolicy::default_reject_dangerous_argument_names")]
     pub reject_dangerous_argument_names: bool,
-    #[serde(default = "ToolOverrideSafetyPolicy::default_dangerous_argument_name_patterns")]
+    #[serde(default = "ToolRouteSafetyPolicy::default_dangerous_argument_name_patterns")]
     pub dangerous_argument_name_patterns: Vec<String>,
 }
 
-impl Default for ToolOverrideSafetyPolicy {
+impl Default for ToolRouteSafetyPolicy {
     fn default() -> Self {
         Self {
             reject_dangerous_argument_names: Self::default_reject_dangerous_argument_names(),
@@ -322,7 +322,7 @@ impl Default for ToolOverrideSafetyPolicy {
     }
 }
 
-impl ToolOverrideSafetyPolicy {
+impl ToolRouteSafetyPolicy {
     fn default_reject_dangerous_argument_names() -> bool {
         true
     }

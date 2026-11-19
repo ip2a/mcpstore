@@ -37,17 +37,17 @@ pub(super) struct ServiceReadResourceQuery {
     uri: String,
 }
 
-/// `GET|PUT|DELETE /services/{name}/resource_overrides?scope=&uri=`.
+/// `GET|PUT|DELETE /services/{name}/resource_routes?scope=&uri=`.
 #[derive(Deserialize)]
-pub(super) struct ResourceOverrideQuery {
+pub(super) struct ResourceRouteQuery {
     #[serde(flatten)]
     scope: ScopeQuery,
     uri: String,
 }
 
-/// `GET|PUT|DELETE /services/{name}/resource_template_overrides?scope=&uri_template=`.
+/// `GET|PUT|DELETE /services/{name}/resource_template_routes?scope=&uri_template=`.
 #[derive(Deserialize)]
-pub(super) struct ResourceTemplateOverrideQuery {
+pub(super) struct ResourceTemplateRouteQuery {
     #[serde(flatten)]
     scope: ScopeQuery,
     uri_template: String,
@@ -842,21 +842,21 @@ pub(super) async fn service_clear_tool_policy(
     Ok(success("Tool policy cleared", json!({ "policy": null })))
 }
 
-// ===== Component override rules (global list + per service+scope management) =====
+// ===== Component route rules (global list + per service+scope management) =====
 
-pub(super) async fn store_list_tool_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
+pub(super) async fn store_list_tool_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
     let rules = state
         .store
-        .list_tool_overrides()
+        .list_tool_routes()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool override list retrieved successfully",
-        json!({ "overrides": rules, "total": rules.len() }),
+        "Tool route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
     ))
 }
 
-pub(super) async fn service_get_tool_override(
+pub(super) async fn service_get_tool_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -865,35 +865,35 @@ pub(super) async fn service_get_tool_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .get_tool_override(instance_id, &tool_name)
+        .get_tool_route(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool override retrieved successfully",
-        json!({ "override": rule }),
+        "Tool route retrieved successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_set_tool_override(
+pub(super) async fn service_set_tool_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
-    Json(patch): Json<ToolOverridePatch>,
+    Json(patch): Json<ToolRoutePatch>,
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .set_tool_override(instance_id, &tool_name, patch)
+        .set_tool_route(instance_id, &tool_name, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool override set successfully",
-        json!({ "override": rule }),
+        "Tool route set successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_delete_tool_override(
+pub(super) async fn service_remove_tool_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -902,28 +902,28 @@ pub(super) async fn service_delete_tool_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_tool_override(instance_id, &tool_name)
+        .remove_tool_route(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool override removed successfully",
+        "Tool route removed successfully",
         json!({ "status": "ok" }),
     ))
 }
 
-pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
+pub(super) async fn store_list_prompt_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
     let rules = state
         .store
-        .list_prompt_overrides()
+        .list_prompt_routes()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt override list retrieved successfully",
-        json!({ "overrides": rules, "total": rules.len() }),
+        "Prompt route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
     ))
 }
 
-pub(super) async fn service_get_prompt_override(
+pub(super) async fn service_get_prompt_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, prompt_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -932,35 +932,35 @@ pub(super) async fn service_get_prompt_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .get_prompt_override(instance_id, &prompt_name)
+        .get_prompt_route(instance_id, &prompt_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt override retrieved successfully",
-        json!({ "override": rule }),
+        "Prompt route retrieved successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_set_prompt_override(
+pub(super) async fn service_set_prompt_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, prompt_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
-    Json(patch): Json<PromptOverridePatch>,
+    Json(patch): Json<PromptRoutePatch>,
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .set_prompt_override(instance_id, &prompt_name, patch)
+        .set_prompt_route(instance_id, &prompt_name, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt override set successfully",
-        json!({ "override": rule }),
+        "Prompt route set successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_delete_prompt_override(
+pub(super) async fn service_remove_prompt_route(
     State(state): State<Arc<ApiState>>,
     Path((service_name, prompt_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -969,149 +969,149 @@ pub(super) async fn service_delete_prompt_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_prompt_override(instance_id, &prompt_name)
+        .remove_prompt_route(instance_id, &prompt_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt override removed successfully",
+        "Prompt route removed successfully",
         json!({ "status": "ok" }),
     ))
 }
 
-pub(super) async fn store_list_resource_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
+pub(super) async fn store_list_resource_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
     let rules = state
         .store
-        .list_resource_overrides()
+        .list_resource_routes()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource override list retrieved successfully",
-        json!({ "overrides": rules, "total": rules.len() }),
+        "Resource route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
     ))
 }
 
-pub(super) async fn service_get_resource_override(
+pub(super) async fn service_get_resource_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceOverrideQuery>,
+    Query(query): Query<ResourceRouteQuery>,
 ) -> ApiResult {
     let uri = query.uri;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .get_resource_override(instance_id, &uri)
+        .get_resource_route(instance_id, &uri)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource override retrieved successfully",
-        json!({ "override": rule }),
+        "Resource route retrieved successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_set_resource_override(
+pub(super) async fn service_set_resource_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceOverrideQuery>,
-    Json(patch): Json<ResourceOverridePatch>,
+    Query(query): Query<ResourceRouteQuery>,
+    Json(patch): Json<ResourceRoutePatch>,
 ) -> ApiResult {
     let uri = query.uri;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .set_resource_override(instance_id, &uri, patch)
+        .set_resource_route(instance_id, &uri, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource override set successfully",
-        json!({ "override": rule }),
+        "Resource route set successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_delete_resource_override(
+pub(super) async fn service_remove_resource_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceOverrideQuery>,
+    Query(query): Query<ResourceRouteQuery>,
 ) -> ApiResult {
     let uri = query.uri;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_resource_override(instance_id, &uri)
+        .remove_resource_route(instance_id, &uri)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource override removed successfully",
+        "Resource route removed successfully",
         json!({ "status": "ok" }),
     ))
 }
 
-pub(super) async fn store_list_resource_template_overrides(
+pub(super) async fn store_list_resource_template_routes(
     State(state): State<Arc<ApiState>>,
 ) -> ApiResult {
     let rules = state
         .store
-        .list_resource_template_overrides()
+        .list_resource_template_routes()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
         "Resource template override list retrieved successfully",
-        json!({ "overrides": rules, "total": rules.len() }),
+        json!({ "routes": rules, "total": rules.len() }),
     ))
 }
 
-pub(super) async fn service_get_resource_template_override(
+pub(super) async fn service_get_resource_template_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceTemplateOverrideQuery>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
 ) -> ApiResult {
     let uri_template = query.uri_template;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .get_resource_template_override(instance_id, &uri_template)
+        .get_resource_template_route(instance_id, &uri_template)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
         "Resource template override retrieved successfully",
-        json!({ "override": rule }),
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_set_resource_template_override(
+pub(super) async fn service_set_resource_template_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceTemplateOverrideQuery>,
-    Json(patch): Json<ResourceTemplateOverridePatch>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
+    Json(patch): Json<ResourceTemplateRoutePatch>,
 ) -> ApiResult {
     let uri_template = query.uri_template;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .set_resource_template_override(instance_id, &uri_template, patch)
+        .set_resource_template_route(instance_id, &uri_template, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
         "Resource template override set successfully",
-        json!({ "override": rule }),
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_delete_resource_template_override(
+pub(super) async fn service_remove_resource_template_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
-    Query(query): Query<ResourceTemplateOverrideQuery>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
 ) -> ApiResult {
     let uri_template = query.uri_template;
     let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_resource_template_override(instance_id, &uri_template)
+        .remove_resource_template_route(instance_id, &uri_template)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1120,9 +1120,9 @@ pub(super) async fn service_delete_resource_template_override(
     ))
 }
 
-// ===== Service override rules (gateway-facing service projection) =====
+// ===== Service route rules (gateway-facing service projection) =====
 
-pub(super) async fn service_get_service_override(
+pub(super) async fn service_get_service_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
     Query(query): Query<ScopeQuery>,
@@ -1131,35 +1131,35 @@ pub(super) async fn service_get_service_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .get_service_override(instance_id)
+        .get_service_route(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Service override retrieved successfully",
-        json!({ "override": rule }),
+        "Service route retrieved successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_set_service_override(
+pub(super) async fn service_set_service_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
     Query(query): Query<ScopeQuery>,
-    Json(patch): Json<ServiceOverridePatch>,
+    Json(patch): Json<ServiceRoutePatch>,
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
-        .set_service_override(instance_id, patch)
+        .set_service_route(instance_id, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Service override set successfully",
-        json!({ "override": rule }),
+        "Service route set successfully",
+        json!({ "route": rule }),
     ))
 }
 
-pub(super) async fn service_delete_service_override(
+pub(super) async fn service_remove_service_route(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
     Query(query): Query<ScopeQuery>,
@@ -1168,11 +1168,11 @@ pub(super) async fn service_delete_service_override(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_service_override(instance_id)
+        .remove_service_route(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Service override removed successfully",
+        "Service route removed successfully",
         json!({ "status": "ok" }),
     ))
 }

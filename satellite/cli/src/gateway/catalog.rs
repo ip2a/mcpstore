@@ -139,21 +139,21 @@ pub(super) fn projected_catalog_uri(
     Ok(uri.into())
 }
 
-/// Effective service overrides indexed by instance, shared by every catalog
+/// Effective service routes indexed by instance, shared by every catalog
 /// projection/call path so names round-trip. Corrupt stored rules are warned
 /// and skipped — one bad row must not take down the whole catalog.
-pub(super) async fn service_override_map(
+pub(super) async fn service_route_map(
     store: &MCPStore,
-) -> Result<HashMap<InstanceId, mcpstore::ServiceOverrideRule>, mcpstore::Error> {
+) -> Result<HashMap<InstanceId, mcpstore::ServiceRouteRule>, mcpstore::Error> {
     Ok(store
-        .list_service_overrides_lenient()
+        .list_service_routes_lenient()
         .await?
         .into_iter()
         .map(|rule| (rule.instance_id, rule))
         .collect())
 }
 
-/// Project the raw catalog payloads through per-instance service overrides:
+/// Project the raw catalog payloads through per-instance service routes:
 /// disabled services drop out entirely, overridden services expose their
 /// display name in place of the real one (tool prefixes, namespaces, and
 /// reverse resolution all see the projected name). Call identically on the
@@ -162,16 +162,16 @@ pub(super) async fn service_override_map(
 /// The real service name is preserved under `real_service_name` for
 /// observability surfaces (call log) that must stay joinable with the
 /// services page.
-pub(super) fn apply_service_overrides(
+pub(super) fn apply_service_routes(
     payloads: Vec<Value>,
-    overrides: &HashMap<InstanceId, mcpstore::ServiceOverrideRule>,
+    routes: &HashMap<InstanceId, mcpstore::ServiceRouteRule>,
 ) -> Result<Vec<Value>, ErrorData> {
     payloads
         .into_iter()
         .map(|mut payload| {
             let instance_id = read_required_instance_id(&payload, "instance_id")
                 .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
-            match overrides.get(&instance_id) {
+            match routes.get(&instance_id) {
                 Some(rule) if !rule.common.enabled.unwrap_or(true) => Ok(None),
                 Some(rule) if rule.common.display_name.is_some() => {
                     if let Some(object) = payload.as_object_mut() {
@@ -193,66 +193,75 @@ pub(super) fn apply_service_overrides(
         .map(|payloads| payloads.into_iter().flatten().collect())
 }
 
-/// Effective tool overrides indexed by (instance, raw tool name). Lenient on
+/// Effective tool routes indexed by (instance, raw tool name). Lenient on
 /// corrupt rows for the same reason as the service map.
-pub(super) async fn tool_override_map(
+pub(super) async fn tool_route_map(
     store: &MCPStore,
-) -> Result<HashMap<(InstanceId, String), mcpstore::ToolOverrideRule>, mcpstore::Error> {
+) -> Result<HashMap<(InstanceId, String), mcpstore::ToolRouteRule>, mcpstore::Error> {
     Ok(store
-        .list_tool_overrides_lenient()
+        .list_tool_routes_lenient()
         .await?
         .into_iter()
         .map(|rule| ((rule.instance_id.clone(), rule.tool_name.clone()), rule))
         .collect())
 }
 
-/// Project tool payloads through enabled tool overrides: display_name replaces
-/// the exposed name (the canonical raw name stays in `tool_name` for upstream
-/// calls), description/icons ride along. A disabled override is inactive —
-/// pass-through, matching the daemon listing semantics. Call on the same
-/// payload slice as the service projection so names round-trip.
-pub(super) fn apply_tool_overrides(
-    payloads: &mut [Value],
-    overrides: &HashMap<(InstanceId, String), mcpstore::ToolOverrideRule>,
-) {
-    for payload in payloads.iter_mut() {
-        let Some(instance_id) = read_required_instance_id(payload, "instance_id").ok() else {
+/// Project tool payloads through tool routes: display_name replaces the
+/// exposed name (canonical raw name stays in `tool_name`), description/icons/
+/// weight ride along. `enabled=false` **hides** the tool from the gateway
+/// (same as prompts/services) — filtered out of the returned vec.
+pub(super) fn apply_tool_routes(
+    payloads: Vec<Value>,
+    routes: &HashMap<(InstanceId, String), mcpstore::ToolRouteRule>,
+) -> Vec<Value> {
+    let mut out = Vec::with_capacity(payloads.len());
+    for mut payload in payloads {
+        let Some(instance_id) = read_required_instance_id(&payload, "instance_id").ok() else {
+            out.push(payload);
             continue;
         };
-        let Some(name) = payload
-            .get("name")
+        let lookup_name = payload
+            .get("tool_name")
             .and_then(Value::as_str)
-            .map(str::to_string)
-        else {
+            .or_else(|| payload.get("name").and_then(Value::as_str))
+            .map(str::to_string);
+        let Some(name) = lookup_name else {
+            out.push(payload);
             continue;
         };
-        let Some(rule) = overrides.get(&(instance_id, name)) else {
+        let Some(rule) = routes.get(&(instance_id, name)) else {
+            out.push(payload);
             continue;
         };
         if !rule.common.enabled.unwrap_or(true) {
             continue;
         }
-        let Some(object) = payload.as_object_mut() else {
-            continue;
-        };
-        if let Some(display) = rule
-            .common
-            .display_name
-            .as_ref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            object.insert("name".to_string(), Value::String(display.clone()));
-        }
-        if let Some(description) = rule.common.description.as_ref() {
+        if let Some(object) = payload.as_object_mut() {
+            if let Some(display) = rule
+                .common
+                .display_name
+                .as_ref()
+                .filter(|name| !name.trim().is_empty())
+            {
+                object.insert("name".to_string(), Value::String(display.clone()));
+            }
+            if let Some(description) = rule.common.description.as_ref() {
+                object.insert(
+                    "description".to_string(),
+                    Value::String(description.clone()),
+                );
+            }
+            if let Some(icons) = rule.common.icons.as_ref() {
+                object.insert("icons".to_string(), icons.clone());
+            }
             object.insert(
-                "description".to_string(),
-                Value::String(description.clone()),
+                "weight".to_string(),
+                Value::Number(rule.common.weight.into()),
             );
         }
-        if let Some(icons) = rule.common.icons.as_ref() {
-            object.insert("icons".to_string(), icons.clone());
-        }
+        out.push(payload);
     }
+    out
 }
 
 pub(super) fn service_namespace(service_name: &str) -> String {
@@ -288,10 +297,10 @@ pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> S
 /// Cap tool names at this many bytes, matching hub projection.
 pub(super) const MAX_TOOL_NAME: usize = 64;
 
-/// Resolve the exposed tool name: `<service>__<tool>`, 64-byte rune-safe
-/// truncated, with `_2`/`_3`, … appended on collision (budget recomputed so
-/// the suffixed name still fits in 64 bytes) instead of hard-failing the
-/// gateway build.
+/// Legacy namespaced namespaced tool name helper (kept for unit tests /
+/// reference). Live gateway projection now allows same exposed names and
+/// routes by override `weight` instead of auto-suffixing collisions.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn exposed_tool_name(
     service_name: &str,
     original_name: &str,
@@ -313,7 +322,7 @@ pub(super) fn exposed_tool_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpstore::ComponentOverrideCommon;
+    use mcpstore::RouteFields;
 
     fn payload() -> Value {
         serde_json::json!({
@@ -328,9 +337,9 @@ mod tests {
     fn rule(
         instance: &str,
         tool: &str,
-        common: ComponentOverrideCommon,
-    ) -> mcpstore::ToolOverrideRule {
-        mcpstore::ToolOverrideRule {
+        common: RouteFields,
+    ) -> mcpstore::ToolRouteRule {
+        mcpstore::ToolRouteRule {
             instance_id: instance.parse().unwrap(),
             service_name: "filesystem".into(),
             scope: ScopeRef::Store,
@@ -345,7 +354,7 @@ mod tests {
 
     #[test]
     fn enabled_display_name_replaces_exposed_name() {
-        let mut payloads = vec![payload()];
+        let payloads = vec![payload()];
         let mut map = HashMap::new();
         map.insert(
             (
@@ -353,21 +362,23 @@ mod tests {
                 "write_file".to_string(),
             ),
             rule("11111111-1111-1111-1111-111111111111", "write_file", {
-                let mut common = ComponentOverrideCommon::default();
+                let mut common = RouteFields::default();
                 common.display_name = Some("safe_write".into());
                 common.description = Some("renamed".into());
+                common.weight = 3;
                 common
             }),
         );
-        apply_tool_overrides(&mut payloads, &map);
+        let payloads = apply_tool_routes(payloads, &map);
         assert_eq!(payloads[0]["name"], "safe_write");
         assert_eq!(payloads[0]["tool_name"], "write_file");
         assert_eq!(payloads[0]["description"], "renamed");
+        assert_eq!(payloads[0]["weight"], 3);
     }
 
     #[test]
-    fn disabled_override_is_pass_through() {
-        let mut payloads = vec![payload()];
+    fn disabled_override_hides_tool() {
+        let payloads = vec![payload()];
         let mut map = HashMap::new();
         map.insert(
             (
@@ -375,13 +386,13 @@ mod tests {
                 "write_file".to_string(),
             ),
             rule("11111111-1111-1111-1111-111111111111", "write_file", {
-                let mut common = ComponentOverrideCommon::default();
+                let mut common = RouteFields::default();
                 common.display_name = Some("safe_write".into());
                 common.enabled = Some(false);
                 common
             }),
         );
-        apply_tool_overrides(&mut payloads, &map);
-        assert_eq!(payloads[0]["name"], "write_file");
+        let payloads = apply_tool_routes(payloads, &map);
+        assert!(payloads.is_empty());
     }
 }

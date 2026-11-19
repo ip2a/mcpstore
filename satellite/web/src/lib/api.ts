@@ -104,24 +104,27 @@ export type AuthOperationResult = {
 
 export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string }
 
-export type ToolArgumentOverride = Record<string, unknown>
-export type ComponentOverrideCommon = {
+export type ToolArgumentRoute = Record<string, unknown>
+export type RouteFields = {
   display_name?: string
   description?: string
   meta?: unknown
   annotations?: unknown
   icons?: unknown
   tags?: string[]
+  /** false = hide from gateway; restore by deleting the route entry */
   enabled?: boolean
+  /** Gateway same-name routing weight; default 0. Highest wins; ties random. */
+  weight?: number
 }
-export type ToolOverridePatch = ComponentOverrideCommon & {
-  arguments?: ToolArgumentOverride[]
+export type ToolRoutePatch = RouteFields & {
+  arguments?: ToolArgumentRoute[]
   safety_policy?: unknown
 }
-export type PromptOverridePatch = ComponentOverrideCommon
-export type ResourceOverridePatch = ComponentOverrideCommon & { mime_type?: string }
-export type ResourceTemplateOverridePatch = ResourceOverridePatch
-export type ToolOverrideRule = ToolOverridePatch & {
+export type PromptRoutePatch = RouteFields
+export type ResourceRoutePatch = RouteFields & { mime_type?: string }
+export type ResourceTemplateRoutePatch = ResourceRoutePatch
+export type ToolRouteRule = ToolRoutePatch & {
   instance_id: string
   service_name: string
   scope: ScopeRef
@@ -129,7 +132,7 @@ export type ToolOverrideRule = ToolOverridePatch & {
   updated_at: number
   version: number
 }
-export type PromptOverrideRule = PromptOverridePatch & {
+export type PromptRouteRule = PromptRoutePatch & {
   instance_id: string
   service_name: string
   scope: ScopeRef
@@ -137,7 +140,7 @@ export type PromptOverrideRule = PromptOverridePatch & {
   updated_at: number
   version: number
 }
-export type ResourceOverrideRule = ResourceOverridePatch & {
+export type ResourceRouteRule = ResourceRoutePatch & {
   instance_id: string
   service_name: string
   scope: ScopeRef
@@ -145,7 +148,7 @@ export type ResourceOverrideRule = ResourceOverridePatch & {
   updated_at: number
   version: number
 }
-export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
+export type ResourceTemplateRouteRule = ResourceTemplateRoutePatch & {
   instance_id: string
   service_name: string
   scope: ScopeRef
@@ -153,8 +156,8 @@ export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
   updated_at: number
   version: number
 }
-export type ServiceOverridePatch = ComponentOverrideCommon
-export type ServiceOverrideRule = ServiceOverridePatch & {
+export type ServiceRoutePatch = RouteFields
+export type ServiceRouteRule = ServiceRoutePatch & {
   instance_id: string
   service_name: string
   scope: ScopeRef
@@ -199,7 +202,7 @@ export type ScopeCatalogPage<T> = {
 export type ToolInfo = {
   name: string
   original_name?: string
-  /** Raw registry name when the list is override-projected (tools/list). */
+  /** Raw registry name when the list is route-projected (tools/list). */
   tool_name?: string
   title?: string | null
   description: string
@@ -287,11 +290,11 @@ export type ServiceInstance = {
   applied_config_revision: ConfigRevision | null
   added_time: number
   mcp?: McpServerMetadata | null
-  /** List enrichment: override display_name, else service_name. */
+  /** List enrichment: route display_name, else service_name. */
   display_name?: string
-  /** List enrichment: override description, else effective_config.description. */
+  /** List enrichment: route description, else effective_config.description. */
   description?: string
-  /** List enrichment: override icons when set (else use mcp.serverInfo.icons). */
+  /** List enrichment: route icons when set (else use mcp.serverInfo.icons). */
   icons?: unknown
   /** List enrichment: tools.len() — prefer over re-fetching /tools/list for counts. */
   tool_count?: number

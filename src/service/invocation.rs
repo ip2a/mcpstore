@@ -274,7 +274,7 @@ impl ExecutionEngine {
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'a>> {
         // No registry refresh here: every read below is either a direct KV read
-        // (placement, tool projection, overrides, visibility policy) or
+        // (placement, tool projection, routes, visibility policy) or
         // fill-if-missing hydration (ensure_instance_connected / require_instance).
         // A full-table reload per execution is redundant on private stores and a
         // decode storm on shared ones.
@@ -314,7 +314,7 @@ impl ExecutionEngine {
         // instance with no projection yet connects once so tool sync fills it.
         store.ensure_instance_resolvable(instance_id).await?;
         let (instance_id, tool_name, args) = store
-            .resolve_override_tool_call(instance_id, tool_name, args)
+            .resolve_routed_tool_call(instance_id, tool_name, args)
             .await?;
         store
             .ensure_context_tool_allowed(instance_id, &tool_name)

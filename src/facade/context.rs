@@ -7,10 +7,10 @@ use crate::config::{
     McpConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use crate::identity::{InstanceId, ScopeRef};
-use crate::overrides::{
-    PromptOverridePatch, PromptOverrideRule, ResourceOverridePatch, ResourceOverrideRule,
-    ResourceTemplateOverridePatch, ResourceTemplateOverrideRule, ToolOverridePatch,
-    ToolOverrideRule,
+use crate::routing::{
+    PromptRoutePatch, PromptRouteRule, ResourceRoutePatch, ResourceRouteRule,
+    ResourceTemplateRoutePatch, ResourceTemplateRouteRule, ToolRoutePatch,
+    ToolRouteRule,
 };
 use crate::perspective::{resolve_tool, AvailableTool};
 use crate::state::ServiceState;
@@ -481,58 +481,58 @@ impl Service {
         )
     }
 
-    pub async fn list_tool_overrides(&self) -> Result<Vec<ToolOverrideRule>> {
+    pub async fn list_tool_routes(&self) -> Result<Vec<ToolRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         Ok(self
             .context
             .store
-            .list_tool_overrides()
+            .list_tool_routes()
             .await?
             .into_iter()
             .filter(|rule| rule.instance_id == self.instance_id)
             .collect())
     }
 
-    pub async fn list_prompt_overrides(&self) -> Result<Vec<PromptOverrideRule>> {
+    pub async fn list_prompt_routes(&self) -> Result<Vec<PromptRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         Ok(self
             .context
             .store
-            .list_prompt_overrides()
+            .list_prompt_routes()
             .await?
             .into_iter()
             .filter(|rule| rule.instance_id == self.instance_id)
             .collect())
     }
 
-    pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
+    pub async fn list_resource_routes(&self) -> Result<Vec<ResourceRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         Ok(self
             .context
             .store
-            .list_resource_overrides()
+            .list_resource_routes()
             .await?
             .into_iter()
             .filter(|rule| rule.instance_id == self.instance_id)
             .collect())
     }
 
-    pub async fn list_resource_template_overrides(
+    pub async fn list_resource_template_routes(
         &self,
-    ) -> Result<Vec<ResourceTemplateOverrideRule>> {
+    ) -> Result<Vec<ResourceTemplateRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         Ok(self
             .context
             .store
-            .list_resource_template_overrides()
+            .list_resource_template_routes()
             .await?
             .into_iter()
             .filter(|rule| rule.instance_id == self.instance_id)
@@ -561,23 +561,23 @@ impl Tool {
             .await
     }
 
-    pub async fn set_override(&self, patch: ToolOverridePatch) -> Result<ToolOverrideRule> {
+    pub async fn set_override(&self, patch: ToolRoutePatch) -> Result<ToolRouteRule> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         self.context
             .store
-            .set_tool_override(self.instance_id, &self.tool_name, patch)
+            .set_tool_route(self.instance_id, &self.tool_name, patch)
             .await
     }
 
-    pub async fn get_override(&self) -> Result<Option<ToolOverrideRule>> {
+    pub async fn get_override(&self) -> Result<Option<ToolRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         self.context
             .store
-            .get_tool_override(self.instance_id, &self.tool_name)
+            .get_tool_route(self.instance_id, &self.tool_name)
             .await
     }
 
@@ -587,7 +587,7 @@ impl Tool {
             .await?;
         self.context
             .store
-            .delete_tool_override(self.instance_id, &self.tool_name)
+            .remove_tool_route(self.instance_id, &self.tool_name)
             .await
     }
 
@@ -665,40 +665,40 @@ impl Prompt {
             .await
     }
 
-    pub async fn set_override(&self, patch: PromptOverridePatch) -> Result<PromptOverrideRule> {
+    pub async fn set_override(&self, patch: PromptRoutePatch) -> Result<PromptRouteRule> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Prompt,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Prompt,
                 self.instance_id,
                 &self.prompt_name,
             )
             .await?;
         self.context
             .store
-            .set_prompt_override(self.instance_id, &key, patch)
+            .set_prompt_route(self.instance_id, &key, patch)
             .await
     }
-    pub async fn get_override(&self) -> Result<Option<PromptOverrideRule>> {
+    pub async fn get_override(&self) -> Result<Option<PromptRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Prompt,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Prompt,
                 self.instance_id,
                 &self.prompt_name,
             )
             .await?;
         self.context
             .store
-            .get_prompt_override(self.instance_id, &key)
+            .get_prompt_route(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
@@ -708,15 +708,15 @@ impl Prompt {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Prompt,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Prompt,
                 self.instance_id,
                 &self.prompt_name,
             )
             .await?;
         self.context
             .store
-            .delete_prompt_override(self.instance_id, &key)
+            .remove_prompt_route(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
@@ -726,8 +726,8 @@ impl Prompt {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Prompt,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Prompt,
                 self.instance_id,
                 &self.prompt_name,
             )
@@ -744,8 +744,8 @@ impl Prompt {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Prompt,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Prompt,
                 self.instance_id,
                 &self.prompt_name,
             )
@@ -794,40 +794,40 @@ impl Resource {
             .read_resource_scoped(self.instance_id, &self.uri)
             .await
     }
-    pub async fn set_override(&self, patch: ResourceOverridePatch) -> Result<ResourceOverrideRule> {
+    pub async fn set_override(&self, patch: ResourceRoutePatch) -> Result<ResourceRouteRule> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Resource,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Resource,
                 self.instance_id,
                 &self.uri,
             )
             .await?;
         self.context
             .store
-            .set_resource_override(self.instance_id, &key, patch)
+            .set_resource_route(self.instance_id, &key, patch)
             .await
     }
-    pub async fn get_override(&self) -> Result<Option<ResourceOverrideRule>> {
+    pub async fn get_override(&self) -> Result<Option<ResourceRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Resource,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Resource,
                 self.instance_id,
                 &self.uri,
             )
             .await?;
         self.context
             .store
-            .get_resource_override(self.instance_id, &key)
+            .get_resource_route(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
@@ -837,15 +837,15 @@ impl Resource {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Resource,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Resource,
                 self.instance_id,
                 &self.uri,
             )
             .await?;
         self.context
             .store
-            .delete_resource_override(self.instance_id, &key)
+            .remove_resource_route(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
@@ -855,8 +855,8 @@ impl Resource {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Resource,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Resource,
                 self.instance_id,
                 &self.uri,
             )
@@ -873,8 +873,8 @@ impl Resource {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::Resource,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::Resource,
                 self.instance_id,
                 &self.uri,
             )
@@ -920,41 +920,41 @@ impl ResourceTemplate {
     }
     pub async fn set_override(
         &self,
-        patch: ResourceTemplateOverridePatch,
-    ) -> Result<ResourceTemplateOverrideRule> {
+        patch: ResourceTemplateRoutePatch,
+    ) -> Result<ResourceTemplateRouteRule> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::ResourceTemplate,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::ResourceTemplate,
                 self.instance_id,
                 &self.uri_template,
             )
             .await?;
         self.context
             .store
-            .set_resource_template_override(self.instance_id, &key, patch)
+            .set_resource_template_route(self.instance_id, &key, patch)
             .await
     }
-    pub async fn get_override(&self) -> Result<Option<ResourceTemplateOverrideRule>> {
+    pub async fn get_override(&self) -> Result<Option<ResourceTemplateRouteRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::ResourceTemplate,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::ResourceTemplate,
                 self.instance_id,
                 &self.uri_template,
             )
             .await?;
         self.context
             .store
-            .get_resource_template_override(self.instance_id, &key)
+            .get_resource_template_route(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
@@ -964,15 +964,15 @@ impl ResourceTemplate {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::ResourceTemplate,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::ResourceTemplate,
                 self.instance_id,
                 &self.uri_template,
             )
             .await?;
         self.context
             .store
-            .delete_resource_template_override(self.instance_id, &key)
+            .remove_resource_template_route(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
@@ -982,8 +982,8 @@ impl ResourceTemplate {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::ResourceTemplate,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::ResourceTemplate,
                 self.instance_id,
                 &self.uri_template,
             )
@@ -1000,8 +1000,8 @@ impl ResourceTemplate {
         let key = self
             .context
             .store
-            .resolve_component_override_key(
-                crate::overrides::ComponentKind::ResourceTemplate,
+            .resolve_component_route_key(
+                crate::routing::ComponentKind::ResourceTemplate,
                 self.instance_id,
                 &self.uri_template,
             )

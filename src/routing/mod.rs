@@ -3,8 +3,12 @@ use serde_json::Value;
 
 use crate::store::prelude::*;
 
+fn is_default_weight(weight: &i32) -> bool {
+    *weight == 0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ComponentOverrideCommon {
+pub struct RouteFields {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,11 +21,18 @@ pub struct ComponentOverrideCommon {
     pub icons: Option<Value>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Gateway visibility: `Some(false)` hides this component from the external
+    /// catalog (store still keeps the real upstream). Restore projection by
+    /// deleting the route entry — not by flipping this flag as "passthrough".
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// Gateway same-name routing weight (default 0). Call path keeps only the
+    /// highest weight; ties among that score are chosen at random.
+    #[serde(default, skip_serializing_if = "is_default_weight")]
+    pub weight: i32,
 }
 
-impl ComponentOverrideCommon {
+impl RouteFields {
     pub fn with_display_name(mut self, value: impl Into<String>) -> Self {
         self.display_name = Some(value.into());
         self
@@ -50,6 +61,10 @@ impl ComponentOverrideCommon {
         self.enabled = Some(value);
         self
     }
+    pub fn with_weight(mut self, value: i32) -> Self {
+        self.weight = value;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -63,17 +78,17 @@ pub enum ComponentKind {
 impl ComponentKind {
     pub fn state_type(self) -> &'static str {
         match self {
-            Self::Tool => "tool_overrides",
-            Self::Prompt => "prompt_overrides",
-            Self::Resource => "resource_overrides",
-            Self::ResourceTemplate => "resource_template_overrides",
+            Self::Tool => "tool_routes",
+            Self::Prompt => "prompt_routes",
+            Self::Resource => "resource_routes",
+            Self::ResourceTemplate => "resource_template_routes",
         }
     }
 }
 
-pub(crate) fn apply_meta_override(
+pub(crate) fn apply_route_meta(
     value: &mut serde_json::Map<String, Value>,
-    common: &ComponentOverrideCommon,
+    common: &RouteFields,
 ) {
     if let Some(name) = &common.display_name {
         value.insert("name".into(), name.clone().into());
@@ -92,16 +107,16 @@ pub(crate) fn apply_meta_override(
     }
 }
 
-pub(crate) fn is_override_enabled(common: &ComponentOverrideCommon) -> bool {
+pub(crate) fn is_route_visible(common: &RouteFields) -> bool {
     common.enabled.unwrap_or(true)
 }
 
 impl MCPStore {
-    /// Fire `McpToolsChanged` after an override write so projection consumers
+    /// Fire `McpToolsChanged` after an route write so projection consumers
     /// (the gateway mount catalog, subscription notifications) rebuild
     /// promptly. The payload carries the instance so per-instance mounts can
     /// filter; `wait=false` keeps the write path non-blocking.
-    pub(crate) async fn publish_override_changed(
+    pub(crate) async fn publish_route_changed(
         &self,
         instance_id: InstanceId,
         service_name: &str,
@@ -113,7 +128,7 @@ impl MCPStore {
                 crate::events::Event::new(
                     crate::events::types::EventKind::McpToolsChanged.as_str(),
                     serde_json::json!({
-                        "reason": "override_changed",
+                        "reason": "route_changed",
                         "instanceId": instance_id.to_string(),
                         "service": service_name,
                     }),
@@ -123,9 +138,9 @@ impl MCPStore {
             .await;
     }
 
-    /// Incrementally update an override rule's enabled field using version CAS.
+    /// Incrementally update an route rule's enabled field using version CAS.
     /// The existing rule is preserved; a conflicting write is retried once.
-    pub async fn patch_component_enabled(
+    pub async fn patch_component_visibility(
         &self,
         kind: ComponentKind,
         instance_id: InstanceId,
@@ -134,7 +149,7 @@ impl MCPStore {
     ) -> Result<()> {
         self.validate_component_key(kind, instance_id, original_key)
             .await?;
-        let key = Self::component_override_key(instance_id, original_key);
+        let key = Self::component_route_key(instance_id, original_key);
         for attempt in 0..8 {
             let Some(value) = self
                 .kernel
@@ -162,14 +177,14 @@ impl MCPStore {
                 _ => {
                     return Err(Error::new(
                         FailureCode::Internal,
-                        format!("{kind:?} override state is not an object"),
+                        format!("{kind:?} route state is not an object"),
                     ))
                 }
             };
             let version = obj.get("version").and_then(Value::as_u64).ok_or_else(|| {
                 Error::new(
                     FailureCode::Internal,
-                    format!("{kind:?} override missing version"),
+                    format!("{kind:?} route missing version"),
                 )
             })?;
             obj.insert("enabled".into(), Value::Bool(enabled));
@@ -196,7 +211,7 @@ impl MCPStore {
                             .await
                             .map(|instance| instance.service_name);
                         if let Some(service_name) = service_name.as_deref() {
-                            self.publish_override_changed(instance_id, service_name)
+                            self.publish_route_changed(instance_id, service_name)
                                 .await;
                         }
                     }
@@ -206,7 +221,7 @@ impl MCPStore {
                 Err(crate::kv::KvError::Conflict(_)) => {
                     return Err(Error::new(
                         FailureCode::Internal,
-                        format!("{kind:?} override concurrent modification, retry exhausted"),
+                        format!("{kind:?} route concurrent modification, retry exhausted"),
                     ))
                 }
                 Err(error) => return Err(Error::from(error)),
@@ -253,7 +268,7 @@ impl MCPStore {
         }
     }
 
-    pub(crate) async fn resolve_component_override_key(
+    pub(crate) async fn resolve_component_route_key(
         &self,
         kind: ComponentKind,
         instance_id: InstanceId,
@@ -289,7 +304,7 @@ impl MCPStore {
             .await
     }
 
-    pub(crate) fn component_override_key(instance_id: InstanceId, original_key: &str) -> String {
+    pub(crate) fn component_route_key(instance_id: InstanceId, original_key: &str) -> String {
         format!("{instance_id}:{original_key}")
     }
 
@@ -302,34 +317,34 @@ impl MCPStore {
     ) -> Result<()> {
         match kind {
             ComponentKind::Tool => {
-                self.set_tool_override(
+                self.set_tool_route(
                     instance_id,
                     key,
-                    ToolOverridePatch::default().enabled(enabled),
+                    ToolRoutePatch::default().enabled(enabled),
                 )
                 .await?;
             }
             ComponentKind::Prompt => {
-                self.set_prompt_override(
+                self.set_prompt_route(
                     instance_id,
                     key,
-                    PromptOverridePatch::default().enabled(enabled),
+                    PromptRoutePatch::default().enabled(enabled),
                 )
                 .await?;
             }
             ComponentKind::Resource => {
-                self.set_resource_override(
+                self.set_resource_route(
                     instance_id,
                     key,
-                    ResourceOverridePatch::default().enabled(enabled),
+                    ResourceRoutePatch::default().enabled(enabled),
                 )
                 .await?;
             }
             ComponentKind::ResourceTemplate => {
-                self.set_resource_template_override(
+                self.set_resource_template_route(
                     instance_id,
                     key,
-                    ResourceTemplateOverridePatch::default().enabled(enabled),
+                    ResourceTemplateRoutePatch::default().enabled(enabled),
                 )
                 .await?;
             }
@@ -350,19 +365,19 @@ impl MCPStore {
         for original in raw_keys {
             let display_name_and_enabled = match kind {
                 ComponentKind::Tool => self
-                    .load_tool_override(instance_id, original)
+                    .load_tool_route(instance_id, original)
                     .await?
                     .map(|r| (r.common.display_name, r.common.enabled)),
                 ComponentKind::Prompt => self
-                    .load_prompt_override(instance_id, original)
+                    .load_prompt_route(instance_id, original)
                     .await?
                     .map(|r| (r.common.display_name, r.common.enabled)),
                 ComponentKind::Resource => self
-                    .load_resource_override(instance_id, original)
+                    .load_resource_route(instance_id, original)
                     .await?
                     .map(|r| (r.common.display_name, r.common.enabled)),
                 ComponentKind::ResourceTemplate => self
-                    .load_resource_template_override(instance_id, original)
+                    .load_resource_template_route(instance_id, original)
                     .await?
                     .map(|r| (r.common.display_name, r.common.enabled)),
             };
@@ -384,12 +399,12 @@ pub mod resources;
 pub mod services;
 pub mod tools;
 
-pub use prompts::{PromptOverridePatch, PromptOverrideRule};
+pub use prompts::{PromptRoutePatch, PromptRouteRule};
 pub use resources::{
-    ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
-    ResourceTemplateOverrideRule,
+    ResourceRoutePatch, ResourceRouteRule, ResourceTemplateRoutePatch,
+    ResourceTemplateRouteRule,
 };
-pub use services::{ServiceOverridePatch, ServiceOverrideRule};
+pub use services::{ServiceRoutePatch, ServiceRouteRule};
 pub use tools::{
-    ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
+    ToolArgumentRoute, ToolRoutePatch, ToolRouteRule, ToolRouteSafetyPolicy,
 };

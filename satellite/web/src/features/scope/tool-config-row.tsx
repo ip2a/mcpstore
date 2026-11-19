@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { OverrideEditor } from "@/features/overrides/override-editor"
+import { RouteEditor } from "@/features/routes/route-editor"
 import type { ServiceInstance, ScopeView } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
@@ -78,7 +78,7 @@ export function ToolConfigRow({
                 {t("editTool")}: {displayName}
               </DialogTitle>
             </DialogHeader>
-            <OverrideEditor
+            <RouteEditor
               kind="tool"
               serviceName={service.service_name}
               componentKey={tool.name}

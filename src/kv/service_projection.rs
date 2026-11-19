@@ -7,7 +7,7 @@ use crate::kv::models::{
     ToolPreferenceState,
 };
 use crate::kv::KvError;
-use crate::overrides::ToolOverrideRule;
+use crate::routing::ToolRouteRule;
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::prelude::*;
@@ -441,14 +441,14 @@ impl MCPStore {
                     as fn(&serde_json::Value, InstanceId) -> Result<bool>,
             ),
             ("tool_preferences", Self::tool_preference_matches_instance),
-            ("tool_overrides", Self::tool_override_matches_instance),
-            ("prompt_overrides", Self::prompt_override_matches_instance),
+            ("tool_routes", Self::tool_route_matches_instance),
+            ("prompt_routes", Self::prompt_override_matches_instance),
             (
-                "resource_overrides",
+                "resource_routes",
                 Self::resource_override_matches_instance,
             ),
             (
-                "resource_template_overrides",
+                "resource_template_routes",
                 Self::resource_template_override_matches_instance,
             ),
         ] {
@@ -499,14 +499,14 @@ impl MCPStore {
         Ok(state.instance_id == instance_id)
     }
 
-    fn tool_override_matches_instance(
+    fn tool_route_matches_instance(
         value: &serde_json::Value,
         instance_id: InstanceId,
     ) -> Result<bool> {
-        let state: ToolOverrideRule = serde_json::from_value(value.clone()).map_err(|error| {
+        let state: ToolRouteRule = serde_json::from_value(value.clone()).map_err(|error| {
             Error::new(
                 FailureCode::Internal,
-                format!("Tool override deserialization failed: {error}"),
+                format!("Tool route deserialization failed: {error}"),
             )
         })?;
         Ok(state.instance_id == instance_id)
@@ -542,7 +542,7 @@ impl MCPStore {
             .and_then(serde_json::Value::as_str)
             .and_then(|value| value.parse::<InstanceId>().ok())
         else {
-            // These three override state types intentionally use a weak
+            // These three route state types intentionally use a weak
             // ownership check.  A corrupt unrelated entry must not prevent
             // the rest of instance removal from being cleaned up; without a
             // valid owner it is deterministically treated as not owned.

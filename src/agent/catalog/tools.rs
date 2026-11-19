@@ -6,24 +6,24 @@ impl MCPStore {
         scope: &ScopeRef,
     ) -> Result<Vec<serde_json::Value>> {
         let instances = self.list_scope_instances(scope).await?;
-        // One shared-store read for every instance's override rules, then one
+        // One shared-store read for every instance's route rules, then one
         // concurrent fetch per instance (each rides its own pooled connection
         // — per-connection lock in the pool — so one slow upstream no longer
         // serializes the whole catalog behind it). Results and errors are
         // consumed in instance order: the first failure is the one that
         // surfaces, exactly as the sequential loop did.
-        let overrides_by_instance = self.enabled_tool_overrides_by_instance().await?;
+        let overrides_by_instance = self.tool_routes_by_instance().await?;
         let empty_overrides = std::collections::HashMap::new();
         let (overrides_by_instance, empty_overrides) = (&overrides_by_instance, &empty_overrides);
         let results = futures::future::join_all(instances.iter().map(|instance| async move {
-            let overrides = overrides_by_instance
+            let routes = overrides_by_instance
                 .get(&instance.instance_id)
                 .unwrap_or(&empty_overrides);
             let policy =
-                crate::agent::tool_visibility::EffectiveToolPolicy::resolve_with_overrides(
+                crate::agent::tool_visibility::EffectiveToolPolicy::resolve_with_routes(
                     self,
                     instance.instance_id,
-                    overrides,
+                    routes,
                 )
                 .await?;
             policy

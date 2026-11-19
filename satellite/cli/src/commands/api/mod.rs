@@ -14,9 +14,9 @@ use mcpstore::{
     client_config::{import_selected_services, inspect_client_config},
     config::{ConfigManager, ScopeDescriptor},
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
-    ResourceTemplateOverridePatch, ScopeRef, ScopeView, ServerConfig, ServiceOverridePatch,
-    ToolOverridePatch,
+    OpenApiImportOptions, OpenApiRefCachePolicy, PromptRoutePatch, ResourceRoutePatch,
+    ResourceTemplateRoutePatch, ScopeRef, ScopeView, ServerConfig, ServiceRoutePatch,
+    ToolRoutePatch,
 };
 use serde_json::json;
 #[cfg(test)]
@@ -521,59 +521,59 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             post(session::session_delete_state),
         )
         .route("/sessions/state/clear", post(session::session_clear_state))
-        // ===== tool policy / override rules / completions / resource subscriptions (service name + scope addressing) =====
+        // ===== tool policy / route rules / completions / resource subscriptions (service name + scope addressing) =====
         .route(
             "/services/:service_name/tool-policy",
             get(service::service_get_tool_policy)
                 .put(service::service_set_tool_policy)
                 .delete(service::service_clear_tool_policy),
         )
-        .route("/tool_overrides", get(service::store_list_tool_overrides))
+        .route("/tool_routes", get(service::store_list_tool_routes))
         .route(
-            "/services/:service_name/tool_overrides/:tool_name",
-            get(service::service_get_tool_override)
-                .put(service::service_set_tool_override)
-                .delete(service::service_delete_tool_override),
+            "/services/:service_name/tool_routes/:tool_name",
+            get(service::service_get_tool_route)
+                .put(service::service_set_tool_route)
+                .delete(service::service_remove_tool_route),
         )
         // ===== config management =====
         .route("/config/export", get(config_ops::config_export))
         .route("/config/reload", post(config_ops::config_reload))
         .route("/config/import", post(config_ops::config_import))
         .route(
-            "/prompt_overrides",
-            get(service::store_list_prompt_overrides),
+            "/prompt_routes",
+            get(service::store_list_prompt_routes),
         )
         .route(
-            "/services/:service_name/prompt_overrides/:prompt_name",
-            get(service::service_get_prompt_override)
-                .put(service::service_set_prompt_override)
-                .delete(service::service_delete_prompt_override),
+            "/services/:service_name/prompt_routes/:prompt_name",
+            get(service::service_get_prompt_route)
+                .put(service::service_set_prompt_route)
+                .delete(service::service_remove_prompt_route),
         )
         .route(
-            "/resource_overrides",
-            get(service::store_list_resource_overrides),
+            "/resource_routes",
+            get(service::store_list_resource_routes),
         )
         .route(
-            "/services/:service_name/resource_overrides",
-            get(service::service_get_resource_override)
-                .put(service::service_set_resource_override)
-                .delete(service::service_delete_resource_override),
+            "/services/:service_name/resource_routes",
+            get(service::service_get_resource_route)
+                .put(service::service_set_resource_route)
+                .delete(service::service_remove_resource_route),
         )
         .route(
-            "/resource_template_overrides",
-            get(service::store_list_resource_template_overrides),
+            "/resource_template_routes",
+            get(service::store_list_resource_template_routes),
         )
         .route(
-            "/services/:service_name/resource_template_overrides",
-            get(service::service_get_resource_template_override)
-                .put(service::service_set_resource_template_override)
-                .delete(service::service_delete_resource_template_override),
+            "/services/:service_name/resource_template_routes",
+            get(service::service_get_resource_template_route)
+                .put(service::service_set_resource_template_route)
+                .delete(service::service_remove_resource_template_route),
         )
         .route(
-            "/services/:service_name/service_override",
-            get(service::service_get_service_override)
-                .put(service::service_set_service_override)
-                .delete(service::service_delete_service_override),
+            "/services/:service_name/service_route",
+            get(service::service_get_service_route)
+                .put(service::service_set_service_route)
+                .delete(service::service_remove_service_route),
         )
         .route(
             "/services/:service_name/completions",

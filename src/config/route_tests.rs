@@ -9,12 +9,16 @@ enabled = true
 [store.services.github.tools]
 policy = ["search_repos", "get_repo"]
 
-[store.services.github.tools.overrides.search_repos]
+[store.services.github.tools.routes.search_repos]
 display_name = "🔍 Search"
 tags = ["search"]
+weight = 2
+enabled = true
 
-[store.services.github.tools.overrides.search_repos.arguments.query]
+[store.services.github.tools.routes.search_repos.arguments.query]
 default = "test"
+new_name = "q"
+description = "query text"
 
 [agents.admin.services.github.tools]
 policy = ["search_repos", "create_issue"]
@@ -31,12 +35,16 @@ policy = ["search_repos", "create_issue"]
         Some(vec!["search_repos".to_string(), "get_repo".to_string()])
     );
 
-    let search_override = &github.tools.overrides["search_repos"];
+    let search_override = &github.tools.routes["search_repos"];
     assert_eq!(search_override.display_name, Some("🔍 Search".to_string()));
     assert_eq!(search_override.tags, vec!["search".to_string()]);
+    assert_eq!(search_override.weight, 2);
+    assert_eq!(search_override.enabled, Some(true));
 
     let query_arg = &search_override.arguments.as_ref().unwrap()["query"];
     assert_eq!(query_arg.default, Some(serde_json::json!("test")));
+    assert_eq!(query_arg.new_name.as_deref(), Some("q"));
+    assert_eq!(query_arg.description.as_deref(), Some("query text"));
 
     // Agent scope checks
     assert!(config.agents.contains_key("admin"));

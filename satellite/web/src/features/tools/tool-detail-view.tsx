@@ -35,7 +35,7 @@ export function ToolDetailView(props: {
   services: ServiceInstance[]
   onBack: () => void
   onRunTool: (state: NonNullable<ToolDialogState>) => void
-  /** Keep URL / breadcrumb on the projected name after display_name override. */
+  /** Keep URL / breadcrumb on the projected name after display_name route. */
   onToolNameChange?: (toolName: string) => void
   isToolRunning?: (instanceId: string, toolName: string) => boolean
 }) {

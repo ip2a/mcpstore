@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
-import { OverrideEditor } from "@/features/overrides/override-editor"
+import { RouteEditor } from "@/features/routes/route-editor"
 import {
   readInstanceResource,
   type ResourceInfo,
@@ -126,7 +126,7 @@ export function ResourceDetailDocBody({
       ) : null}
 
       {serviceName && scope ? (
-        <OverrideEditor
+        <RouteEditor
           kind="resource"
           serviceName={serviceName}
           componentKey={resource.uri}

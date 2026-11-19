@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useScopeServicesQuery, useScopesQuery } from "@/features/agents/queries"
-import { useToolOverridesQuery } from "@/features/overrides/queries"
+import { useToolRoutesQuery } from "@/features/routes/queries"
 import { ToolConfigRow } from "@/features/scope/tool-config-row"
 import { ToolPolicyDialog } from "@/features/scope/tool-policy-dialog"
 import {
@@ -102,8 +102,8 @@ export function ScopeView(props: {
   const selectedScopeId = props.onScopeIdChange ? (props.scopeId ?? null) : localScopeId
   const setSelectedScopeId = props.onScopeIdChange ?? setLocalScopeId
   const [searchQuery, setSearchQuery] = useState("")
-  const toolOverridesQuery = useToolOverridesQuery()
-  const toolOverrides = toolOverridesQuery.data?.overrides || []
+  const toolRoutesQuery = useToolRoutesQuery()
+  const toolRoutes = toolRoutesQuery.data?.routes || []
 
   const selectedScope: ScopeView | null = useMemo(
     () => (selectedScopeId ? scopeViewFromId(selectedScopeId) : null),
@@ -113,13 +113,13 @@ export function ScopeView(props: {
   const overrideSet = useMemo(() => {
     const set = new Set<string>()
     if (!selectedScope) return set
-    for (const override of toolOverrides) {
-      if (sameScopeRefView(override.scope, selectedScope)) {
-        set.add(`${override.service_name}::${override.tool_name}`)
+    for (const override of toolRoutes) {
+      if (sameScopeRefView(route.scope, selectedScope)) {
+        set.add(`${route.service_name}::${route.tool_name}`)
       }
     }
     return set
-  }, [toolOverrides, selectedScope])
+  }, [toolRoutes, selectedScope])
 
   const liveServicesQuery = useScopeServicesQuery(selectedScope ?? { type: "all" }, {
     enabled: Boolean(selectedScope),
@@ -174,7 +174,7 @@ export function ScopeView(props: {
       (selectedScope.type !== "agent" || Boolean(selectedScope.agent_id))
     await Promise.all([
       scopesQuery.refetch(),
-      toolOverridesQuery.refetch(),
+      toolRoutesQuery.refetch(),
       canRefetchServices ? liveServicesQuery.refetch() : Promise.resolve(),
     ])
   }

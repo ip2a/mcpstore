@@ -1,17 +1,17 @@
 use super::catalog::{
-    apply_service_overrides, project_catalog_uris, project_prompt_names,
-    resolve_projected_catalog_uri, resolve_projected_prompt, service_override_map,
+    apply_service_routes, project_catalog_uris, project_prompt_names,
+    resolve_projected_catalog_uri, resolve_projected_prompt, service_route_map,
 };
 use super::tools::{
-    build_kv_tools, build_openapi_tools, build_prompt_override_tools,
-    build_resource_override_tools, build_resource_template_override_tools, build_search_tools,
-    build_service_tools, build_session_state_tools, build_tool_override_tools, deserialize_item,
+    build_kv_tools, build_openapi_tools, build_prompt_route_tools,
+    build_resource_route_tools, build_resource_template_route_tools, build_search_tools,
+    build_service_tools, build_session_state_tools, build_tool_route_tools, deserialize_item,
     deserialize_items,
 };
 use super::tools::{
-    call_kv_tool, call_openapi_tool, call_prompt_override_tool, call_resource_override_tool,
+    call_kv_tool, call_openapi_tool, call_prompt_route_tool, call_resource_route_tool,
     call_resource_template_override_tool, call_service_tool, call_session_state_tool,
-    call_tool_override_tool, extract_business_session_key, map_store_error,
+    call_tool_route_tool, extract_business_session_key, map_store_error,
 };
 use super::transport::build_tool_bindings;
 use super::*;
@@ -49,20 +49,20 @@ impl GatewayServer {
             } else {
                 HashMap::new()
             }),
-            tool_override_tools: Arc::new(if options.expose_tool_override_tools {
-                build_tool_override_tools()
+            tool_route_tools: Arc::new(if options.expose_tool_route_tools {
+                build_tool_route_tools()
             } else {
                 HashMap::new()
             }),
-            prompt_override_tools: Arc::new(if options.expose_prompt_override_tools {
-                build_prompt_override_tools()
+            prompt_route_tools: Arc::new(if options.expose_prompt_route_tools {
+                build_prompt_route_tools()
             } else {
                 HashMap::new()
             }),
-            resource_override_tools: Arc::new(if options.expose_resource_override_tools {
-                build_resource_override_tools()
+            resource_route_tools: Arc::new(if options.expose_resource_route_tools {
+                build_resource_route_tools()
                     .into_iter()
-                    .chain(build_resource_template_override_tools())
+                    .chain(build_resource_template_route_tools())
                     .collect()
             } else {
                 HashMap::new()
@@ -103,7 +103,7 @@ impl GatewayServer {
         if let Ok(mut projection) = catalog.projection.lock() {
             *projection = issues;
         }
-        // Mount-lifetime invalidation: tool syncs and override writes publish
+        // Mount-lifetime invalidation: tool syncs and route writes publish
         // McpToolsChanged on the local bus (the store owns the upstream
         // connections); mark the snapshot dirty and warm a rebuild.
         store
@@ -151,7 +151,7 @@ impl GatewayServer {
     }
 
     /// Shared catalog handle: the reconciliation tick watches route.toml
-    /// through it (daemon-side override writes land there via writeback) and
+    /// through it (daemon-side route writes land there via writeback) and
     /// health observability reads the rebuild counter.
     pub(crate) fn catalog_handle(&self) -> Arc<GatewayCatalog> {
         Arc::clone(&self.catalog)
@@ -255,9 +255,9 @@ impl ServerHandler for GatewayServer {
             .get(name)
             .map(|binding| binding.tool.clone())
             .or_else(|| self.management.session_state_tools.get(name).cloned())
-            .or_else(|| self.management.tool_override_tools.get(name).cloned())
-            .or_else(|| self.management.prompt_override_tools.get(name).cloned())
-            .or_else(|| self.management.resource_override_tools.get(name).cloned())
+            .or_else(|| self.management.tool_route_tools.get(name).cloned())
+            .or_else(|| self.management.prompt_route_tools.get(name).cloned())
+            .or_else(|| self.management.resource_route_tools.get(name).cloned())
             .or_else(|| self.management.openapi_tools.get(name).cloned())
             .or_else(|| self.management.service_tools.get(name).cloned())
             .or_else(|| self.management.kv_tools.get(name).cloned())
@@ -282,9 +282,9 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let resources = apply_service_overrides(
+            let resources = apply_service_routes(
                 resources,
-                &service_override_map(&store)
+                &service_route_map(&store)
                     .await
                     .map_err(map_store_error)?,
             )?;
@@ -315,9 +315,9 @@ impl ServerHandler for GatewayServer {
                 store.list_resource_templates_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let templates = apply_service_overrides(
+            let templates = apply_service_routes(
                 templates,
-                &service_override_map(&store)
+                &service_route_map(&store)
                     .await
                     .map_err(map_store_error)?,
             )?;
@@ -356,9 +356,9 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let resources = apply_service_overrides(
+            let resources = apply_service_routes(
                 resources,
-                &service_override_map(&store)
+                &service_route_map(&store)
                     .await
                     .map_err(map_store_error)?,
             )?;
@@ -406,9 +406,9 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let prompts = apply_service_overrides(
+            let prompts = apply_service_routes(
                 prompts,
-                &service_override_map(&store)
+                &service_route_map(&store)
                     .await
                     .map_err(map_store_error)?,
             )?;
@@ -448,9 +448,9 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
-            let prompts = apply_service_overrides(
+            let prompts = apply_service_routes(
                 prompts,
-                &service_override_map(&store)
+                &service_route_map(&store)
                     .await
                     .map_err(map_store_error)?,
             )?;
@@ -489,17 +489,17 @@ impl ServerHandler for GatewayServer {
             .management
             .session_state_tools
             .contains_key(tool_name.as_str());
-        let is_tool_override_tool = self
+        let is_tool_route_tool = self
             .management
-            .tool_override_tools
+            .tool_route_tools
             .contains_key(tool_name.as_str());
         let is_prompt_override_tool = self
             .management
-            .prompt_override_tools
+            .prompt_route_tools
             .contains_key(tool_name.as_str());
         let is_resource_override_tool = self
             .management
-            .resource_override_tools
+            .resource_route_tools
             .contains_key(tool_name.as_str());
         let is_openapi_tool = self
             .management
@@ -521,7 +521,7 @@ impl ServerHandler for GatewayServer {
         let meta = request.meta.clone();
         let arguments = request.arguments.unwrap_or_default();
         let management_tool = is_session_state_tool
-            || is_tool_override_tool
+            || is_tool_route_tool
             || is_prompt_override_tool
             || is_resource_override_tool
             || is_openapi_tool
@@ -546,13 +546,13 @@ impl ServerHandler for GatewayServer {
                 .await
                 .map(Into::into);
             }
-            if is_tool_override_tool {
-                return call_tool_override_tool(&store, &tool_name, &scope, instance_id, arguments)
+            if is_tool_route_tool {
+                return call_tool_route_tool(&store, &tool_name, &scope, instance_id, arguments)
                     .await
                     .map(Into::into);
             }
             if is_prompt_override_tool {
-                return call_prompt_override_tool(
+                return call_prompt_route_tool(
                     &store,
                     &tool_name,
                     &scope,
@@ -563,7 +563,7 @@ impl ServerHandler for GatewayServer {
                 .map(Into::into);
             }
             if is_resource_override_tool {
-                if tool_name.starts_with("mcpstore_resource_template_override_") {
+                if tool_name.starts_with("mcpstore_resource_template_route_") {
                     return call_resource_template_override_tool(
                         &store,
                         &tool_name,
@@ -574,7 +574,7 @@ impl ServerHandler for GatewayServer {
                     .await
                     .map(Into::into);
                 }
-                return call_resource_override_tool(
+                return call_resource_route_tool(
                     &store,
                     &tool_name,
                     &scope,
@@ -648,11 +648,12 @@ impl ServerHandler for GatewayServer {
                     }
                 }
             };
-            call.record.instance_id = Some(binding.instance_id);
-            call.record.service_name = binding.service_name.clone();
-            call.record.upstream_name = Some(binding.tool_name.clone());
-            call.record.namespace_applied = binding.namespace_applied;
-            call.record.name_mapped = binding.name_mapped;
+            let route = binding.pick_route().clone();
+            call.record.instance_id = Some(route.instance_id);
+            call.record.service_name = route.service_name.clone();
+            call.record.upstream_name = Some(route.tool_name.clone());
+            call.record.namespace_applied = route.namespace_applied;
+            call.record.name_mapped = route.name_mapped;
             call.record.routing_ms = Some(call.started.elapsed().as_millis() as u64);
             call.publish();
             call.set_phase(super::GatewayCallPhase::CallingUpstream);
@@ -668,8 +669,8 @@ impl ServerHandler for GatewayServer {
                 tokio::time::timeout(super::tools::GATEWAY_TOOL_CALL_BUDGET, async {
                     let execution = match store
                         .start_tool_execution(
-                            binding.instance_id,
-                            &binding.tool_name,
+                            route.instance_id,
+                            &route.tool_name,
                             args,
                             meta.clone(),
                             execution_options,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::overrides::ServiceOverrideRule;
+use crate::routing::ServiceRouteRule;
 use crate::registry::ServiceListProjection;
 use crate::store::prelude::*;
 
@@ -32,23 +32,23 @@ impl MCPStore {
         self.enrich_services(instances, projection).await
     }
 
-    /// One override map for the whole list — cards must not N+1 `/service_override`.
+    /// One route map for the whole list — cards must not N+1 `/service_route`.
     async fn enrich_services(
         &self,
         instances: Vec<ServiceInstance>,
         projection: ServiceListProjection,
     ) -> Result<Vec<serde_json::Value>> {
-        let overrides: HashMap<InstanceId, ServiceOverrideRule> = self
-            .list_service_overrides_lenient()
+        let routes: HashMap<InstanceId, ServiceRouteRule> = self
+            .list_service_routes_lenient()
             .await?
             .into_iter()
             .map(|rule| (rule.instance_id, rule))
             .collect();
         let mut services = Vec::with_capacity(instances.len());
         for instance in instances {
-            let override_rule = overrides.get(&instance.instance_id);
+            let route_rule = routes.get(&instance.instance_id);
             services.push(
-                self.enrich_service(instance, override_rule, projection)
+                self.enrich_service(instance, route_rule, projection)
                     .await?,
             );
         }
@@ -58,7 +58,7 @@ impl MCPStore {
     async fn enrich_service(
         &self,
         instance: ServiceInstance,
-        override_rule: Option<&ServiceOverrideRule>,
+        route_rule: Option<&ServiceRouteRule>,
         projection: ServiceListProjection,
     ) -> Result<serde_json::Value> {
         let instance_id = instance.instance_id;
@@ -98,7 +98,7 @@ impl MCPStore {
                 object,
                 &service_name,
                 config_description.as_deref(),
-                override_rule,
+                route_rule,
             );
             if projection.summary {
                 // Opt-in slim payload: strip the heavy fields the caller did not ask back.
@@ -138,10 +138,10 @@ impl MCPStore {
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        let override_rule = self.get_service_override(instance_id).await?;
+        let route_rule = self.get_service_route(instance_id).await?;
         self.enrich_service(
             instance,
-            override_rule.as_ref(),
+            route_rule.as_ref(),
             ServiceListProjection::FULL,
         )
         .await
@@ -178,14 +178,14 @@ impl MCPStore {
     }
 }
 
-/// Card contract fields: always present so the list UI never fans out to `/service_override`.
+/// Card contract fields: always present so the list UI never fans out to `/service_route`.
 fn apply_list_projection(
     object: &mut serde_json::Map<String, serde_json::Value>,
     service_name: &str,
     config_description: Option<&str>,
-    override_rule: Option<&ServiceOverrideRule>,
+    route_rule: Option<&ServiceRouteRule>,
 ) {
-    let display_name = override_rule
+    let display_name = route_rule
         .and_then(|rule| rule.common.display_name.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -195,7 +195,7 @@ fn apply_list_projection(
         serde_json::Value::String(display_name.to_string()),
     );
 
-    let description = override_rule
+    let description = route_rule
         .and_then(|rule| rule.common.description.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -206,7 +206,7 @@ fn apply_list_projection(
         serde_json::Value::String(description.to_string()),
     );
 
-    if let Some(icons) = override_rule.and_then(|rule| rule.common.icons.clone()) {
+    if let Some(icons) = route_rule.and_then(|rule| rule.common.icons.clone()) {
         object.insert("icons".to_string(), icons);
     }
 }

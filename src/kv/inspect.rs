@@ -27,7 +27,7 @@ const STATE_TYPES: &[&str] = &[
     "session_context",
     "context_tool_visibility",
     "tool_preferences",
-    "tool_overrides",
+    "tool_routes",
     "openapi_import_context",
     "openapi_imports",
 ];

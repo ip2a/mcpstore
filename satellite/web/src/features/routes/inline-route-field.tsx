@@ -36,7 +36,7 @@ const FILTER_DIALOG_SIZE =
   "@container flex max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none h-[54.4dvh] w-[min(90vw,calc(54.4dvh*1.618))]"
 
 /** Hover-reveal pencil → dialog edit. Overridden values render green. */
-export function InlineOverrideField({
+export function InlineRouteField({
   value,
   originalValue,
   overridden,
@@ -117,7 +117,7 @@ export function InlineOverrideField({
           {/* Filter dialog is often ~637px wide — @min-[640px] never hits; use 480px. */}
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-4 py-4 @min-[480px]:grid-cols-2 @min-[480px]:gap-5 @min-[480px]:px-5">
             <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-              <Label className="shrink-0 text-muted-foreground">{t("overrideOriginalValue")}</Label>
+              <Label className="shrink-0 text-muted-foreground">{t("routeOriginalValue")}</Label>
               <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted/30 px-3 py-2">
                 <p
                   className={cn(
@@ -133,7 +133,7 @@ export function InlineOverrideField({
 
             <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
               <Label htmlFor="inline-override-draft" className="shrink-0">
-                {t("overrideNewValue")}
+                {t("routeNewValue")}
               </Label>
               {multiline ? (
                 <Textarea

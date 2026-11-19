@@ -19,7 +19,7 @@ pub mod identity;
 pub mod kv;
 pub mod openapi;
 pub mod openapi_runtime;
-pub mod overrides;
+pub mod routing;
 pub mod perspective;
 pub mod registry;
 pub(crate) mod service;
@@ -40,7 +40,7 @@ pub use auth::{
 };
 pub use config::{
     AppConfig, ConfigManager, GatewayConfig, KvConfig, McpConfig, RouteConfig, RouteConfigError,
-    RuntimeLogConfig, ScopesConfig, ScopesConfigError, ServerConfig,
+    RuntimeLogConfig, ServerConfig,
 };
 
 // Facade re-exports: KV layer
@@ -106,11 +106,11 @@ pub use error::{Error, ErrorContext, FailureCategory, FailureCode, RecoveryPolic
 
 // Facade re-exports: core store
 pub use error::Result;
-pub use overrides::{
-    ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
-    ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
-    ResourceTemplateOverrideRule, ServiceOverridePatch, ServiceOverrideRule, ToolArgumentOverride,
-    ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
+pub use routing::{
+    ComponentKind, RouteFields, PromptRoutePatch, PromptRouteRule,
+    ResourceRoutePatch, ResourceRouteRule, ResourceTemplateRoutePatch,
+    ResourceTemplateRouteRule, ServiceRoutePatch, ServiceRouteRule, ToolArgumentRoute,
+    ToolRoutePatch, ToolRouteRule, ToolRouteSafetyPolicy,
 };
 pub use store::swap::SwapResult;
 #[cfg(unix)]

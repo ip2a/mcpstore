@@ -6,9 +6,9 @@
 
 use mcpstore::core::store::{MCPStore, StoreOptions};
 use mcpstore::{
-    CreateSessionRequest, Prompt, PromptOverridePatch, Resource, ResourceOverridePatch,
-    ResourceTemplate, ResourceTemplateOverridePatch, ScopeContext, Service, SessionRetryPolicy,
-    Tool, ToolOverridePatch,
+    CreateSessionRequest, Prompt, PromptRoutePatch, Resource, ResourceRoutePatch,
+    ResourceTemplate, ResourceTemplateRoutePatch, ScopeContext, Service, SessionRetryPolicy,
+    Tool, ToolRoutePatch,
 };
 
 use pyo3::prelude::*;
@@ -577,7 +577,7 @@ impl PyAsyncMCPStore {
         })
     }
 
-    fn set_tool_override<'a>(
+    fn set_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -586,7 +586,7 @@ impl PyAsyncMCPStore {
     ) -> PyResult<Bound<'a, PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let value = crate::py_value::py_to_serde_value(transform, "Tool transform")?;
-        let patch: ToolOverridePatch = serde_json::from_value(value).map_err(|err| {
+        let patch: ToolRoutePatch = serde_json::from_value(value).map_err(|err| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "Tool transform conversion failed: {err}"
             ))
@@ -595,14 +595,14 @@ impl PyAsyncMCPStore {
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
             let rule = inner
-                .set_tool_override(instance_id, &tool_name, patch)
+                .set_tool_route(instance_id, &tool_name, patch)
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_route_rule"))
         })
     }
 
-    fn get_tool_override<'a>(
+    fn get_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -613,17 +613,17 @@ impl PyAsyncMCPStore {
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
             let rule = inner
-                .get_tool_override(instance_id, &tool_name)
+                .get_tool_route(instance_id, &tool_name)
                 .await
                 .map_err(map_store_err)?;
             Python::with_gil(|py| match rule {
-                Some(rule) => serializable_to_py(py, &rule, "tool_override_rule"),
+                Some(rule) => serializable_to_py(py, &rule, "tool_route_rule"),
                 None => Ok(py.None()),
             })
         })
     }
 
-    fn delete_tool_override<'a>(
+    fn remove_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -634,7 +634,7 @@ impl PyAsyncMCPStore {
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
             inner
-                .delete_tool_override(instance_id, &tool_name)
+                .remove_tool_route(instance_id, &tool_name)
                 .await
                 .map_err(map_store_err)?;
             Ok(Python::with_gil(|py| py.None()))
@@ -642,7 +642,7 @@ impl PyAsyncMCPStore {
     }
 
     #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
-    fn create_llm_friendly_tool_override<'a>(
+    fn create_llm_friendly_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -659,7 +659,7 @@ impl PyAsyncMCPStore {
         let description = description.map(str::to_string);
         future_into_py(py, async move {
             let rule = inner
-                .create_llm_friendly_tool_override(
+                .create_llm_friendly_tool_route(
                     instance_id,
                     &tool_name,
                     friendly_name.as_deref(),
@@ -669,12 +669,12 @@ impl PyAsyncMCPStore {
                 )
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_route_rule"))
         })
     }
 
     #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
-    fn create_parameter_renamed_tool_override<'a>(
+    fn create_parameter_renamed_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -705,7 +705,7 @@ impl PyAsyncMCPStore {
                 .map(|(original, renamed)| (original.as_str(), renamed.as_str()))
                 .collect();
             let rule = inner
-                .create_parameter_renamed_tool_override(
+                .create_parameter_renamed_tool_route(
                     instance_id,
                     &tool_name,
                     new_tool_name.as_deref(),
@@ -713,12 +713,12 @@ impl PyAsyncMCPStore {
                 )
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_route_rule"))
         })
     }
 
     #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
-    fn create_validated_tool_override<'a>(
+    fn create_validated_tool_route<'a>(
         &self,
         py: Python<'a>,
         instance_id: &str,
@@ -744,7 +744,7 @@ impl PyAsyncMCPStore {
                 .map(|(param, schema)| (param.as_str(), schema.clone()))
                 .collect();
             let rule = inner
-                .create_validated_tool_override(
+                .create_validated_tool_route(
                     instance_id,
                     &tool_name,
                     new_tool_name.as_deref(),
@@ -752,7 +752,7 @@ impl PyAsyncMCPStore {
                 )
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_route_rule"))
         })
     }
 
@@ -1458,35 +1458,35 @@ impl PyAsyncService {
             Python::with_gil(|py| Py::new(py, PyAsyncResourceTemplate { inner: template }))
         })
     }
-    fn list_tool_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+    fn list_tool_routes<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
-            let values = inner.list_tool_overrides().await.map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &values, "Tool overrides"))
+            let values = inner.list_tool_routes().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &values, "Tool routes"))
         })
     }
-    fn list_prompt_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+    fn list_prompt_routes<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
-            let values = inner.list_prompt_overrides().await.map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &values, "Prompt overrides"))
+            let values = inner.list_prompt_routes().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &values, "Prompt routes"))
         })
     }
-    fn list_resource_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+    fn list_resource_routes<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let values = inner
-                .list_resource_overrides()
+                .list_resource_routes()
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &values, "Resource overrides"))
+            Python::with_gil(|py| serializable_to_py(py, &values, "Resource routes"))
         })
     }
-    fn list_resource_template_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+    fn list_resource_template_routes<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let values = inner
-                .list_resource_template_overrides()
+                .list_resource_template_routes()
                 .await
                 .map_err(map_store_err)?;
             Python::with_gil(|py| serializable_to_py(py, &values, "Resource template overrides"))
@@ -1529,14 +1529,14 @@ impl PyAsyncTool {
         py: Python<'a>,
         patch: &Bound<'_, PyAny>,
     ) -> PyResult<Bound<'a, PyAny>> {
-        let patch = crate::py_value::py_to_serde_value(patch, "Tool override patch")?;
-        let patch = serde_json::from_value::<ToolOverridePatch>(patch).map_err(|error| {
+        let patch = crate::py_value::py_to_serde_value(patch, "Tool route patch")?;
+        let patch = serde_json::from_value::<ToolRoutePatch>(patch).map_err(|error| {
             pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}"))
         })?;
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let rule = inner.set_override(patch).await.map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool override rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool route rule"))
         })
     }
 
@@ -1544,7 +1544,7 @@ impl PyAsyncTool {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let rule = inner.get_override().await.map_err(map_store_err)?;
-            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool override rule"))
+            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool route rule"))
         })
     }
 
@@ -1591,7 +1591,7 @@ macro_rules! async_override_methods {
                 let inner = self.inner.clone();
                 future_into_py(py, async move {
                     let rule = inner.set_override(patch).await.map_err(map_store_err)?;
-                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " override rule")))
+                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " route rule")))
                 })
             }
 
@@ -1599,7 +1599,7 @@ macro_rules! async_override_methods {
                 let inner = self.inner.clone();
                 future_into_py(py, async move {
                     let rule = inner.get_override().await.map_err(map_store_err)?;
-                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " override rule")))
+                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " route rule")))
                 })
             }
 
@@ -1622,7 +1622,7 @@ macro_rules! async_override_methods {
 
 async_override_methods!(
     PyAsyncPrompt,
-    PromptOverridePatch,
+    PromptRoutePatch,
     "Prompt",
     fn get<'a>(&self, py: Python<'a>, args: &Bound<'_, PyAny>) -> PyResult<Bound<'a, PyAny>> {
         let args = crate::py_value::py_to_serde_value(args, "Prompt arguments")?;
@@ -1636,7 +1636,7 @@ async_override_methods!(
 
 async_override_methods!(
     PyAsyncResource,
-    ResourceOverridePatch,
+    ResourceRoutePatch,
     "Resource",
     fn read<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
@@ -1649,7 +1649,7 @@ async_override_methods!(
 
 async_override_methods!(
     PyAsyncResourceTemplate,
-    ResourceTemplateOverridePatch,
+    ResourceTemplateRoutePatch,
     "Resource template",
     fn no_extra<'a>(&self, _py: Python<'a>) -> PyResult<()> {
         Ok(())

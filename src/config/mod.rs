@@ -20,11 +20,6 @@ mod route_loader;
 #[cfg(test)]
 mod route_tests;
 mod route_writeback;
-mod scopes;
-mod scopes_loader;
-#[cfg(test)]
-mod scopes_tests;
-mod scopes_writeback;
 mod server_validation;
 mod service_schema;
 mod sparse;
@@ -49,9 +44,8 @@ pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
 pub use route::{
-    ArgumentOverride, ComponentOverride, ComponentsRouteConfig, ComponentsScopeConfig,
-    IconsOverride, RouteConfig, RouteConfigError, RouteScopeConfig, ScopeConfig, ScopesConfig,
-    ScopesConfigError, ServiceRouteConfig, ServiceScopeConfig, ToolsRouteConfig, ToolsScopeConfig,
+    ArgumentRoute, ComponentRoute, ComponentsRouteConfig, RouteIcons, RouteConfig,
+    RouteConfigError, RouteScopeConfig, ServiceRouteConfig, ToolsRouteConfig,
 };
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,

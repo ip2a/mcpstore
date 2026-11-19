@@ -195,7 +195,7 @@ fn agent_only_service_has_no_implicit_store_scope() {
 }
 
 #[test]
-fn effective_config_applies_scope_override_and_null_deletion() {
+fn effective_config_applies_scope_route_and_null_deletion() {
     let config: McpConfig = serde_json::from_value(json!({
         "mcpServers": {
             "demo": {

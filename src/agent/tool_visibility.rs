@@ -205,22 +205,22 @@ pub struct EffectiveToolPolicy {
 
 impl EffectiveToolPolicy {
     pub async fn resolve(store: &MCPStore, instance_id: InstanceId) -> Result<Self> {
-        let overrides = store
-            .enabled_tool_overrides_for_instance(instance_id)
+        let routes = store
+            .tool_routes_for_instance(instance_id)
             .await?;
-        Self::resolve_with_overrides(store, instance_id, &overrides).await
+        Self::resolve_with_routes(store, instance_id, &routes).await
     }
 
-    /// Resolve against an already-read override map. Scope-wide catalogs read
-    /// the overrides once for all instances and call this per instance.
-    pub(crate) async fn resolve_with_overrides(
+    /// Resolve against an already-read route map. Scope-wide catalogs read
+    /// the route entrys once for all instances and call this per instance.
+    pub(crate) async fn resolve_with_routes(
         store: &MCPStore,
         instance_id: InstanceId,
-        overrides: &std::collections::HashMap<String, crate::overrides::ToolOverrideRule>,
+        routes: &std::collections::HashMap<String, crate::routing::ToolRouteRule>,
     ) -> Result<Self> {
         let instance = store.require_instance(instance_id).await?;
         let tools = store.list_tools(instance_id).await?;
-        let all = store.project_tool_entries(&instance, tools, overrides);
+        let all = store.project_tool_entries(&instance, tools, routes);
         let visibility = store
             .load_context_tool_visibility(
                 &MCPStore::build_tool_visibility_context_key(&instance.scope)?,

@@ -60,11 +60,11 @@ export const queryKeys = {
   },
   meta: ["meta"] as const,
   settings: ["settings"] as const,
-  overrides: (kind: string) => ["overrides", ...hostSeg(), kind] as const,
-  serviceOverride: (serviceName: string, scope?: ScopeRef) =>
+  routes: (kind: string) => ["routes", ...hostSeg(), kind] as const,
+  serviceRoute: (serviceName: string, scope?: ScopeRef) =>
     [
       ...queryKeys.instance({ service_name: serviceName, scope: scope ?? { type: "store" } }),
-      "service-override",
+      "service-route",
     ] as const,
   clients: ["clients"] as const,
   clientVersion: (clientId: string) => ["clients", clientId, "version"] as const,

@@ -1443,7 +1443,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 }
 
 #[tokio::test]
-async fn store_routes_manage_rust_core_tool_overrides() {
+async fn store_routes_manage_rust_core_tool_routes() {
     // Override writes write back to route.toml beside the config — point the
     // store at a temp config so the run never touches the real user file.
     let dir =
@@ -1468,7 +1468,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     let base_url = format!("http://{addr}");
 
     let set_override = client
-        .put(format!("{base_url}/services/demo/tool_overrides/echo"))
+        .put(format!("{base_url}/services/demo/tool_routes/echo"))
         .json(&json!({
             "display_name": "say",
             "description": "Say text with a stable hidden debug flag.",
@@ -1493,8 +1493,8 @@ async fn store_routes_manage_rust_core_tool_overrides() {
         .unwrap();
     assert!(set_override.status().is_success());
     let set_payload = set_override.json::<Value>().await.unwrap();
-    assert_eq!(set_payload["data"]["override"]["display_name"], "say");
-    assert_eq!(set_payload["data"]["override"]["version"], 1);
+    assert_eq!(set_payload["data"]["route"]["display_name"], "say");
+    assert_eq!(set_payload["data"]["route"]["version"], 1);
 
     let list_tools = client
         .get(format!("{base_url}/services/demo/tools/list"))
@@ -1513,16 +1513,16 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     assert_eq!(tool["input_schema"]["required"], json!(["message"]));
 
     let get_override = client
-        .get(format!("{base_url}/services/demo/tool_overrides/echo"))
+        .get(format!("{base_url}/services/demo/tool_routes/echo"))
         .send()
         .await
         .unwrap();
     assert!(get_override.status().is_success());
     let get_payload = get_override.json::<Value>().await.unwrap();
-    assert_eq!(get_payload["data"]["override"]["tool_name"], "echo");
+    assert_eq!(get_payload["data"]["route"]["tool_name"], "echo");
 
     let list_transforms = client
-        .get(format!("{base_url}/tool_overrides"))
+        .get(format!("{base_url}/tool_routes"))
         .send()
         .await
         .unwrap();
@@ -1531,7 +1531,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     assert_eq!(list_payload["data"]["total"], 1);
 
     let delete_transform = client
-        .delete(format!("{base_url}/services/demo/tool_overrides/echo"))
+        .delete(format!("{base_url}/services/demo/tool_routes/echo"))
         .send()
         .await
         .unwrap();
@@ -1574,23 +1574,23 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
     let uri = "fixture%3A%2F%2Fdocs%2Fread%3Fx%3Dhello%20world%23fragment%2Fencoded";
     let resource = client
         .get(format!(
-            "{base_url}/services/demo/resource_overrides?scope=store&uri={uri}"
+            "{base_url}/services/demo/resource_routes?scope=store&uri={uri}"
         ))
         .send()
         .await
         .unwrap();
     assert!(resource.status().is_success());
-    assert!(resource.json::<Value>().await.unwrap()["data"]["override"].is_null());
+    assert!(resource.json::<Value>().await.unwrap()["data"]["route"].is_null());
 
     let template = client
         .get(format!(
-            "{base_url}/services/demo/resource_template_overrides?scope=store&uri_template={uri}"
+            "{base_url}/services/demo/resource_template_routes?scope=store&uri_template={uri}"
         ))
         .send()
         .await
         .unwrap();
     assert!(template.status().is_success());
-    assert!(template.json::<Value>().await.unwrap()["data"]["override"].is_null());
+    assert!(template.json::<Value>().await.unwrap()["data"]["route"].is_null());
 
     handle.abort();
 }

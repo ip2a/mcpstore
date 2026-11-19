@@ -147,30 +147,30 @@ pub(super) fn session_state_schema(required: &[&str]) -> Map<String, Value> {
     schema
 }
 
-pub(super) fn build_tool_override_tools() -> HashMap<String, Tool> {
+pub(super) fn build_tool_route_tools() -> HashMap<String, Tool> {
     [
-        tool_override_tool(
-            TOOL_OVERRIDE_LIST_TOOL,
-            "List all Rust-backed MCPStore tool override rules.",
-            tool_override_schema(&[]),
+        tool_route_tool(
+            TOOL_ROUTE_LIST_TOOL,
+            "List all Rust-backed MCPStore tool route rules.",
+            tool_route_schema(&[]),
             true,
         ),
-        tool_override_tool(
-            TOOL_OVERRIDE_GET_TOOL,
-            "Get one Rust-backed MCPStore tool override rule.",
-            tool_override_schema(&["instance_id", "tool_name"]),
+        tool_route_tool(
+            TOOL_ROUTE_GET_TOOL,
+            "Get one Rust-backed MCPStore tool route rule.",
+            tool_route_schema(&["instance_id", "tool_name"]),
             true,
         ),
-        tool_override_tool(
-            TOOL_OVERRIDE_SET_TOOL,
-            "Set one Rust-backed MCPStore tool override rule.",
-            tool_override_schema(&["instance_id", "tool_name"]),
+        tool_route_tool(
+            TOOL_ROUTE_SET_TOOL,
+            "Set one Rust-backed MCPStore tool route rule.",
+            tool_route_schema(&["instance_id", "tool_name"]),
             false,
         ),
-        tool_override_tool(
-            TOOL_OVERRIDE_DELETE_TOOL,
-            "Delete one Rust-backed MCPStore tool override rule.",
-            tool_override_schema(&["instance_id", "tool_name"]),
+        tool_route_tool(
+            TOOL_ROUTE_DELETE_TOOL,
+            "Delete one Rust-backed MCPStore tool route rule.",
+            tool_route_schema(&["instance_id", "tool_name"]),
             false,
         ),
     ]
@@ -179,7 +179,7 @@ pub(super) fn build_tool_override_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
-pub(super) fn tool_override_tool(
+pub(super) fn tool_route_tool(
     name: &'static str,
     description: &'static str,
     schema: Map<String, Value>,
@@ -190,13 +190,13 @@ pub(super) fn tool_override_tool(
         .destructive(!read_only)
         .idempotent(matches!(
             name,
-            TOOL_OVERRIDE_LIST_TOOL | TOOL_OVERRIDE_GET_TOOL | TOOL_OVERRIDE_DELETE_TOOL
+            TOOL_ROUTE_LIST_TOOL | TOOL_ROUTE_GET_TOOL | TOOL_ROUTE_DELETE_TOOL
         ))
         .open_world(false);
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
-pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
+pub(super) fn tool_route_schema(required: &[&str]) -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert(
         "instance_id".to_string(),
@@ -210,7 +210,7 @@ pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
         "tool_name".to_string(),
         serde_json::json!({
             "type": "string",
-            "description": "Original tool name or current overrideed display name."
+            "description": "Original tool name or current routed display name."
         }),
     );
     properties.insert(
@@ -293,25 +293,25 @@ fn build_component_override_tools(
     [
         component_override_tool(
             names[0],
-            format!("List all MCPStore {label} override rules."),
+            format!("List all MCPStore {label} route rules."),
             component_override_schema(component_field, &[]),
             true,
         ),
         component_override_tool(
             names[1],
-            format!("Get one MCPStore {label} override rule."),
+            format!("Get one MCPStore {label} route rule."),
             component_override_schema(component_field, &["instance_id", component_field]),
             true,
         ),
         component_override_tool(
             names[2],
-            format!("Set one MCPStore {label} override rule."),
+            format!("Set one MCPStore {label} route rule."),
             component_override_schema(component_field, &["instance_id", component_field]),
             false,
         ),
         component_override_tool(
             names[3],
-            format!("Delete one MCPStore {label} override rule."),
+            format!("Delete one MCPStore {label} route rule."),
             component_override_schema(component_field, &["instance_id", component_field]),
             false,
         ),
@@ -392,33 +392,33 @@ fn add_common_override_properties(properties: &mut Map<String, Value>) {
     );
 }
 
-pub(super) fn build_prompt_override_tools() -> HashMap<String, Tool> {
+pub(super) fn build_prompt_route_tools() -> HashMap<String, Tool> {
     build_component_override_tools(
         [
-            PROMPT_OVERRIDE_LIST_TOOL,
-            PROMPT_OVERRIDE_GET_TOOL,
-            PROMPT_OVERRIDE_SET_TOOL,
-            PROMPT_OVERRIDE_DELETE_TOOL,
+            PROMPT_ROUTE_LIST_TOOL,
+            PROMPT_ROUTE_GET_TOOL,
+            PROMPT_ROUTE_SET_TOOL,
+            PROMPT_ROUTE_DELETE_TOOL,
         ],
         "prompt_name",
         "prompt",
     )
 }
 
-pub(super) fn build_resource_override_tools() -> HashMap<String, Tool> {
+pub(super) fn build_resource_route_tools() -> HashMap<String, Tool> {
     build_component_override_tools(
         [
-            RESOURCE_OVERRIDE_LIST_TOOL,
-            RESOURCE_OVERRIDE_GET_TOOL,
-            RESOURCE_OVERRIDE_SET_TOOL,
-            RESOURCE_OVERRIDE_DELETE_TOOL,
+            RESOURCE_ROUTE_LIST_TOOL,
+            RESOURCE_ROUTE_GET_TOOL,
+            RESOURCE_ROUTE_SET_TOOL,
+            RESOURCE_ROUTE_DELETE_TOOL,
         ],
         "uri",
         "resource",
     )
 }
 
-pub(super) fn build_resource_template_override_tools() -> HashMap<String, Tool> {
+pub(super) fn build_resource_template_route_tools() -> HashMap<String, Tool> {
     build_component_override_tools(
         [
             RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL,
@@ -1170,7 +1170,7 @@ pub(super) async fn call_session_state_tool(
     Ok(CallToolResult::structured(result))
 }
 
-pub(super) async fn call_tool_override_tool(
+pub(super) async fn call_tool_route_tool(
     store: &MCPStore,
     tool_name: &str,
     scope: &ScopeRef,
@@ -1178,9 +1178,9 @@ pub(super) async fn call_tool_override_tool(
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
-        TOOL_OVERRIDE_LIST_TOOL => {
+        TOOL_ROUTE_LIST_TOOL => {
             let overrides = store
-                .list_tool_overrides()
+                .list_tool_routes()
                 .await
                 .map_err(map_store_error)?
                 .into_iter()
@@ -1189,23 +1189,23 @@ pub(super) async fn call_tool_override_tool(
                         && configured_instance.is_none_or(|id| rule.instance_id == id)
                 })
                 .collect::<Vec<_>>();
-            serde_json::json!({"overrides": overrides, "total": overrides.len()})
+            serde_json::json!({"routes": overrides, "total": overrides.len()})
         }
-        TOOL_OVERRIDE_GET_TOOL => {
+        TOOL_ROUTE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             let rule = store
-                .get_tool_override(instance_id, tool_name)
+                .get_tool_route(instance_id, tool_name)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        TOOL_OVERRIDE_SET_TOOL => {
+        TOOL_ROUTE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?.to_string();
-            let patch = serde_json::from_value::<ToolOverridePatch>(Value::Object(arguments))
+            let patch = serde_json::from_value::<ToolRoutePatch>(Value::Object(arguments))
                 .map_err(|error| {
                     ErrorData::invalid_params(
                         format!("Tool conversion-rule arguments failed to deserialize: {error}"),
@@ -1213,17 +1213,17 @@ pub(super) async fn call_tool_override_tool(
                     )
                 })?;
             let rule = store
-                .set_tool_override(instance_id, &tool_name, patch)
+                .set_tool_route(instance_id, &tool_name, patch)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        TOOL_OVERRIDE_DELETE_TOOL => {
+        TOOL_ROUTE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             store
-                .delete_tool_override(instance_id, tool_name)
+                .remove_tool_route(instance_id, tool_name)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok"})
@@ -1238,7 +1238,7 @@ pub(super) async fn call_tool_override_tool(
     Ok(CallToolResult::structured(result))
 }
 
-pub(super) async fn call_prompt_override_tool(
+pub(super) async fn call_prompt_route_tool(
     store: &MCPStore,
     tool_name: &str,
     scope: &ScopeRef,
@@ -1246,9 +1246,9 @@ pub(super) async fn call_prompt_override_tool(
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
-        PROMPT_OVERRIDE_LIST_TOOL => {
+        PROMPT_ROUTE_LIST_TOOL => {
             let rules = store
-                .list_prompt_overrides()
+                .list_prompt_routes()
                 .await
                 .map_err(map_store_error)?
                 .into_iter()
@@ -1257,41 +1257,41 @@ pub(super) async fn call_prompt_override_tool(
                         && configured_instance.is_none_or(|id| rule.instance_id == id)
                 })
                 .collect::<Vec<_>>();
-            serde_json::json!({"overrides": rules, "total": rules.len()})
+            serde_json::json!({"routes": rules, "total": rules.len()})
         }
-        PROMPT_OVERRIDE_GET_TOOL => {
+        PROMPT_ROUTE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?;
             let rule = store
-                .get_prompt_override(instance_id, name)
+                .get_prompt_route(instance_id, name)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        PROMPT_OVERRIDE_SET_TOOL => {
+        PROMPT_ROUTE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?.to_string();
-            let patch = serde_json::from_value::<PromptOverridePatch>(Value::Object(arguments))
+            let patch = serde_json::from_value::<PromptRoutePatch>(Value::Object(arguments))
                 .map_err(|error| {
                     ErrorData::invalid_params(
-                        format!("Prompt override arguments failed to deserialize: {error}"),
+                        format!("Prompt route arguments failed to deserialize: {error}"),
                         None,
                     )
                 })?;
             let rule = store
-                .set_prompt_override(instance_id, &name, patch)
+                .set_prompt_route(instance_id, &name, patch)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        PROMPT_OVERRIDE_DELETE_TOOL => {
+        PROMPT_ROUTE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?;
             store
-                .delete_prompt_override(instance_id, name)
+                .remove_prompt_route(instance_id, name)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok"})
@@ -1306,7 +1306,7 @@ pub(super) async fn call_prompt_override_tool(
     Ok(CallToolResult::structured(result))
 }
 
-pub(super) async fn call_resource_override_tool(
+pub(super) async fn call_resource_route_tool(
     store: &MCPStore,
     tool_name: &str,
     scope: &ScopeRef,
@@ -1314,9 +1314,9 @@ pub(super) async fn call_resource_override_tool(
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
-        RESOURCE_OVERRIDE_LIST_TOOL => {
+        RESOURCE_ROUTE_LIST_TOOL => {
             let rules = store
-                .list_resource_overrides()
+                .list_resource_routes()
                 .await
                 .map_err(map_store_error)?
                 .into_iter()
@@ -1325,41 +1325,41 @@ pub(super) async fn call_resource_override_tool(
                         && configured_instance.is_none_or(|id| rule.instance_id == id)
                 })
                 .collect::<Vec<_>>();
-            serde_json::json!({"overrides": rules, "total": rules.len()})
+            serde_json::json!({"routes": rules, "total": rules.len()})
         }
-        RESOURCE_OVERRIDE_GET_TOOL => {
+        RESOURCE_ROUTE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?;
             let rule = store
-                .get_resource_override(instance_id, uri)
+                .get_resource_route(instance_id, uri)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        RESOURCE_OVERRIDE_SET_TOOL => {
+        RESOURCE_ROUTE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?.to_string();
-            let patch = serde_json::from_value::<ResourceOverridePatch>(Value::Object(arguments))
+            let patch = serde_json::from_value::<ResourceRoutePatch>(Value::Object(arguments))
                 .map_err(|error| {
                 ErrorData::invalid_params(
-                    format!("Resource override arguments failed to deserialize: {error}"),
+                    format!("Resource route arguments failed to deserialize: {error}"),
                     None,
                 )
             })?;
             let rule = store
-                .set_resource_override(instance_id, &uri, patch)
+                .set_resource_route(instance_id, &uri, patch)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
-        RESOURCE_OVERRIDE_DELETE_TOOL => {
+        RESOURCE_ROUTE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?;
             store
-                .delete_resource_override(instance_id, uri)
+                .remove_resource_route(instance_id, uri)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok"})
@@ -1384,7 +1384,7 @@ pub(super) async fn call_resource_template_override_tool(
     let result = match tool_name {
         RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL => {
             let rules = store
-                .list_resource_template_overrides()
+                .list_resource_template_routes()
                 .await
                 .map_err(map_store_error)?
                 .into_iter()
@@ -1393,24 +1393,24 @@ pub(super) async fn call_resource_template_override_tool(
                         && configured_instance.is_none_or(|id| rule.instance_id == id)
                 })
                 .collect::<Vec<_>>();
-            serde_json::json!({"overrides": rules, "total": rules.len()})
+            serde_json::json!({"routes": rules, "total": rules.len()})
         }
         RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?;
             let rule = store
-                .get_resource_template_override(instance_id, uri)
+                .get_resource_template_route(instance_id, uri)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
         RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?.to_string();
             let patch =
-                serde_json::from_value::<ResourceTemplateOverridePatch>(Value::Object(arguments))
+                serde_json::from_value::<ResourceTemplateRoutePatch>(Value::Object(arguments))
                     .map_err(|error| {
                     ErrorData::invalid_params(
                         format!(
@@ -1420,17 +1420,17 @@ pub(super) async fn call_resource_template_override_tool(
                     )
                 })?;
             let rule = store
-                .set_resource_template_override(instance_id, &uri, patch)
+                .set_resource_template_route(instance_id, &uri, patch)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"override": rule})
+            serde_json::json!({"route": rule})
         }
         RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?;
             store
-                .delete_resource_template_override(instance_id, uri)
+                .remove_resource_template_route(instance_id, uri)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok"})

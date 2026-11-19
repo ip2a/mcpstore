@@ -63,7 +63,7 @@ import type {
 import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
-import { OverrideEditor } from "@/features/overrides/override-editor"
+import { RouteEditor } from "@/features/routes/route-editor"
 
 export type CatalogTab = "tools" | "resources" | "prompts"
 export type ServiceDetailTab = "service" | CatalogTab
@@ -446,7 +446,7 @@ export function ServiceResourceTemplateDetailPane({
           <JsonBlock value={meta} />
         </section>
       ) : null}
-      <OverrideEditor
+      <RouteEditor
         kind="resource_template"
         serviceName={service.service_name}
         componentKey={uriTemplate}

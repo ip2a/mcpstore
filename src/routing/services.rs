@@ -1,46 +1,46 @@
 use serde::{Deserialize, Serialize};
 
-use crate::overrides::ComponentOverrideCommon;
+use crate::routing::RouteFields;
 use crate::store::prelude::*;
 
-pub(crate) const SERVICE_OVERRIDES_STATE_TYPE: &str = "service_overrides";
+pub(crate) const SERVICE_ROUTES_STATE_TYPE: &str = "service_routes";
 
 /// Gateway-facing projection of a whole service instance: rename it, rewrite
 /// its description/icons, or hide it from the aggregated catalog entirely.
 /// Absence of a rule means pass-through — the real service name and metadata
 /// are exposed as-is.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServiceOverrideRule {
+pub struct ServiceRouteRule {
     pub instance_id: InstanceId,
     pub service_name: String,
     pub scope: ScopeRef,
     #[serde(flatten)]
-    pub common: ComponentOverrideCommon,
+    pub common: RouteFields,
     pub updated_at: i64,
     pub version: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ServiceOverridePatch {
+pub struct ServiceRoutePatch {
     #[serde(flatten)]
-    pub common: ComponentOverrideCommon,
+    pub common: RouteFields,
 }
 
 impl MCPStore {
-    pub async fn set_service_override(
+    pub async fn set_service_route(
         &self,
         instance_id: InstanceId,
-        patch: ServiceOverridePatch,
-    ) -> Result<ServiceOverrideRule> {
+        patch: ServiceRoutePatch,
+    ) -> Result<ServiceRouteRule> {
         let instance = self.require_instance(instance_id).await?;
-        let loaded = self.get_service_override(instance_id).await?;
+        let loaded = self.get_service_route(instance_id).await?;
         let expected_version = loaded.as_ref().map(|rule| rule.version);
         let now = Self::now_timestamp();
-        let mut rule = loaded.unwrap_or_else(|| ServiceOverrideRule {
+        let mut rule = loaded.unwrap_or_else(|| ServiceRouteRule {
             instance_id,
             service_name: instance.service_name.clone(),
             scope: instance.scope.clone(),
-            common: ComponentOverrideCommon::default(),
+            common: RouteFields::default(),
             updated_at: now,
             version: 0,
         });
@@ -57,7 +57,7 @@ impl MCPStore {
             .persistence
             .kv
             .compare_and_put_state(
-                SERVICE_OVERRIDES_STATE_TYPE,
+                SERVICE_ROUTES_STATE_TYPE,
                 &self.service_override_key(instance_id),
                 expected_version,
                 serde_json::to_value(&rule)
@@ -66,28 +66,28 @@ impl MCPStore {
             .await?;
         // Best-effort writeback to route.toml; openkeyv above is the source of truth.
         if let Err(error) = self
-            .writeback_service_override(&rule.service_name, &rule.scope, &rule.common)
+            .writeback_service_route(&rule.service_name, &rule.scope, &rule.common)
             .await
         {
-            tracing::warn!("Failed to write back service override to route.toml: {error}");
+            tracing::warn!("Failed to write back service route to route.toml: {error}");
         }
         // Publish after the writeback: the gateway's route.toml fingerprint
         // tick reads the file, so the persistent channel is consistent before
         // the (faster) event channel fires.
-        self.publish_override_changed(instance_id, &rule.service_name)
+        self.publish_route_changed(instance_id, &rule.service_name)
             .await;
         Ok(rule)
     }
 
-    pub async fn get_service_override(
+    pub async fn get_service_route(
         &self,
         instance_id: InstanceId,
-    ) -> Result<Option<ServiceOverrideRule>> {
+    ) -> Result<Option<ServiceRouteRule>> {
         self.kernel
             .persistence
             .kv
             .get_state(
-                SERVICE_OVERRIDES_STATE_TYPE,
+                SERVICE_ROUTES_STATE_TYPE,
                 &self.service_override_key(instance_id),
             )
             .await?
@@ -95,19 +95,19 @@ impl MCPStore {
                 serde_json::from_value(value).map_err(|err| {
                     Error::new(
                         FailureCode::Internal,
-                        format!("Service override deserialization failed: {err}"),
+                        format!("Service route deserialization failed: {err}"),
                     )
                 })
             })
             .transpose()
     }
 
-    pub async fn delete_service_override(&self, instance_id: InstanceId) -> Result<()> {
+    pub async fn remove_service_route(&self, instance_id: InstanceId) -> Result<()> {
         self.kernel
             .persistence
             .kv
             .delete_state(
-                SERVICE_OVERRIDES_STATE_TYPE,
+                SERVICE_ROUTES_STATE_TYPE,
                 &self.service_override_key(instance_id),
             )
             .await?;
@@ -124,32 +124,32 @@ impl MCPStore {
         {
             service_name = Some(instance.service_name.clone());
             if let Err(error) = self
-                .writeback_service_override_removal(&instance.service_name, &instance.scope)
+                .writeback_service_route_removal(&instance.service_name, &instance.scope)
                 .await
             {
-                tracing::warn!("Failed to clean up service override in route.toml: {error}");
+                tracing::warn!("Failed to clean up service route in route.toml: {error}");
             }
         }
         if let Some(service_name) = service_name.as_deref() {
-            self.publish_override_changed(instance_id, service_name)
+            self.publish_route_changed(instance_id, service_name)
                 .await;
         }
         Ok(())
     }
 
-    pub async fn list_service_overrides(&self) -> Result<Vec<ServiceOverrideRule>> {
+    pub async fn list_service_routes(&self) -> Result<Vec<ServiceRouteRule>> {
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel
             .persistence
             .kv
-            .get_all_states_async(SERVICE_OVERRIDES_STATE_TYPE)
+            .get_all_states_async(SERVICE_ROUTES_STATE_TYPE)
             .await?
         {
-            let rule: ServiceOverrideRule = serde_json::from_value(value).map_err(|err| {
+            let rule: ServiceRouteRule = serde_json::from_value(value).map_err(|err| {
                 Error::new(
                     FailureCode::Internal,
-                    format!("Service override deserialization failed for {key}: {err}"),
+                    format!("Service route deserialization failed for {key}: {err}"),
                 )
             })?;
             rules.push(rule);
@@ -161,19 +161,19 @@ impl MCPStore {
     /// Catalog-path variant: unreadable rules are logged and skipped so one
     /// corrupt row cannot blank the whole gateway listing. Query path: reads
     /// the shared store directly, no registry hydration.
-    pub async fn list_service_overrides_lenient(&self) -> Result<Vec<ServiceOverrideRule>> {
+    pub async fn list_service_routes_lenient(&self) -> Result<Vec<ServiceRouteRule>> {
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel
             .persistence
             .kv
-            .get_all_states_async(SERVICE_OVERRIDES_STATE_TYPE)
+            .get_all_states_async(SERVICE_ROUTES_STATE_TYPE)
             .await?
         {
-            match serde_json::from_value::<ServiceOverrideRule>(value) {
+            match serde_json::from_value::<ServiceRouteRule>(value) {
                 Ok(rule) => rules.push(rule),
                 Err(err) => {
-                    tracing::warn!(key = %key, %err, "skipping corrupt service override rule");
+                    tracing::warn!(key = %key, %err, "skipping corrupt service route rule");
                 }
             }
         }

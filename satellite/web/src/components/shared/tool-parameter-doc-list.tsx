@@ -1,8 +1,8 @@
 import { ToolArgFieldInput } from "@/components/shared/tool-args-form"
 import { ToolSchemaEmptyHint } from "@/components/shared/tool-schema-empty-hint"
 import { TypographyInlineCode } from "@/components/ui/typography"
-import { InlineOverrideField } from "@/features/overrides/inline-override-field"
-import { useToolInlineOverride } from "@/features/overrides/use-tool-inline-override"
+import { InlineRouteField } from "@/features/routes/inline-route-field"
+import { useToolInlineRoute } from "@/features/routes/use-tool-inline-route"
 import { useI18n } from "@/lib/i18n-context"
 import type { ScopeRef } from "@/lib/api"
 import { resolveFormFieldType } from "@/lib/tool-args"
@@ -43,7 +43,7 @@ export function ToolParameterDocList({
 }: ToolParameterDocListProps) {
   const { t } = useI18n()
   const editable = Boolean(values && onChange)
-  const override = useToolInlineOverride(serviceName, originalToolName, scope)
+  const route = useToolInlineRoute(serviceName, originalToolName, scope)
 
   if (!fields.length) {
     return <ToolSchemaEmptyHint>{emptyMessage}</ToolSchemaEmptyHint>
@@ -55,7 +55,7 @@ export function ToolParameterDocList({
         const isRequired = required.includes(name)
         const fieldType = resolveSchemaFieldType(field)
         const formType = resolveFormFieldType(field)
-        const argMeta = override.enabled ? override.argMeta(name) : null
+        const argMeta = route.enabled ? route.argMeta(name) : null
         const paramDoc = resolveParameterDoc(
           name,
           field,
@@ -71,15 +71,15 @@ export function ToolParameterDocList({
             className={cn("grid gap-3 border-b py-4", isLast && "border-b-0 pb-0")}
           >
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              {override.enabled ? (
-                <InlineOverrideField
+              {route.enabled ? (
+                <InlineRouteField
                   value={name}
                   originalValue={argMeta?.originalName || name}
                   overridden={Boolean(argMeta?.nameOverridden)}
                   label={t("argNewName")}
-                  busy={override.busy}
+                  busy={route.busy}
                   textClassName="break-all font-mono text-sm font-semibold"
-                  onSave={(next) => override.saveArgName(name, next)}
+                  onSave={(next) => route.saveArgName(name, next)}
                 />
               ) : (
                 <TypographyInlineCode className="break-all text-sm font-semibold">
@@ -101,9 +101,9 @@ export function ToolParameterDocList({
                 </span>
               ) : null}
             </div>
-            {paramDoc || override.enabled ? (
-              override.enabled ? (
-                <InlineOverrideField
+            {paramDoc || route.enabled ? (
+              route.enabled ? (
+                <InlineRouteField
                   value={paramDoc || ""}
                   originalValue={
                     argMeta?.descriptionOverridden
@@ -111,20 +111,20 @@ export function ToolParameterDocList({
                       : paramDoc || ""
                   }
                   overridden={Boolean(argMeta?.descriptionOverridden)}
-                  label={t("overrideDescription")}
+                  label={t("routeDescription")}
                   multiline
-                  busy={override.busy}
+                  busy={route.busy}
                   className="w-full"
                   textClassName={cn(
                     "text-sm leading-relaxed",
                     !argMeta?.descriptionOverridden && "text-muted-foreground",
                   )}
-                  onSave={(next) => override.saveArgDescription(name, next)}
+                  onSave={(next) => route.saveArgDescription(name, next)}
                 >
                   {paramDoc || (
                     <span className="text-muted-foreground/70 italic">{t("noDescription")}</span>
                   )}
-                </InlineOverrideField>
+                </InlineRouteField>
               ) : paramDoc ? (
                 <p className="text-sm leading-relaxed text-muted-foreground">{paramDoc}</p>
               ) : null

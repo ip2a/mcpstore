@@ -3,8 +3,7 @@ use futures_util::StreamExt;
 use std::collections::HashMap;
 
 use super::catalog::{
-    apply_service_overrides, apply_tool_overrides, exposed_tool_name, service_override_map,
-    tool_override_map,
+    apply_service_routes, apply_tool_routes, service_route_map, tool_route_map,
 };
 use super::tools::{read_required_instance_id, read_required_string};
 use super::*;
@@ -99,41 +98,21 @@ pub(super) async fn build_tool_bindings(
     } else {
         store.list_tools_scoped(scope).await?
     };
-    let overrides_by_instance = service_override_map(store).await?;
-    let mut tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
-    apply_tool_overrides(&mut tool_payloads, &tool_override_map(store).await?);
+    let overrides_by_instance = service_route_map(store).await?;
+    let tool_payloads = apply_service_routes(tool_payloads, &overrides_by_instance)?;
+    let tool_payloads = apply_tool_routes(tool_payloads, &tool_route_map(store).await?);
 
     let (parsed, issues) = classify_tool_payloads(&tool_payloads, &down);
 
-    // Name-collision counts over surviving payloads only (the payload "name"
-    // field is the original_name read above).
-    let mut names: HashMap<String, usize> = HashMap::new();
-    for (_, original_name, ..) in &parsed {
-        *names.entry(original_name.clone()).or_insert(0) += 1;
-    }
-    // Multi-service mounts (store/agent scope, session) always prefix exposed
-    // names: a tool exposed bare today must never rename when a later service
-    // brings a colliding name. Single-instance mounts are composition-frozen
-    // (no later member can collide), so they keep bare names unless the
-    // instance itself yields a duplicate.
-    let namespace_tools = target_instance_id.is_none();
-
-    let mut bindings = HashMap::with_capacity(parsed.len());
-    let mut taken: HashMap<String, usize> = HashMap::new();
-    for (payload, original_name, canonical_tool_name, instance_id, service_name, schema) in parsed {
-        let exposed_name = if namespace_tools
-            || names
-                .get(original_name.as_str())
-                .copied()
-                .unwrap_or_default()
-                > 1
-        {
-            // ponytail: namespaced tool naming — <server>__<tool>, unsafe chars → '-',
-            // 64-byte rune-safe truncation, collision suffix (_2, _3, …) budget within 64.
-            exposed_tool_name(&service_name, &original_name, &mut taken)
-        } else {
-            original_name.clone()
-        };
+    // Exposed name is the projected `name` (display_name or original). Gateway
+    // allows same names: candidates share one list entry; call picks by weight.
+    let mut bindings: HashMap<String, ToolBinding> = HashMap::with_capacity(parsed.len());
+    for (payload, exposed_name, canonical_tool_name, instance_id, service_name, schema) in parsed {
+        let weight = payload
+            .get("weight")
+            .and_then(Value::as_i64)
+            .map(|value| value as i32)
+            .unwrap_or(0);
         let description = payload
             .get("description")
             .and_then(Value::as_str)
@@ -144,6 +123,64 @@ pub(super) async fn build_tool_bindings(
             fallback.insert("properties".into(), Value::Object(Map::new()));
             fallback
         });
+
+        let record_service_name = payload
+            .get("real_service_name")
+            .and_then(Value::as_str)
+            .unwrap_or(&service_name)
+            .to_string();
+        let candidate = ToolRouteCandidate {
+            instance_id,
+            tool_name: canonical_tool_name.clone(),
+            service_name: record_service_name,
+            namespace_applied: false,
+            name_mapped: exposed_name != canonical_tool_name,
+            weight,
+        };
+
+        if let Some(existing) = bindings.get_mut(&exposed_name) {
+            existing.candidates.push(candidate);
+            // Keep list metadata from the highest-weight candidate (stable on
+            // ties: first max wins for the Tool schema shown in tools/list).
+            let max_weight = existing
+                .candidates
+                .iter()
+                .map(|route| route.weight)
+                .max()
+                .unwrap_or(0);
+            if weight == max_weight
+                && existing
+                    .candidates
+                    .iter()
+                    .filter(|route| route.weight == max_weight)
+                    .count()
+                    == 1
+            {
+                let mut tool = Tool::new_with_raw(
+                    exposed_name.clone(),
+                    description.clone().map(Into::into),
+                    Arc::new(schema),
+                );
+                tool.title = payload
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                tool.icons = payload
+                    .get("icons")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok());
+                tool.annotations = payload
+                    .get("annotations")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok());
+                tool.meta = payload
+                    .get("_meta")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok());
+                existing.tool = tool;
+            }
+            continue;
+        }
 
         let mut tool = Tool::new_with_raw(
             exposed_name.clone(),
@@ -166,21 +203,11 @@ pub(super) async fn build_tool_bindings(
             .get("_meta")
             .cloned()
             .and_then(|value| serde_json::from_value(value).ok());
-        // The call log joins with the services page, which shows real names.
-        let record_service_name = payload
-            .get("real_service_name")
-            .and_then(Value::as_str)
-            .unwrap_or(&service_name)
-            .to_string();
         bindings.insert(
-            exposed_name.clone(),
+            exposed_name,
             ToolBinding {
                 tool,
-                instance_id,
-                name_mapped: original_name != canonical_tool_name,
-                namespace_applied: exposed_name != original_name,
-                tool_name: canonical_tool_name,
-                service_name: record_service_name,
+                candidates: vec![candidate],
             },
         );
     }

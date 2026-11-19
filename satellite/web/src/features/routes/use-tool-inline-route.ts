@@ -3,15 +3,15 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import {
-  useSetToolOverride,
-  useToolOverridesQuery,
-} from "@/features/overrides/queries"
-import type { ScopeRef, ToolInfo, ToolOverridePatch, ToolOverrideRule } from "@/lib/api"
+  useSetToolRoute,
+  useToolRoutesQuery,
+} from "@/features/routes/queries"
+import type { ScopeRef, ToolInfo, ToolRoutePatch, ToolRouteRule } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getOriginalToolName } from "@/lib/tool-info"
 import { queryKeys } from "@/lib/query-keys"
 
-type ArgOverride = {
+type ArgRoute = {
   original_name: string
   new_name?: string | null
   hidden?: boolean
@@ -26,12 +26,12 @@ function sameScope(a: ScopeRef, b: ScopeRef) {
   )
 }
 
-function asArgs(rule?: ToolOverrideRule | null): ArgOverride[] {
-  return ((rule?.arguments || []) as ArgOverride[]).map((argument) => ({ ...argument }))
+function asArgs(rule?: ToolRouteRule | null): ArgRoute[] {
+  return ((rule?.arguments || []) as ArgRoute[]).map((argument) => ({ ...argument }))
 }
 
 /** Full-replace body: keep fields the UI is not editing. */
-function bodyFromRule(rule?: ToolOverrideRule | null): ToolOverridePatch {
+function bodyFromRule(rule?: ToolRouteRule | null): ToolRoutePatch {
   if (!rule) return {}
   const body: Record<string, unknown> = {}
   for (const field of [
@@ -47,10 +47,10 @@ function bodyFromRule(rule?: ToolOverrideRule | null): ToolOverridePatch {
   ] as const) {
     if (field in rule) body[field] = (rule as Record<string, unknown>)[field]
   }
-  return body as ToolOverridePatch
+  return body as ToolRoutePatch
 }
 
-function upsertArg(args: ArgOverride[], originalName: string, patch: Partial<ArgOverride>) {
+function upsertArg(args: ArgRoute[], originalName: string, patch: Partial<ArgRoute>) {
   const index = args.findIndex((argument) => argument.original_name === originalName)
   if (index < 0) {
     return [
@@ -70,14 +70,14 @@ function upsertArg(args: ArgOverride[], originalName: string, patch: Partial<Arg
 }
 
 export function resolveOriginalArgName(
-  rule: ToolOverrideRule | null | undefined,
+  rule: ToolRouteRule | null | undefined,
   displayedName: string,
 ) {
   const match = asArgs(rule).find((argument) => argument.new_name === displayedName)
   return match?.original_name || displayedName
 }
 
-export function useToolInlineOverride(
+export function useToolInlineRoute(
   serviceName: string | undefined,
   originalToolName: string | undefined,
   scope: ScopeRef | undefined,
@@ -89,21 +89,21 @@ export function useToolInlineOverride(
   const { t } = useI18n()
   const client = useQueryClient()
   const enabled = Boolean(serviceName && originalToolName && scope)
-  const overridesQuery = useToolOverridesQuery(enabled)
-  const setOverride = useSetToolOverride(serviceName || "", originalToolName || "", scope)
+  const routesQuery = useToolRoutesQuery(enabled)
+  const setRoute = useSetToolRoute(serviceName || "", originalToolName || "", scope)
   const onDisplayNameApplied = options?.onDisplayNameApplied
 
   const rule = useMemo(() => {
     if (!enabled || !serviceName || !originalToolName || !scope) return null
     return (
-      (overridesQuery.data?.overrides || []).find(
+      (routesQuery.data?.routes || []).find(
         (item) =>
           item.service_name === serviceName &&
           sameScope(item.scope, scope) &&
           item.tool_name === originalToolName,
       ) || null
     )
-  }, [enabled, overridesQuery.data?.overrides, originalToolName, scope, serviceName])
+  }, [enabled, routesQuery.data?.routes, originalToolName, scope, serviceName])
 
   function patchToolsCache(projectedName: string, description?: string) {
     if (!serviceName || !scope || !originalToolName) return
@@ -125,7 +125,7 @@ export function useToolInlineOverride(
   async function refresh() {
     if (!serviceName || !scope) return
     await Promise.all([
-      client.invalidateQueries({ queryKey: queryKeys.overrides("tool") }),
+      client.invalidateQueries({ queryKey: queryKeys.routes("tool") }),
       client.invalidateQueries({
         queryKey: queryKeys.instance({ service_name: serviceName, scope }),
       }),
@@ -134,8 +134,8 @@ export function useToolInlineOverride(
     ])
   }
 
-  async function commit(body: ToolOverridePatch) {
-    await setOverride.mutateAsync(body)
+  async function commit(body: ToolRoutePatch) {
+    await setRoute.mutateAsync(body)
     await refresh()
     toast.success(t("saved"))
   }
@@ -147,7 +147,7 @@ export function useToolInlineOverride(
     if (trimmed) body.display_name = trimmed
     else delete body.display_name
     const projectedName = trimmed || originalToolName
-    await setOverride.mutateAsync(body)
+    await setRoute.mutateAsync(body)
     // Patch cache + rewrite route before refetch so the detail view never
     // briefly resolves to "tool not found" under the old URL key.
     patchToolsCache(projectedName)
@@ -159,7 +159,7 @@ export function useToolInlineOverride(
   async function saveDescription(next: string) {
     const body = bodyFromRule(rule)
     body.description = next
-    await setOverride.mutateAsync(body)
+    await setRoute.mutateAsync(body)
     if (originalToolName) {
       const projectedName = rule?.display_name?.trim() || originalToolName
       patchToolsCache(projectedName, next)
@@ -168,12 +168,12 @@ export function useToolInlineOverride(
     toast.success(t("saved"))
   }
 
-  function patchOverridesCache(nextArgs: ArgOverride[], common?: ToolOverridePatch) {
+  function patchOverridesCache(nextArgs: ArgRoute[], common?: ToolRoutePatch) {
     if (!serviceName || !originalToolName || !scope) return
-    client.setQueriesData<{ overrides: ToolOverrideRule[]; total: number }>(
-      { queryKey: queryKeys.overrides("tool") },
+    client.setQueriesData<{ routes: ToolRouteRule[]; total: number }>(
+      { queryKey: queryKeys.routes("tool") },
       (prev) => {
-        const list = prev?.overrides ? [...prev.overrides] : []
+        const list = prev?.routes ? [...prev.routes] : []
         const index = list.findIndex(
           (item) =>
             item.service_name === serviceName &&
@@ -190,17 +190,17 @@ export function useToolInlineOverride(
                 tool_name: originalToolName,
                 updated_at: Date.now() / 1000,
                 version: 0,
-              } as ToolOverrideRule)
-        const nextRule: ToolOverrideRule = {
+              } as ToolRouteRule)
+        const nextRule: ToolRouteRule = {
           ...base,
           ...common,
-          arguments: nextArgs as ToolOverrideRule["arguments"],
+          arguments: nextArgs as ToolRouteRule["arguments"],
           version: (base.version || 0) + 1,
           updated_at: Date.now() / 1000,
         }
         if (index >= 0) list[index] = nextRule
         else list.push(nextRule)
-        return { overrides: list, total: list.length }
+        return { routes: list, total: list.length }
       },
     )
   }
@@ -209,7 +209,7 @@ export function useToolInlineOverride(
     const originalName = resolveOriginalArgName(rule, displayedName)
     const trimmed = next.trim()
     if (!trimmed) {
-      toast.error(t("overrideValueRequired"))
+      toast.error(t("routeValueRequired"))
       return false
     }
     const args = upsertArg(asArgs(rule), originalName, {
@@ -217,7 +217,7 @@ export function useToolInlineOverride(
     })
     const body = bodyFromRule(rule)
     body.arguments = args
-    await setOverride.mutateAsync(body)
+    await setRoute.mutateAsync(body)
     // Keep original_name↔new_name mapping available immediately so prose
     // descriptions (keyed by original name) do not flash away after rename.
     patchOverridesCache(args, body)
@@ -232,7 +232,7 @@ export function useToolInlineOverride(
     })
     const body = bodyFromRule(rule)
     body.arguments = args
-    await setOverride.mutateAsync(body)
+    await setRoute.mutateAsync(body)
     patchOverridesCache(args, body)
     await refresh()
     toast.success(t("saved"))
@@ -251,7 +251,7 @@ export function useToolInlineOverride(
   return {
     enabled,
     rule,
-    busy: setOverride.isPending || (overridesQuery.isPending && !rule),
+    busy: setRoute.isPending || (routesQuery.isPending && !rule),
     nameOverridden: Boolean(rule?.display_name?.trim()),
     descriptionOverridden: rule?.description != null,
     argMeta,

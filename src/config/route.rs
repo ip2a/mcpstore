@@ -1,9 +1,8 @@
 //! Gateway route table (`route.toml`) — controls how services/tools/prompts/resources
 //! are projected on the gateway (rename, rewrite metadata, hide, arg remap, tool policy).
 //!
-//! This is intentionally separate from `scopes.toml`, which is reserved for scope
-//! membership concerns. KV remains the runtime source of truth; `route.toml` is the
-//! declarative file mirror loaded on boot/reload and written back from the panel.
+//! KV remains the runtime source of truth; `route.toml` is the declarative file
+//! mirror loaded on boot/reload and written back from the panel.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -41,7 +40,7 @@ pub struct ServiceRouteConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icons: Option<IconsOverride>,
+    pub icons: Option<RouteIcons>,
     #[serde(default)]
     pub tools: ToolsRouteConfig,
     #[serde(default)]
@@ -56,46 +55,64 @@ pub struct ToolsRouteConfig {
     /// Allowlist of tool names. None = all available, Some([]) = none available
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy: Option<Vec<String>>,
-    #[serde(default)]
-    pub overrides: HashMap<String, ComponentOverride>,
+    /// Per-tool route entries. Legacy files may still use the key `overrides`.
+    #[serde(default, alias = "overrides")]
+    pub routes: HashMap<String, ComponentRoute>,
 }
 
-/// Prompts/Resources route rules (no policy, only overrides)
+/// Prompts/Resources route rules (route entries only; no policy)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ComponentsRouteConfig {
-    #[serde(default)]
-    pub overrides: HashMap<String, ComponentOverride>,
+    /// Per-component route entries. Legacy files may still use the key `overrides`.
+    #[serde(default, alias = "overrides")]
+    pub routes: HashMap<String, ComponentRoute>,
 }
 
-/// Override for a single component (tool/prompt/resource)
+fn is_default_weight(weight: &i32) -> bool {
+    *weight == 0
+}
+
+/// Route entry for a single component (tool/prompt/resource)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ComponentOverride {
+pub struct ComponentRoute {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// `false` = hide from gateway (component still exists in mcpstore).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Same-name gateway routing weight; default 0.
+    #[serde(default, skip_serializing_if = "is_default_weight")]
+    pub weight: i32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<HashMap<String, ArgumentOverride>>,
+    pub arguments: Option<HashMap<String, ArgumentRoute>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icons: Option<IconsOverride>,
+    pub icons: Option<RouteIcons>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArgumentOverride {
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ArgumentRoute {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IconsOverride {
+pub struct RouteIcons {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub light: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,11 +154,3 @@ pub enum RouteConfigError {
     #[error("Failed to parse TOML: {0}")]
     ParseError(toml::de::Error),
 }
-
-/// Temporary aliases while call sites migrate off the scopes.toml naming.
-pub type ScopesConfig = RouteConfig;
-pub type ScopesConfigError = RouteConfigError;
-pub type ScopeConfig = RouteScopeConfig;
-pub type ServiceScopeConfig = ServiceRouteConfig;
-pub type ToolsScopeConfig = ToolsRouteConfig;
-pub type ComponentsScopeConfig = ComponentsRouteConfig;

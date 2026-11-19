@@ -181,7 +181,7 @@ export function ServiceDetailView(props: {
     promptsQuery.isFetching
   const service = detail || props.service
   const endpoint = service.url || service.command || "-"
-  // Prefer the override-projected list (same surface the global tools page
+  // Prefer the route entry-projected list (same surface the global tools page
   // uses); fall back to the raw detail payload until it arrives.
   const projectedToolsQuery = useServiceProjectedToolsQuery(props.service)
   const tools = projectedToolsQuery.data?.length

@@ -1,4 +1,4 @@
-use crate::kv::models::ToolArgumentOverride;
+use crate::kv::models::ToolArgumentRoute;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -11,14 +11,14 @@ impl MCPStore {
         cfg!(not(test))
     }
 
-    /// Write back tool override to route.toml after setting it in openkeyv
-    pub async fn writeback_tool_override(
+    /// Write back tool route to route.toml after setting it in openkeyv
+    pub async fn writeback_tool_route(
         &self,
         service_name: &str,
         tool_name: &str,
         scope: &ScopeRef,
-        arguments: &[ToolArgumentOverride],
-        common: &crate::overrides::ComponentOverrideCommon,
+        arguments: &[ToolArgumentRoute],
+        common: &crate::routing::RouteFields,
     ) -> Result<()> {
         if !Self::writeback_allowed() {
             return Ok(());
@@ -74,20 +74,20 @@ impl MCPStore {
                     "tools entry is not a table".to_string(),
                 )
             })?;
-        if !tools_table.contains_key("overrides") {
-            tools_table["overrides"] = toml_edit::table();
+        if !tools_table.contains_key("routes") {
+            tools_table["routes"] = toml_edit::table();
         }
         let overrides_table = tools_table
-            .get_mut("overrides")
+            .get_mut("routes")
             .and_then(|item| item.as_table_mut())
             .ok_or_else(|| {
                 Error::new(
                     FailureCode::Internal,
-                    "overrides entry is not a table".to_string(),
+                    "routes entry is not a table".to_string(),
                 )
             })?;
 
-        // Mutate the existing override table in place so hand-written keys
+        // Mutate the existing route table in place so hand-written keys
         // (meta, icons, annotations) survive a writeback. Owned fields follow
         // patch semantics like the KV side: Some/non-empty sets the key,
         // None/empty leaves the existing key untouched.
@@ -103,8 +103,8 @@ impl MCPStore {
         let override_item = overrides_table
             .get_mut(tool_name)
             .and_then(|item| item.as_table_mut())
-            .expect("override item is a table");
-        apply_tool_override_fields(override_item, common, arguments);
+            .expect("route item is a table");
+        apply_tool_route_fields(override_item, common, arguments);
 
         // Write back atomically
         let temp_path = path.with_extension("toml.tmp");
@@ -122,15 +122,15 @@ impl MCPStore {
             )
         })?;
 
-        tracing::debug!("Wrote back tool override for {service_name}::{tool_name} to route.toml");
+        tracing::debug!("Wrote back tool route for {service_name}::{tool_name} to route.toml");
         Ok(())
     }
 
-    /// Remove a tool override's section from route.toml after deleting it
+    /// Remove a tool route's section from route.toml after deleting it
     /// from openkeyv, so the next load cannot resurrect the rule from its
-    /// writeback. Mirrors writeback_service_override_removal: drop the tool's
+    /// writeback. Mirrors writeback_service_route_removal: drop the tool's
     /// overrides entry, then prune now-empty overrides/tools/service parents.
-    pub async fn writeback_tool_override_removal(
+    pub async fn writeback_tool_route_removal(
         &self,
         service_name: &str,
         tool_name: &str,
@@ -162,17 +162,17 @@ impl MCPStore {
                     .and_then(|item| item.as_table_mut())
                 {
                     if let Some(overrides) = tools
-                        .get_mut("overrides")
+                        .get_mut("routes")
                         .and_then(|item| item.as_table_mut())
                     {
                         overrides.remove(tool_name);
                     }
                     if tools
-                        .get("overrides")
+                        .get("routes")
                         .and_then(|item| item.as_table())
                         .is_some_and(|table| table.is_empty())
                     {
-                        tools.remove("overrides");
+                        tools.remove("routes");
                     }
                 }
                 if service_table
@@ -195,15 +195,15 @@ impl MCPStore {
         Ok(())
     }
 
-    /// Write back a service-level override (rename/description/hide) to
+    /// Write back a service-level route (rename/description/hide) to
     /// route.toml after setting it in openkeyv. Same patch semantics as the
     /// tool writeback: Some sets the key, None leaves any existing key
     /// untouched, hand-written foreign keys survive.
-    pub async fn writeback_service_override(
+    pub async fn writeback_service_route(
         &self,
         service_name: &str,
         scope: &ScopeRef,
-        common: &crate::overrides::ComponentOverrideCommon,
+        common: &crate::routing::RouteFields,
     ) -> Result<()> {
         if !Self::writeback_allowed() {
             return Ok(());
@@ -224,18 +224,18 @@ impl MCPStore {
         };
 
         if let Some(service_table) = service_scope_table_mut(&mut doc, service_name, scope) {
-            apply_service_override_fields(service_table, common);
+            apply_service_route_fields(service_table, common);
             write_route_doc_atomic(&path, &doc)?;
         }
 
-        tracing::debug!("Wrote back service override for {service_name} to route.toml");
+        tracing::debug!("Wrote back service route for {service_name} to route.toml");
         Ok(())
     }
 
     /// Remove the writeback-owned service keys from route.toml so a deleted
     /// override cannot be resurrected by the next load. The service entry
     /// itself stays if it still carries tools/prompts/resources sections.
-    pub async fn writeback_service_override_removal(
+    pub async fn writeback_service_route_removal(
         &self,
         service_name: &str,
         scope: &ScopeRef,
@@ -276,7 +276,7 @@ impl MCPStore {
             write_route_doc_atomic(&path, &doc)?;
         }
 
-        tracing::debug!("Removed service override keys for {service_name} from route.toml");
+        tracing::debug!("Removed service route keys for {service_name} from route.toml");
         Ok(())
     }
 }
@@ -383,12 +383,12 @@ fn scope_services_table_mut<'a>(
     scope_table["services"].as_table_mut()
 }
 
-/// Apply the writeback-owned fields of a service override onto its
+/// Apply the writeback-owned fields of a service route onto its
 /// route.toml table. Owned fields follow patch semantics — Some/non-empty
 /// sets the key, None/empty leaves any existing key as-is.
-fn apply_service_override_fields(
+fn apply_service_route_fields(
     table: &mut toml_edit::Table,
-    common: &crate::overrides::ComponentOverrideCommon,
+    common: &crate::routing::RouteFields,
 ) {
     if let Some(ref name) = common.display_name {
         table.insert("display_name", toml_edit::value(name.clone()));
@@ -419,14 +419,14 @@ fn apply_service_override_fields(
     }
 }
 
-/// Apply the writeback-owned fields of a tool override onto its route.toml
+/// Apply the writeback-owned fields of a tool route onto its route.toml
 /// table. Foreign keys already present on the table (hand-written extras) are
 /// never touched; owned fields follow patch semantics — Some/non-empty sets
 /// the key, None/empty leaves any existing key as-is.
-fn apply_tool_override_fields(
+fn apply_tool_route_fields(
     table: &mut toml_edit::Table,
-    common: &crate::overrides::ComponentOverrideCommon,
-    arguments: &[ToolArgumentOverride],
+    common: &crate::routing::RouteFields,
+    arguments: &[ToolArgumentRoute],
 ) {
     if let Some(ref name) = common.display_name {
         table.insert("display_name", toml_edit::value(name.clone()));
@@ -436,6 +436,9 @@ fn apply_tool_override_fields(
     }
     if let Some(enabled) = common.enabled {
         table.insert("enabled", toml_edit::value(enabled));
+    }
+    if common.weight != 0 {
+        table.insert("weight", toml_edit::value(i64::from(common.weight)));
     }
     if !common.tags.is_empty() {
         let mut tags_array = toml_edit::Array::new();
@@ -458,19 +461,33 @@ fn apply_tool_override_fields(
         }
     }
 
-    // Arguments (only defaults for now). The loader reads each argument as an
-    // ArgumentOverride table ({ default = … }), so the default value must be
-    // wrapped — a bare `debug = false` fails TOML deserialization on the next
-    // load and takes boot down with it.
+    // Full argument projection table — each arg is a sub-table so reload can
+    // round-trip rename/hide/default/description/validation_schema.
     if !arguments.is_empty() {
         let mut args_table = toml_edit::Table::default();
         for arg in arguments {
+            let mut arg_table = toml_edit::Table::default();
+            if let Some(ref new_name) = arg.new_name {
+                arg_table.insert("new_name", toml_edit::value(new_name.clone()));
+            }
+            if arg.hidden {
+                arg_table.insert("hidden", toml_edit::value(true));
+            }
             if let Some(ref default) = arg.default_value {
                 if let Some(item) = toml_item_from_json(default) {
-                    let mut arg_table = toml_edit::Table::default();
                     arg_table.insert("default", item);
-                    args_table.insert(&arg.original_name, toml_edit::Item::Table(arg_table));
                 }
+            }
+            if let Some(ref description) = arg.description {
+                arg_table.insert("description", toml_edit::value(description.clone()));
+            }
+            if let Some(ref schema) = arg.validation_schema {
+                if let Some(item) = toml_item_from_json(schema) {
+                    arg_table.insert("validation_schema", item);
+                }
+            }
+            if !arg_table.is_empty() {
+                args_table.insert(&arg.original_name, toml_edit::Item::Table(arg_table));
             }
         }
         if !args_table.is_empty() {
@@ -515,15 +532,15 @@ fn toml_item_from_json(json: &serde_json::Value) -> Option<toml_edit::Item> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::overrides::ComponentOverrideCommon;
+    use crate::routing::RouteFields;
 
     fn common(
         display_name: Option<&str>,
         description: Option<&str>,
         enabled: Option<bool>,
         tags: Vec<String>,
-    ) -> ComponentOverrideCommon {
-        ComponentOverrideCommon {
+    ) -> RouteFields {
+        RouteFields {
             display_name: display_name.map(str::to_string),
             description: description.map(str::to_string),
             enabled,
@@ -547,21 +564,21 @@ mod tests {
     #[test]
     fn writeback_preserves_foreign_keys_and_unset_fields() {
         let mut doc: toml_edit::DocumentMut = r#"
-[store.services.github.tools.overrides.search_repos]
+[store.services.github.tools.routes.search_repos]
 meta = "hand-written"
 icons = { light = "a.png" }
 enabled = false
 "#
         .parse()
         .unwrap();
-        let overrides_table = doc["store"]["services"]["github"]["tools"]["overrides"]
+        let overrides_table = doc["store"]["services"]["github"]["tools"]["routes"]
             .as_table_mut()
             .unwrap();
         let item = overrides_table
             .get_mut("search_repos")
             .and_then(|entry| entry.as_table_mut())
             .unwrap();
-        apply_tool_override_fields(item, &common(Some("🔍 Search"), None, None, vec![]), &[]);
+        apply_tool_route_fields(item, &common(Some("🔍 Search"), None, None, vec![]), &[]);
 
         let written = doc.to_string();
         assert!(written.contains("meta = \"hand-written\""));
@@ -574,7 +591,7 @@ enabled = false
     #[test]
     fn writeback_sets_owned_fields_on_fresh_table() {
         let mut table = toml_edit::Table::default();
-        apply_tool_override_fields(
+        apply_tool_route_fields(
             &mut table,
             &common(None, Some("desc"), Some(true), vec!["t".to_string()]),
             &[],
@@ -587,14 +604,14 @@ enabled = false
 
     #[test]
     fn tool_removal_drops_entry_and_prunes_empty_parents() {
-        // (writeback_tool_override_removal's table surgery lives in the same
+        // (writeback_tool_route_removal's table surgery lives in the same
         // navigation helpers; exercise the doc-level behavior directly.)
         let mut doc: toml_edit::DocumentMut = r#"
-[store.services.filesystem.tools.overrides.write_file]
+[store.services.filesystem.tools.routes.write_file]
 display_name = "safe_write"
 enabled = true
 
-[store.services.filesystem.tools.overrides.list_directory]
+[store.services.filesystem.tools.routes.list_directory]
 enabled = false
 "#
         .parse()
@@ -609,14 +626,14 @@ enabled = false
             .and_then(|i| i.as_table_mut())
             .unwrap();
         let overrides = tools
-            .get_mut("overrides")
+            .get_mut("routes")
             .and_then(|i| i.as_table_mut())
             .unwrap();
         overrides.remove("write_file");
         // list_directory survives its sibling's removal
         assert!(overrides.contains_key("list_directory"));
         overrides.remove("list_directory");
-        tools.remove("overrides");
+        tools.remove("routes");
         service.remove("tools");
         services.remove("filesystem");
         let written = doc.to_string();
@@ -626,17 +643,17 @@ enabled = false
 
     #[test]
     fn writeback_writes_argument_defaults_wrapped() {
-        // The loader reads arguments as ArgumentOverride tables — a bare
+        // The loader reads arguments as ArgumentRoute tables — a bare
         // boolean default must serialize as `debug = { default = false }`,
         // never `debug = false` (which fails TOML deserialization on the
         // next load and breaks boot).
         // Render through a DocumentMut: a standalone Table::to_string() drops
         // sub-tables, but production always serializes the whole document.
         let mut doc: toml_edit::DocumentMut = "".parse().unwrap();
-        apply_tool_override_fields(
+        apply_tool_route_fields(
             doc.as_table_mut(),
             &common(None, None, Some(true), vec![]),
-            &[crate::kv::models::ToolArgumentOverride {
+            &[crate::kv::models::ToolArgumentRoute {
                 original_name: "debug".to_string(),
                 new_name: None,
                 hidden: true,
@@ -649,28 +666,32 @@ enabled = false
         assert!(written.contains("debug"), "arg key missing: {written}");
         assert!(
             written.contains("default = false"),
-            "default not wrapped in ArgumentOverride table: {written}"
+            "default not wrapped in ArgumentRoute table: {written}"
+        );
+        assert!(
+            written.contains("hidden = true"),
+            "hidden flag missing: {written}"
         );
     }
 
     #[test]
     fn writeback_writes_meta_and_icons_from_patch() {
         let mut doc: toml_edit::DocumentMut = r#"
-[store.services.github.tools.overrides.search_repos]
+[store.services.github.tools.routes.search_repos]
 "#
         .parse()
         .unwrap();
-        let overrides_table = doc["store"]["services"]["github"]["tools"]["overrides"]
+        let overrides_table = doc["store"]["services"]["github"]["tools"]["routes"]
             .as_table_mut()
             .unwrap();
         let item = overrides_table
             .get_mut("search_repos")
             .and_then(|entry| entry.as_table_mut())
             .unwrap();
-        let mut common = ComponentOverrideCommon::default();
+        let mut common = RouteFields::default();
         common.icons = Some(serde_json::json!({"light": "a.png", "dark": "b.png"}));
         common.meta = Some(serde_json::json!({"owner": "team-a", "tier": 2}));
-        apply_tool_override_fields(item, &common, &[]);
+        apply_tool_route_fields(item, &common, &[]);
 
         let doc = doc.to_string();
         assert!(doc.contains("a.png"));
@@ -683,7 +704,7 @@ enabled = false
         let mut doc: toml_edit::DocumentMut = "".parse().unwrap();
         let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store)
             .expect("store scope is navigable");
-        apply_service_override_fields(
+        apply_service_route_fields(
             table,
             &common(Some("GitHub 巨人"), None, Some(false), vec![]),
         );
@@ -700,7 +721,7 @@ enabled = false
 display_name = "GitHub"
 enabled = false
 
-[store.services.github.tools.overrides.search_repos]
+[store.services.github.tools.routes.search_repos]
 display_name = "Search"
 "#
         .parse()
@@ -721,7 +742,7 @@ display_name = "Search"
         assert!(!written.contains("GitHub 巨人"));
         assert!(!written.contains("enabled = false"));
         // tool sections and their overrides survive
-        assert!(written.contains("[store.services.github.tools.overrides.search_repos]"));
+        assert!(written.contains("[store.services.github.tools.routes.search_repos]"));
     }
 
     #[test]

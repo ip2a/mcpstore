@@ -260,19 +260,19 @@ mod tests {
 
     #[test]
     fn component_override_schemas_match_component_fields() {
-        let tool = tool_override_schema(&[]);
+        let tool = tool_route_schema(&[]);
         assert!(tool["properties"].get("arguments").is_some());
         assert!(tool["properties"].get("safety_policy").is_some());
         assert!(tool["properties"].get("meta").is_some());
 
-        let prompt = build_prompt_override_tools();
-        let prompt_schema = &prompt[PROMPT_OVERRIDE_SET_TOOL].input_schema;
+        let prompt = build_prompt_route_tools();
+        let prompt_schema = &prompt[PROMPT_ROUTE_SET_TOOL].input_schema;
         assert!(prompt_schema["properties"].get("mime_type").is_none());
         assert!(prompt_schema["properties"].get("arguments").is_none());
 
         for tools in [
-            build_resource_override_tools(),
-            build_resource_template_override_tools(),
+            build_resource_route_tools(),
+            build_resource_template_route_tools(),
         ] {
             let schema = &tools.values().next().expect("override tool").input_schema;
             assert!(schema["properties"].get("mime_type").is_some());
@@ -288,18 +288,18 @@ mod tests {
     }
 
     #[test]
-    fn service_overrides_filter_and_rename_catalog_payloads() {
-        use mcpstore::{ComponentOverrideCommon, ServiceOverrideRule};
+    fn service_routes_filter_and_rename_catalog_payloads() {
+        use mcpstore::{RouteFields, ServiceRouteRule};
         let first = ServiceInstanceKey::new("github", ScopeRef::Store).instance_id();
         let second = ServiceInstanceKey::new("docs", ScopeRef::Store).instance_id();
         let disabled = ServiceInstanceKey::new("secret", ScopeRef::Store).instance_id();
 
         let rule = |instance_id, name: &str, display: Option<&str>, enabled: Option<bool>| {
-            ServiceOverrideRule {
+            ServiceRouteRule {
                 instance_id,
                 service_name: name.to_string(),
                 scope: ScopeRef::Store,
-                common: ComponentOverrideCommon {
+                common: RouteFields {
                     display_name: display.map(str::to_string),
                     enabled,
                     ..Default::default()
@@ -318,7 +318,7 @@ mod tests {
             serde_json::json!({"name": "read", "instance_id": second, "service_name": "docs"}),
             serde_json::json!({"name": "leak", "instance_id": disabled, "service_name": "secret"}),
         ];
-        let projected = apply_service_overrides(payloads, &overrides).unwrap();
+        let projected = apply_service_routes(payloads, &overrides).unwrap();
         assert_eq!(projected.len(), 2);
         assert_eq!(
             projected[0]["service_name"].as_str(),

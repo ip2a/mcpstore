@@ -25,11 +25,11 @@ import {
   ServiceConfigPreviewPane,
 } from "@/features/services/add-service-playground-aside"
 import { useServiceDetailQuery } from "@/features/services/queries"
-import { useServiceOverrideQuery } from "@/features/overrides/queries"
+import { useServiceRouteQuery } from "@/features/routes/queries"
 import {
-  ServiceOverridePane,
-  type ServiceOverridePaneHandle,
-} from "@/features/services/service-override-pane"
+  ServiceRoutePane,
+  type ServiceRoutePaneHandle,
+} from "@/features/services/service-route-pane"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
 import {
   isServiceRunning,
@@ -210,7 +210,7 @@ function ServiceCardDialogBody({
   const [gatewayBusy, setGatewayBusy] = useState(false)
   /** After Connect, ignore older sessions so the left rail tracks this attempt. */
   const [connectWatchFromMs, setConnectWatchFromMs] = useState(0)
-  const overridePaneRef = useRef<ServiceOverridePaneHandle>(null)
+  const routePaneRef = useRef<ServiceRoutePaneHandle>(null)
   const detailQuery = useServiceDetailQuery(listService, open)
   const service = detailQuery.data || listService
   const isSessionsTab = activeTab === "sessions"
@@ -243,11 +243,11 @@ function ServiceCardDialogBody({
 
   const connected = isServiceRunning(service.state)
   const status = deriveServiceDisplayStatus(service.state)
-  // Dialog chrome uses list projection first; override query stays for the editor pane.
-  const overrideQuery = useServiceOverrideQuery(service.service_name, service.scope)
-  const serviceOverride = overrideQuery.data?.override
+  // Dialog chrome uses list projection first; route query stays for the editor pane.
+  const routeQuery = useServiceRouteQuery(service.service_name, service.scope)
+  const serviceRoute = routeQuery.data?.route
   const projectedName =
-    serviceOverride?.display_name?.trim() ||
+    serviceRoute?.display_name?.trim() ||
     service.display_name?.trim() ||
     service.service_name
   const scopeLabel =
@@ -264,14 +264,14 @@ function ServiceCardDialogBody({
   }
 
   function cancelEditing() {
-    if (isGatewayTab) overridePaneRef.current?.discard()
+    if (isGatewayTab) routePaneRef.current?.discard()
     setActiveTab("preview")
   }
 
   async function onFormSubmit(event: FormEvent<HTMLFormElement>) {
     if (isGatewayTab) {
       event.preventDefault()
-      await overridePaneRef.current?.save()
+      await routePaneRef.current?.save()
       return
     }
     if (isEditTab) {
@@ -337,16 +337,16 @@ function ServiceCardDialogBody({
                     className="flex size-16 shrink-0 items-center justify-center text-muted-foreground"
                   >
                     <McpIcon
-                      icons={serviceOverride?.icons ?? service.mcp?.serverInfo?.icons}
+                      icons={serviceRoute?.icons ?? service.mcp?.serverInfo?.icons}
                       fallback={<DefaultServiceIcon className="size-16" />}
                       className="size-16"
                     />
                   </span>
                   <div className="min-w-0 w-full">
                     <p className="truncate font-mono text-base font-semibold">{projectedName}</p>
-                    {serviceOverride?.description ? (
+                    {serviceRoute?.description ? (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {serviceOverride.description}
+                        {serviceRoute.description}
                       </p>
                     ) : null}
                     <p
@@ -447,8 +447,8 @@ function ServiceCardDialogBody({
 
                 <TabsContent value="gateway" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
-                    <ServiceOverridePane
-                      ref={overridePaneRef}
+                    <ServiceRoutePane
+                      ref={routePaneRef}
                       hideActions
                       serviceName={service.service_name}
                       scope={service.scope}

@@ -9,9 +9,9 @@ use mcpstore::{
     Service, ServiceTarget, Tool,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, PromptOverridePatch,
-    ResourceOverridePatch, ResourceTemplateOverridePatch, SessionRetryPolicy, SessionToolSelection,
-    ToolOverridePatch, ToolVisibilityFilter,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, PromptRoutePatch,
+    ResourceRoutePatch, ResourceTemplateRoutePatch, SessionRetryPolicy, SessionToolSelection,
+    ToolRoutePatch, ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
 use std::str::FromStr;
@@ -567,30 +567,30 @@ impl PyService {
         Ok(PyResourceTemplate { inner })
     }
 
-    fn list_tool_overrides(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn list_tool_routes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_tool_overrides())
+            .block_on(self.inner.list_tool_routes())
             .map_err(map_store_err)?;
-        serializable_to_py(py, &values, "Tool overrides")
+        serializable_to_py(py, &values, "Tool routes")
     }
 
-    fn list_prompt_overrides(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn list_prompt_routes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_prompt_overrides())
+            .block_on(self.inner.list_prompt_routes())
             .map_err(map_store_err)?;
-        serializable_to_py(py, &values, "Prompt overrides")
+        serializable_to_py(py, &values, "Prompt routes")
     }
 
-    fn list_resource_overrides(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn list_resource_routes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_resource_overrides())
+            .block_on(self.inner.list_resource_routes())
             .map_err(map_store_err)?;
-        serializable_to_py(py, &values, "Resource overrides")
+        serializable_to_py(py, &values, "Resource routes")
     }
 
-    fn list_resource_template_overrides(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    fn list_resource_template_routes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_resource_template_overrides())
+            .block_on(self.inner.list_resource_template_routes())
             .map_err(map_store_err)?;
         serializable_to_py(py, &values, "Resource template overrides")
     }
@@ -620,21 +620,21 @@ impl PyTool {
     }
 
     fn set_override(&self, py: Python<'_>, patch: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let patch: ToolOverridePatch =
-            serde_json::from_value(py_to_serde_value(patch, "Tool override patch")?).map_err(
+        let patch: ToolRoutePatch =
+            serde_json::from_value(py_to_serde_value(patch, "Tool route patch")?).map_err(
                 |error| pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}")),
             )?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_override(patch))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "Tool override rule")
+        serializable_to_py(py, &rule, "Tool route rule")
     }
 
     fn get_override(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.get_override())
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "Tool override rule")
+        serializable_to_py(py, &rule, "Tool route rule")
     }
 
     fn delete_override(&self) -> PyResult<()> {
@@ -672,13 +672,13 @@ macro_rules! sync_component_override_methods {
                 let rule = pyo3_async_runtimes::tokio::get_runtime()
                     .block_on(self.inner.set_override(patch))
                     .map_err(map_store_err)?;
-                serializable_to_py(py, &rule, concat!($label, " override rule"))
+                serializable_to_py(py, &rule, concat!($label, " route rule"))
             }
             fn get_override(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
                 let rule = pyo3_async_runtimes::tokio::get_runtime()
                     .block_on(self.inner.get_override())
                     .map_err(map_store_err)?;
-                serializable_to_py(py, &rule, concat!($label, " override rule"))
+                serializable_to_py(py, &rule, concat!($label, " route rule"))
             }
             fn delete_override(&self) -> PyResult<()> {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.delete_override()).map_err(map_store_err)
@@ -696,7 +696,7 @@ macro_rules! sync_component_override_methods {
 
 sync_component_override_methods!(
     PyPrompt,
-    PromptOverridePatch,
+    PromptRoutePatch,
     "Prompt",
     fn get(&self, py: Python<'_>, args: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let args = py_to_serde_value(args, "Prompt arguments")?;
@@ -708,7 +708,7 @@ sync_component_override_methods!(
 );
 sync_component_override_methods!(
     PyResource,
-    ResourceOverridePatch,
+    ResourceRoutePatch,
     "Resource",
     fn read(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let value = pyo3_async_runtimes::tokio::get_runtime()
@@ -719,7 +719,7 @@ sync_component_override_methods!(
 );
 sync_component_override_methods!(
     PyResourceTemplate,
-    ResourceTemplateOverridePatch,
+    ResourceTemplateRoutePatch,
     "Resource template",
     fn no_extra(&self) -> PyResult<()> {
         Ok(())
@@ -1295,7 +1295,7 @@ impl PyMCPStore {
         serializable_to_py(py, &result, "tool_call_result")
     }
 
-    fn set_tool_override(
+    fn set_tool_route(
         &self,
         py: Python<'_>,
         instance_id: &str,
@@ -1304,19 +1304,19 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let value = py_to_serde_value(transform, "Tool transform")?;
-        let patch: ToolOverridePatch = serde_json::from_value(value).map_err(|err| {
+        let patch: ToolRoutePatch = serde_json::from_value(value).map_err(|err| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "Tool transform conversion failed: {err}"
             ))
         })?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.set_tool_override(instance_id, tool_name, patch))
+            .block_on(self.inner.set_tool_route(instance_id, tool_name, patch))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_override_rule")
+        serializable_to_py(py, &rule, "tool_route_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
-    fn create_llm_friendly_tool_override(
+    fn create_llm_friendly_tool_route(
         &self,
         py: Python<'_>,
         instance_id: &str,
@@ -1328,7 +1328,7 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.create_llm_friendly_tool_override(
+            .block_on(self.inner.create_llm_friendly_tool_route(
                 instance_id,
                 tool_name,
                 friendly_name,
@@ -1337,11 +1337,11 @@ impl PyMCPStore {
                 add_safety_policy,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_override_rule")
+        serializable_to_py(py, &rule, "tool_route_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
-    fn create_parameter_renamed_tool_override(
+    fn create_parameter_renamed_tool_route(
         &self,
         py: Python<'_>,
         instance_id: &str,
@@ -1364,18 +1364,18 @@ impl PyMCPStore {
             pairs.push((original.as_str(), renamed));
         }
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.create_parameter_renamed_tool_override(
+            .block_on(self.inner.create_parameter_renamed_tool_route(
                 instance_id,
                 tool_name,
                 new_tool_name,
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_override_rule")
+        serializable_to_py(py, &rule, "tool_route_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
-    fn create_validated_tool_override(
+    fn create_validated_tool_route(
         &self,
         py: Python<'_>,
         instance_id: &str,
@@ -1393,17 +1393,17 @@ impl PyMCPStore {
             .map(|(param, schema)| (param.as_str(), schema.clone()))
             .collect();
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.create_validated_tool_override(
+            .block_on(self.inner.create_validated_tool_route(
                 instance_id,
                 tool_name,
                 new_tool_name,
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_override_rule")
+        serializable_to_py(py, &rule, "tool_route_rule")
     }
 
-    fn get_tool_override(
+    fn get_tool_route(
         &self,
         py: Python<'_>,
         instance_id: &str,
@@ -1411,27 +1411,27 @@ impl PyMCPStore {
     ) -> PyResult<Option<Py<PyAny>>> {
         let instance_id = parse_instance_id(instance_id)?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.get_tool_override(instance_id, tool_name))
+            .block_on(self.inner.get_tool_route(instance_id, tool_name))
             .map_err(map_store_err)?;
         rule.as_ref()
-            .map(|rule| serializable_to_py(py, rule, "tool_override_rule"))
+            .map(|rule| serializable_to_py(py, rule, "tool_route_rule"))
             .transpose()
     }
 
-    fn list_tool_overrides(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_tool_routes(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         let rules = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_tool_overrides())
+            .block_on(self.inner.list_tool_routes())
             .map_err(map_store_err)?;
         rules
             .iter()
-            .map(|rule| serializable_to_py(py, rule, "tool_override_rule"))
+            .map(|rule| serializable_to_py(py, rule, "tool_route_rule"))
             .collect()
     }
 
-    fn delete_tool_override(&self, instance_id: &str, tool_name: &str) -> PyResult<()> {
+    fn remove_tool_route(&self, instance_id: &str, tool_name: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.delete_tool_override(instance_id, tool_name))
+            .block_on(self.inner.remove_tool_route(instance_id, tool_name))
             .map_err(map_store_err)
     }
 

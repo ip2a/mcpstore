@@ -4681,7 +4681,7 @@ async fn install_registry_tools(
 }
 
 #[tokio::test]
-async fn tool_override_rules_affect_only_the_addressed_instance_view() {
+async fn tool_route_rules_affect_only_the_addressed_instance_view() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4689,10 +4689,10 @@ async fn tool_override_rules_affect_only_the_addressed_instance_view() {
     install_registry_tools(&store, instance_id, vec![registry_tool("echo")]).await;
 
     let rule = store
-        .set_tool_override(
+        .set_tool_route(
             instance_id,
             "echo",
-            crate::ToolOverridePatch::default()
+            crate::ToolRoutePatch::default()
                 .with_display_name("say")
                 .with_description("Send a message")
                 .rename_argument("message", "text")
@@ -4723,20 +4723,20 @@ async fn tool_override_rules_affect_only_the_addressed_instance_view() {
 
     assert_eq!(
         store
-            .get_tool_override(instance_id, "say")
+            .get_tool_route(instance_id, "say")
             .await
             .unwrap()
             .unwrap()
             .tool_name,
         "echo"
     );
-    assert_eq!(store.list_tool_overrides().await.unwrap().len(), 1);
+    assert_eq!(store.list_tool_routes().await.unwrap().len(), 1);
     store
-        .delete_tool_override(instance_id, "say")
+        .remove_tool_route(instance_id, "say")
         .await
         .unwrap();
     assert!(store
-        .get_tool_override(instance_id, "echo")
+        .get_tool_route(instance_id, "echo")
         .await
         .unwrap()
         .is_none());
@@ -4745,7 +4745,7 @@ async fn tool_override_rules_affect_only_the_addressed_instance_view() {
 }
 
 #[tokio::test]
-async fn rust_tool_override_builders_create_instance_owned_rules() {
+async fn rust_tool_route_builders_create_instance_owned_rules() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4762,7 +4762,7 @@ async fn rust_tool_override_builders_create_instance_owned_rules() {
     .await;
 
     let friendly = store
-        .create_llm_friendly_tool_override(
+        .create_llm_friendly_tool_route(
             instance_id,
             "friendly",
             Some("friendly_simple"),
@@ -4781,7 +4781,7 @@ async fn rust_tool_override_builders_create_instance_owned_rules() {
     assert!(friendly.safety_policy.is_some());
 
     let renamed = store
-        .create_parameter_renamed_tool_override(
+        .create_parameter_renamed_tool_route(
             instance_id,
             "renamed",
             Some("renamed_simple"),
@@ -4793,7 +4793,7 @@ async fn rust_tool_override_builders_create_instance_owned_rules() {
     assert_eq!(renamed.arguments[0].new_name.as_deref(), Some("text"));
 
     let validated = store
-        .create_validated_tool_override(
+        .create_validated_tool_route(
             instance_id,
             "validated",
             None,
@@ -4809,7 +4809,7 @@ async fn rust_tool_override_builders_create_instance_owned_rules() {
         Some("validated_validated")
     );
     assert!(validated.arguments[0].validation_schema.is_some());
-    assert_eq!(store.list_tool_overrides().await.unwrap().len(), 3);
+    assert_eq!(store.list_tool_routes().await.unwrap().len(), 3);
 
     std::fs::remove_file(path).ok();
 }
@@ -5881,7 +5881,7 @@ mod scoped_contract {
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     use crate::kv::models::ServiceDefinitionEntity;
     use crate::registry::{ConfigRevision, ToolInfo};
-    use crate::{CreateSessionRequest, SessionToolSelection, ToolOverridePatch};
+    use crate::{CreateSessionRequest, SessionToolSelection, ToolRoutePatch};
 
     fn temp_config_path() -> String {
         std::env::temp_dir()
@@ -6284,7 +6284,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn scope_override_recursively_merges_and_null_deletes_inherited_fields() {
+    async fn scope_route_recursively_merges_and_null_deletes_inherited_fields() {
         let path = temp_config_path();
         let agent = agent_scope("agent-1");
         let scopes = ScopeDeclarations {
@@ -6884,7 +6884,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn tool_override_and_disconnect_are_isolated_between_sibling_instances() {
+    async fn tool_route_and_disconnect_are_isolated_between_sibling_instances() {
         let base_url = spawn_openapi_auth_fixture().await;
         let store = MCPStore::setup_with_options(store_options(None)).unwrap();
         let spec = json!({
@@ -6960,10 +6960,10 @@ mod scoped_contract {
         store.connect_service(agent_1_id).await.unwrap();
         store.connect_service(agent_2_id).await.unwrap();
         store
-            .set_tool_override(
+            .set_tool_route(
                 agent_1_id,
                 "echo",
-                ToolOverridePatch::default()
+                ToolRoutePatch::default()
                     .with_display_name("say")
                     .rename_argument("body", "payload"),
             )
@@ -7146,10 +7146,10 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_tool_override(
+            .set_tool_route(
                 agent_1_id,
                 "agent-1-tool",
-                ToolOverridePatch::default().with_display_name("agent-1-renamed"),
+                ToolRoutePatch::default().with_display_name("agent-1-renamed"),
             )
             .await
             .unwrap();
@@ -7181,10 +7181,10 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_tool_override(
+            .set_tool_route(
                 agent_2_id,
                 "agent-2-tool",
-                ToolOverridePatch::default().with_display_name("agent-2-renamed"),
+                ToolRoutePatch::default().with_display_name("agent-2-renamed"),
             )
             .await
             .unwrap();
@@ -7256,7 +7256,7 @@ mod scoped_contract {
                 "tool_preferences",
                 format!("agent:agent-1:{agent_1_id}:agent-1-tool"),
             ),
-            ("tool_overrides", format!("{agent_1_id}:agent-1-tool")),
+            ("tool_routes", format!("{agent_1_id}:agent-1-tool")),
         ] {
             assert!(store
                 .kv()
@@ -7274,7 +7274,7 @@ mod scoped_contract {
                 "tool_preferences",
                 format!("agent:agent-2:{agent_2_id}:agent-2-tool"),
             ),
-            ("tool_overrides", format!("{agent_2_id}:agent-2-tool")),
+            ("tool_routes", format!("{agent_2_id}:agent-2-tool")),
         ] {
             assert!(store
                 .kv()
@@ -7369,7 +7369,7 @@ mod scoped_contract {
             .is_none());
         assert!(store
             .kv()
-            .get_state("tool_overrides", &format!("{agent_1_id}:agent-1-tool"))
+            .get_state("tool_routes", &format!("{agent_1_id}:agent-1-tool"))
             .await
             .unwrap()
             .is_none());
@@ -7545,7 +7545,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn tool_overrides_are_isolated_by_instance_id() {
+    async fn tool_routes_are_isolated_by_instance_id() {
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: None,
@@ -7566,10 +7566,10 @@ mod scoped_contract {
         install_tool(&store, agent_2_id, tool("echo")).await;
 
         let rule = store
-            .set_tool_override(
+            .set_tool_route(
                 agent_1_id,
                 "echo",
-                ToolOverridePatch::default()
+                ToolRoutePatch::default()
                     .with_display_name("say")
                     .rename_argument("text", "message")
                     .hide_argument("debug", false),
@@ -7581,36 +7581,36 @@ mod scoped_contract {
         assert_eq!(rule.tool_name, "echo");
 
         assert!(store
-            .get_tool_override(agent_1_id, "echo")
+            .get_tool_route(agent_1_id, "echo")
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_tool_override(agent_2_id, "echo")
+            .get_tool_route(agent_2_id, "echo")
             .await
             .unwrap()
             .is_none());
         assert!(store
             .kv()
-            .get_state("tool_overrides", &format!("{agent_1_id}:echo"))
+            .get_state("tool_routes", &format!("{agent_1_id}:echo"))
             .await
             .unwrap()
             .is_some());
         assert!(store
             .kv()
-            .get_state("tool_overrides", &format!("{agent_2_id}:echo"))
+            .get_state("tool_routes", &format!("{agent_2_id}:echo"))
             .await
             .unwrap()
             .is_none());
 
         let (_, resolved_name, transformed_args) = store
-            .resolve_override_tool_call(agent_1_id, "say", json!({"message": "hello"}))
+            .resolve_routed_tool_call(agent_1_id, "say", json!({"message": "hello"}))
             .await
             .unwrap();
         assert_eq!(resolved_name, "echo");
         assert_eq!(transformed_args, json!({"text": "hello", "debug": false}));
         let (_, resolved_name, untouched_args) = store
-            .resolve_override_tool_call(agent_2_id, "echo", json!({"text": "hello"}))
+            .resolve_routed_tool_call(agent_2_id, "echo", json!({"text": "hello"}))
             .await
             .unwrap();
         assert_eq!(resolved_name, "echo");
@@ -7709,37 +7709,37 @@ mod scoped_contract {
         let id = store_instance_id("svc");
         install_tool(&store, id, tool("echo")).await;
         assert!(store
-            .set_prompt_override(id, "phantom", crate::PromptOverridePatch::default())
+            .set_prompt_route(id, "phantom", crate::PromptRoutePatch::default())
             .await
             .is_err());
         assert!(store
-            .set_resource_override(
+            .set_resource_route(
                 id,
                 "phantom://resource",
-                crate::ResourceOverridePatch::default()
+                crate::ResourceRoutePatch::default()
             )
             .await
             .is_err());
         assert!(store
-            .set_resource_template_override(
+            .set_resource_template_route(
                 id,
                 "phantom://{value}",
-                crate::ResourceTemplateOverridePatch::default()
+                crate::ResourceTemplateRoutePatch::default()
             )
             .await
             .is_err());
         store
-            .set_tool_override(
+            .set_tool_route(
                 id,
                 "echo",
-                ToolOverridePatch::default()
+                ToolRoutePatch::default()
                     .with_display_name("friendly-echo")
                     .with_description("A friendly echo"),
             )
             .await
             .unwrap();
         store.disable_tool(id, "echo").await.unwrap();
-        let tool_rule = store.get_tool_override(id, "echo").await.unwrap().unwrap();
+        let tool_rule = store.get_tool_route(id, "echo").await.unwrap().unwrap();
         assert_eq!(tool_rule.common.enabled, Some(false));
         assert_eq!(
             tool_rule.common.display_name.as_deref(),
@@ -7752,7 +7752,7 @@ mod scoped_contract {
         );
         enable.unwrap();
         disable.unwrap();
-        assert!(store.get_tool_override(id, "echo").await.unwrap().is_some());
+        assert!(store.get_tool_route(id, "echo").await.unwrap().is_some());
         assert_eq!(
             tool_rule.common.description.as_deref(),
             Some("A friendly echo")

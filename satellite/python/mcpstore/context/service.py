@@ -97,17 +97,17 @@ class Service:
 
         return ResourceTemplate(self._native.find_resource_template(uri_template))
 
-    def list_tool_overrides(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_tool_overrides())
+    def list_tool_routes(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_tool_routes())
 
-    def list_prompt_overrides(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_prompt_overrides())
+    def list_prompt_routes(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_prompt_routes())
 
-    def list_resource_overrides(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_resource_overrides())
+    def list_resource_routes(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_routes())
 
-    def list_resource_template_overrides(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_resource_template_overrides())
+    def list_resource_template_routes(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_template_routes())
 
 
 __all__ = ["Service"]

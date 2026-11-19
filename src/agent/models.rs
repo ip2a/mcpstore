@@ -50,4 +50,7 @@ pub struct ScopedToolEntry {
     pub instance_id: InstanceId,
     pub service_name: String,
     pub scope: ScopeRef,
+    /// Gateway same-name routing weight from the tool route (default 0).
+    #[serde(default)]
+    pub weight: i32,
 }

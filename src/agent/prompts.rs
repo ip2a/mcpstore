@@ -1,4 +1,4 @@
-use crate::overrides::ComponentKind;
+use crate::routing::ComponentKind;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -15,10 +15,10 @@ impl MCPStore {
         prompts.sort_by(|left, right| left.name.cmp(&right.name));
         let names: Vec<String> = prompts.iter().map(|prompt| prompt.name.clone()).collect();
         // One batched read for the whole set — never one KV read per prompt.
-        let overrides = self.prompt_overrides_for_names(instance_id, &names).await?;
+        let routes = self.prompt_routes_for_names(instance_id, &names).await?;
         let mut out = Vec::with_capacity(prompts.len());
         for prompt in prompts {
-            let Some(mut value) = Self::project_prompt_value(&prompt, overrides.get(&prompt.name))?
+            let Some(mut value) = Self::project_prompt_value(&prompt, routes.get(&prompt.name))?
             else {
                 continue;
             };
@@ -124,7 +124,7 @@ impl MCPStore {
             )
             .await?;
         if self
-            .load_prompt_override(instance_id, &original)
+            .load_prompt_route(instance_id, &original)
             .await?
             .is_some_and(|rule| rule.common.enabled == Some(false))
         {

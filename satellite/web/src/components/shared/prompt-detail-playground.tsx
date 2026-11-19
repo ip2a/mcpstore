@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { TypographyH2, TypographyInlineCode, TypographyLead } from "@/components/ui/typography"
-import { OverrideEditor } from "@/features/overrides/override-editor"
+import { RouteEditor } from "@/features/routes/route-editor"
 import {
   getInstancePrompt,
   type PromptInfo,
@@ -131,7 +131,7 @@ export function PromptDetailDocBody({
       ) : null}
 
       {serviceName && scope ? (
-        <OverrideEditor
+        <RouteEditor
           kind="prompt"
           serviceName={serviceName}
           componentKey={prompt.name}

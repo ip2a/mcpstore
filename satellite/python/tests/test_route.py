@@ -38,7 +38,7 @@ class NativeComponent:
         return {"contents": []}
 
 
-def test_tool_override_forward_lifecycle() -> None:
+def test_tool_route_forward_lifecycle() -> None:
     tool = Tool(NativeComponent())
     assert tool.get_override() is None
     assert tool.set_override({"display_name": "friendly"})["display_name"] == "friendly"
