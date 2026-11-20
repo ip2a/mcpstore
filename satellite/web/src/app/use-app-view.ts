@@ -1,0 +1,257 @@
+import { useCallback } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
+
+import { type AppView, type InstanceOrigin, useViewTitle } from "@/app/app-view"
+import { useServiceDetailQuery } from "@/features/services/queries"
+import type { ScopeRef, ServiceAddress, ServiceInstance } from "@/lib/api"
+
+const EMPTY_ADDR: ServiceAddress = { service_name: "", scope: { type: "store" } }
+
+function scopeEquals(a: ScopeRef, b: ScopeRef): boolean {
+  if (a.type !== b.type) return false
+  if (a.type === "agent" && b.type === "agent") return a.agent_id === b.agent_id
+  return true
+}
+
+function scopeFromSearch(search: string): ScopeRef {
+  const params = new URLSearchParams(search)
+  if (params.get("scope") === "agent") {
+    return { type: "agent", agent_id: params.get("agent_id") || "" }
+  }
+  return { type: "store" }
+}
+
+export function useAppView(services: ServiceInstance[]) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const view = viewFromPath(location.pathname, location.search)
+  const listedService =
+    view.name === "instance"
+      ? services.find(
+          (service) =>
+            service.service_name === view.addr.service_name &&
+            scopeEquals(service.scope, view.addr.scope),
+        )
+      : undefined
+  const instanceQuery = useServiceDetailQuery(
+    view.name === "instance" ? view.addr : EMPTY_ADDR,
+    view.name === "instance" && !listedService,
+  )
+  const selectedService = listedService || instanceQuery.data
+  const viewTitle = useViewTitle(view)
+  const pageTitle = selectedService?.service_name || viewTitle
+  const setView = useCallback(
+    (nextView: AppView, options?: { replace?: boolean }) =>
+      navigate(pathForView(nextView), { replace: options?.replace }),
+    [navigate],
+  )
+  const goBack = useCallback(() => {
+    if (view.name === "tool") {
+      navigate(pathForView({ name: "tools", instanceId: view.instanceId }), {
+        replace: location.key === "default",
+      })
+      return
+    }
+    if (view.name === "resource") {
+      navigate("/resources", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "prompt") {
+      navigate("/prompts", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "traceSession") {
+      navigate("/traces", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "instance" && view.origin?.kind === "scope") {
+      const scopePath = `/scope?id=${encodeURIComponent(view.origin.scopeId)}`
+      if (location.key !== "default") navigate(-1)
+      else navigate(scopePath, { replace: true })
+      return
+    }
+    if (location.key !== "default") navigate(-1)
+    else navigate("/services", { replace: true })
+  }, [location.key, navigate, view])
+
+  return {
+    goBack,
+    pageTitle,
+    selectedService,
+    selectedServiceError: instanceQuery.error,
+    selectedServiceLoading: instanceQuery.isFetching,
+    refreshSelectedService: instanceQuery.refetch,
+    setView,
+    view,
+  }
+}
+
+function viewFromPath(pathname: string, search: string): AppView {
+  if (pathname === "/" || pathname === "/home") return { name: "home" }
+  if (pathname === "/services") {
+    const params = new URLSearchParams(search)
+    const cardInstanceId = params.get("card")?.trim() || undefined
+    const tab = params.get("tab")
+    return {
+      name: "services",
+      ...(cardInstanceId ? { cardInstanceId } : {}),
+      ...(tab === "sessions" ? { cardTab: "sessions" as const } : {}),
+    }
+  }
+  if (pathname === "/scope") {
+    const scopeId = new URLSearchParams(search).get("id")?.trim()
+    return scopeId ? { name: "scope", scopeId } : { name: "scope" }
+  }
+  if (pathname === "/tools") {
+    const instanceId = new URLSearchParams(search).get("instance")?.trim()
+    return instanceId ? { name: "tools", instanceId } : { name: "tools" }
+  }
+  if (pathname === "/resources") return { name: "resources" }
+  if (pathname === "/prompts") return { name: "prompts" }
+  if (pathname.startsWith("/tools/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/tools/".length))
+    if (parsed) return { name: "tool", instanceId: parsed.instanceId, toolName: parsed.key }
+  }
+  if (pathname.startsWith("/resources/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/resources/".length))
+    if (parsed) return { name: "resource", instanceId: parsed.instanceId, resourceUri: parsed.key }
+  }
+  if (pathname.startsWith("/prompts/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/prompts/".length))
+    if (parsed) return { name: "prompt", instanceId: parsed.instanceId, promptName: parsed.key }
+  }
+  if (pathname === "/clients") return { name: "clients" }
+  if (pathname === "/plugins") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (tab === "installed" || tab === "services" || tab === "agents") {
+      return { name: "plugins", tab }
+    }
+    return { name: "plugins", tab: "installed" }
+  }
+  if (pathname === "/gateway") return { name: "gateway" }
+  // Legacy /history bookmarks land on Traces → History tab.
+  if (pathname === "/history") return { name: "traces", tab: "history" }
+  // Legacy /cache bookmarks land on Traces → KV tab.
+  if (pathname === "/cache") return { name: "traces", tab: "kv" }
+  if (pathname.startsWith("/traces/")) {
+    const parsed = parseTraceSessionPath(pathname.slice("/traces/".length))
+    if (parsed) return { name: "traceSession", ...parsed }
+  }
+  if (pathname === "/traces") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (
+      tab === "history" ||
+      tab === "table" ||
+      tab === "kv" ||
+      tab === "calls" ||
+      tab === "projection" ||
+      tab === "sessions" ||
+      tab === "inbound" ||
+      tab === "outbound"
+    ) {
+      return { name: "traces", tab }
+    }
+    return { name: "traces" }
+  }
+  if (pathname === "/settings") return { name: "settings" }
+  if (pathname.startsWith("/services/")) {
+    const raw = pathname.slice("/services/".length)
+    let service_name: string
+    try {
+      service_name = decodeURIComponent(raw)
+    } catch {
+      service_name = raw
+    }
+    return {
+      name: "instance",
+      addr: { service_name, scope: scopeFromSearch(search) },
+      origin: originFromSearch(search),
+    }
+  }
+  return { name: "home" }
+}
+
+function originFromSearch(search: string): InstanceOrigin | undefined {
+  const params = new URLSearchParams(search)
+  if (params.get("from") !== "scope") return undefined
+  const scopeId = params.get("from_id")?.trim()
+  if (!scopeId) return undefined
+  return { kind: "scope", scopeId }
+}
+
+function parseRegistryDetailPath(rest: string): { instanceId: string; key: string } | null {
+  const slash = rest.indexOf("/")
+  if (slash <= 0) return null
+  try {
+    return {
+      instanceId: decodeURIComponent(rest.slice(0, slash)),
+      key: decodeURIComponent(rest.slice(slash + 1)),
+    }
+  } catch {
+    return {
+      instanceId: rest.slice(0, slash),
+      key: rest.slice(slash + 1),
+    }
+  }
+}
+
+function parseTraceSessionPath(
+  rest: string,
+): { face: "gateway" | "upstream"; sessionId: string } | null {
+  const slash = rest.indexOf("/")
+  if (slash <= 0) return null
+  const face = rest.slice(0, slash)
+  if (face !== "gateway" && face !== "upstream") return null
+  try {
+    return { face, sessionId: decodeURIComponent(rest.slice(slash + 1)) }
+  } catch {
+    return { face, sessionId: rest.slice(slash + 1) }
+  }
+}
+
+function pathForView(view: AppView): string {
+  if (view.name === "services") {
+    const params = new URLSearchParams()
+    if (view.cardInstanceId) params.set("card", view.cardInstanceId)
+    if (view.cardTab) params.set("tab", view.cardTab)
+    const query = params.toString()
+    return query ? `/services?${query}` : "/services"
+  }
+  if (view.name === "tool") {
+    return `/tools/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.toolName)}`
+  }
+  if (view.name === "resource") {
+    return `/resources/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.resourceUri)}`
+  }
+  if (view.name === "prompt") {
+    return `/prompts/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.promptName)}`
+  }
+  if (view.name === "traceSession") {
+    return `/traces/${view.face}/${encodeURIComponent(view.sessionId)}`
+  }
+  if (view.name === "instance") {
+    const base = `/services/${encodeURIComponent(view.addr.service_name)}`
+    const params = new URLSearchParams()
+    if (view.addr.scope.type === "agent") {
+      params.set("scope", "agent")
+      params.set("agent_id", view.addr.scope.agent_id)
+    } else {
+      params.set("scope", "store")
+    }
+    if (view.origin?.kind === "scope") {
+      params.set("from", "scope")
+      params.set("from_id", view.origin.scopeId)
+    }
+    const query = params.toString()
+    return query ? `${base}?${query}` : base
+  }
+  if (view.name === "tools" && view.instanceId) {
+    return `/tools?instance=${encodeURIComponent(view.instanceId)}`
+  }
+  if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
+  if (view.name === "traces" && view.tab) return `/traces?tab=${encodeURIComponent(view.tab)}`
+  if (view.name === "scope" && view.scopeId) {
+    return `/scope?id=${encodeURIComponent(view.scopeId)}`
+  }
+  return `/${view.name}`
+}

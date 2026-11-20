@@ -9,29 +9,22 @@
 !.github/**
 
 # Source directories allowlisted for Git.
-!desktop/
-!desktop/**
-!i18n/
-!i18n/**
-!npm/
-!npm/**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!satellite/
+!satellite/**
 !plugins/
 !plugins/**
-!python/
-!python/**
-!rust/
-!rust/**
 !scripts/
 !scripts/**
-!web/
-!web/**
 
 # Root files allowlisted for Git.
 !/LICENSE
 !/README.md
 !/README_*.md
 !/install.sh
-!/platforms.toml
 
 # README documentation assets (screenshots).
 !docs/
@@ -55,23 +48,28 @@ __pycache__/
 *.pyd
 target/
 dist/
-web/node_modules
-python/.venv
-web/dist/
+satellite/web/node_modules
+satellite/python/.venv
+satellite/web/dist/
+# Vite cache belongs in repo-root local/ (ignored by `*`); never under satellite/
+satellite/local/
 docs/.venv/
 docs/site/
 release-assets/
 # assembled platform binaries; the entry package's wrapper is source and stays tracked
-npm/packages/*/bin/
-!npm/packages/mcpstore/bin/
+satellite/npm/packages/*/bin/
+!satellite/npm/packages/mcpstore/bin/
 *.tgz
 .obsidian/
 .specstory/
 .vscode/
 
 # Local example fixtures are intentionally not Git-managed for now.
-/python/example_local/
-web/REFACTOR_PLAN.md
+satellite/python/example_local/
+satellite/web/REFACTOR_PLAN.md
 
 # tauri externalBin sidecar, built by run_debug.sh / release workflow
-desktop/tauri/binaries/
+satellite/desktop/tauri/binaries/
+LESSONS.md
+AGENTS.md
+CLAUDE.md

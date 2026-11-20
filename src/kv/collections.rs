@@ -1,0 +1,65 @@
+use crate::kv::{KvError, KvLayerManager, Result};
+
+impl KvLayerManager {
+    pub(in crate::kv) fn entity_collection(&self, entity_type: &str) -> String {
+        Self::entity_collection_with_namespace(&self.namespace(), entity_type)
+    }
+
+    pub(crate) fn entity_collection_with_namespace(namespace: &str, entity_type: &str) -> String {
+        format!("{namespace}:entity:{entity_type}")
+    }
+
+    pub(in crate::kv) fn validate_entity_type(entity_type: &str) -> Result<()> {
+        const ENTITY_TYPES: &[&str] = &[
+            "agents",
+            "clients",
+            "service_definitions",
+            "service_instances",
+            "service_events",
+            "sessions",
+            "store",
+            "tool_call_requests",
+            "tool_call_responses",
+            "tools",
+            "tasks",
+        ];
+        if ENTITY_TYPES.contains(&entity_type) {
+            return Ok(());
+        }
+        Err(KvError::Validation(Self::invalid_entity_type_message(
+            entity_type,
+            &ENTITY_TYPES.join(", "),
+        )))
+    }
+
+    pub(in crate::kv) fn invalid_entity_type_message(entity_type: &str, allowed: &str) -> String {
+        format!("Unknown entity_type '{entity_type}'. Allowed entity types: {allowed}")
+    }
+
+    pub(in crate::kv) fn relation_collection(&self, relation_type: &str) -> String {
+        Self::relation_collection_with_namespace(&self.namespace(), relation_type)
+    }
+
+    pub(crate) fn relation_collection_with_namespace(
+        namespace: &str,
+        relation_type: &str,
+    ) -> String {
+        format!("{namespace}:relations:{relation_type}")
+    }
+
+    pub(in crate::kv) fn state_collection(&self, state_type: &str) -> String {
+        Self::state_collection_with_namespace(&self.namespace(), state_type)
+    }
+
+    pub(crate) fn state_collection_with_namespace(namespace: &str, state_type: &str) -> String {
+        format!("{namespace}:state:{state_type}")
+    }
+
+    pub(crate) fn event_collection(&self, event_type: &str) -> String {
+        Self::event_collection_with_namespace(&self.namespace(), event_type)
+    }
+
+    pub(crate) fn event_collection_with_namespace(namespace: &str, event_type: &str) -> String {
+        format!("{namespace}:event:{event_type}")
+    }
+}

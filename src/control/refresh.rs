@@ -1,0 +1,562 @@
+use std::collections::HashMap;
+
+use crate::auth::AuthConfig;
+use crate::config::{ServerConfig, StartupPolicy};
+use crate::kv::models::{
+    InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
+};
+use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
+use crate::state::{AuthState, DesiredState, ServiceState};
+use crate::store::MCPStore;
+use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
+
+impl MCPStore {
+    pub(crate) async fn load_from_db(&self) -> Result<()> {
+        // Acquire lock so concurrent reconcile/reload passes cannot interleave;
+        // readers stay lock-free — swap_all is their atomicity barrier.
+        let _guard = self.kernel.control.refresh_mutex.lock().await;
+
+        // Read pointer collections before the collections they point at. The
+        // writers land a relation only after its tool entities, and an
+        // instance only after its definition ("pointer last"), so a reader
+        // that snapshots the pointer first and the pointee second sees a
+        // pointee snapshot at least as new as its pointer snapshot. The
+        // reverse order (pointee first) tore during boot connect storms: the
+        // entity scan finished before a fresh relation landed, and the
+        // relation-vs-entity validation then failed the whole rebuild
+        // ("references missing tool"), freezing the read view on the
+        // last-good snapshot while every referenced tool existed. Reads are
+        // separate KV calls — only this ordering gives them a consistent cut.
+        let tool_relation_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_relations_async("instance_tools")
+            .await?;
+        let tool_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("tools")
+            .await?;
+        let instance_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("service_instances")
+            .await?;
+        let definition_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("service_definitions")
+            .await?;
+
+        let mut definitions = HashMap::with_capacity(definition_values.len());
+        for (key, value) in definition_values {
+            let entity: ServiceDefinitionEntity =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Service definition entity deserialization failed: {error}"),
+                    )
+                })?;
+            if key != entity.service_name {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service definition cache key '{key}' does not match service_name '{}'",
+                        entity.service_name
+                    ),
+                ));
+            }
+            definitions.insert(key, ServiceDefinition::from(entity));
+        }
+
+        let mut tool_entities = HashMap::with_capacity(tool_values.len());
+        for (key, value) in tool_values {
+            let entity: ToolEntity = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            let expected_key = format!("{}:{}", entity.instance_id, entity.tool_name);
+            if key != expected_key {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                    "Tool cache key '{key}' does not match instance/tool identity '{expected_key}'"
+                ),
+                ));
+            }
+            tool_entities.insert(key, entity);
+        }
+
+        let mut tool_relations = HashMap::with_capacity(tool_relation_values.len());
+        for (key, value) in tool_relation_values {
+            let relation: InstanceToolRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
+                })?;
+            if key != relation.instance_id.to_string() {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Instance tool relation key '{key}' does not match instance_id '{}'",
+                        relation.instance_id
+                    ),
+                ));
+            }
+            tool_relations.insert(relation.instance_id, relation);
+        }
+
+        let mut instances = Vec::with_capacity(instance_values.len());
+        for (key, value) in instance_values {
+            let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance entity deserialization failed: {error}"),
+                )
+            })?;
+            if key != entity.instance_id.to_string() {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance cache key '{key}' does not match instance_id '{}'",
+                        entity.instance_id
+                    ),
+                ));
+            }
+            let definition = definitions.get(&entity.service_name).ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' references missing definition '{}'",
+                        entity.instance_id, entity.service_name
+                    ),
+                )
+            })?;
+            if definition.scopes.descriptor(&entity.scope).is_none() {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' uses undeclared scope {:?}",
+                        entity.instance_id, entity.scope
+                    ),
+                ));
+            }
+            let expected_id =
+                ServiceInstanceKey::new(&entity.service_name, entity.scope.clone()).instance_id();
+            if entity.instance_id != expected_id {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' does not match deterministic identity '{}'",
+                        entity.instance_id, expected_id
+                    ),
+                ));
+            }
+
+            let tools = match tool_relations.get(&entity.instance_id) {
+                Some(relation) => {
+                    if relation.service_name != entity.service_name
+                        || relation.scope != entity.scope
+                    {
+                        return Err(Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Instance tool relation '{}' identity does not match its instance",
+                                entity.instance_id
+                            ),
+                        ));
+                    }
+                    let mut tools = Vec::with_capacity(relation.tools.len());
+                    for tool_name in &relation.tools {
+                        let tool_key = format!("{}:{tool_name}", entity.instance_id);
+                        let tool = tool_entities.get(&tool_key).ok_or_else(|| {
+                            Error::new(
+                                FailureCode::Internal,
+                                format!(
+                                    "Instance '{}' references missing tool '{tool_name}'",
+                                    entity.instance_id
+                                ),
+                            )
+                        })?;
+                        if tool.instance_id != entity.instance_id
+                            || tool.service_name != entity.service_name
+                            || tool.scope != entity.scope
+                            || tool.tool_name != *tool_name
+                        {
+                            return Err(Error::new(
+                                FailureCode::Internal,
+                                format!(
+                                "Tool '{tool_key}' identity does not match its instance relation"
+                            ),
+                            ));
+                        }
+                        tools.push(ToolInfo {
+                            name: tool.tool_name.clone(),
+                            title: tool.title.clone(),
+                            description: tool.description.clone(),
+                            input_schema: tool.input_schema.clone(),
+                            output_schema: tool.output_schema.clone(),
+                            annotations: tool.annotations.clone(),
+                            icons: tool.icons.clone(),
+                            meta: tool.meta.clone(),
+                        });
+                    }
+                    tools
+                }
+                None => Vec::new(),
+            };
+
+            let transport_config: ServerConfig =
+                serde_json::from_value(serde_json::Value::Object(entity.effective_config.clone()))
+                    .map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Service instance '{}' effective config cannot be decoded: {error}",
+                                entity.instance_id
+                            ),
+                        )
+                    })?;
+            let mut instance = ServiceInstance::from(entity);
+            instance.tools = tools;
+            instances.push((instance, transport_config));
+        }
+
+        let active_instance_ids = instances
+            .iter()
+            .map(|(instance, _)| instance.instance_id)
+            .collect::<std::collections::HashSet<_>>();
+        self.kernel
+            .control
+            .auth
+            .retain_statuses(&active_instance_ids)
+            .await;
+
+        // Merge the connection pool incrementally instead of rebuilding: remove only deleted instances,
+        // reconnect only instances whose config changed, keep live connections for the rest.
+        let current_ids = self.kernel.execution.pool.instance_ids().await;
+        for stale_id in current_ids.difference(&active_instance_ids) {
+            self.kernel.execution.pool.remove(*stale_id).await.ok();
+        }
+
+        // Incrementally keep applied openapi runtime config: clear only entries of vanished instances,
+        // surviving instances' connection state is not wrongly dropped by hydration (same merge semantics as the pool).
+        self.kernel
+            .runtime
+            .applied_openapi_configs
+            .write()
+            .await
+            .retain(|id, _| active_instance_ids.contains(id));
+        let mut instance_list = Vec::with_capacity(instances.len());
+        for (instance, transport_config) in instances {
+            let instance_id = instance.instance_id;
+            if self.kernel.control.state.get(instance_id).await?.is_none() {
+                let auth = match transport_config.auth {
+                    AuthConfig::None => AuthState::NotRequired,
+                    AuthConfig::OAuthAuthorizationCode(_)
+                    | AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
+                };
+                let lifecycle = transport_config.resolved_lifecycle_for_scope(
+                    &instance.scope,
+                    &self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .service_lifecycle_defaults,
+                );
+                // keep_alive=true implies a resident expectation (same rule as upsert_instance_projection)
+                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
+                    || lifecycle.keep_alive
+                {
+                    DesiredState::Running
+                } else {
+                    DesiredState::Stopped
+                };
+                self.kernel
+                    .control
+                    .state
+                    .create(ServiceState::new(
+                        instance_id,
+                        instance.service_name.clone(),
+                        instance.scope.clone(),
+                        desired,
+                        auth,
+                        instance.added_time,
+                    ))
+                    .await?;
+            }
+            self.kernel
+                .control
+                .auth
+                .initialize_status(instance_id, &transport_config.auth)
+                .await;
+            // Rebuild pool entries only when config actually changed or the instance is first registered
+            if instance.restart_required()
+                || !self.kernel.execution.pool.contains(instance_id).await
+            {
+                self.kernel.execution.pool.remove(instance_id).await.ok();
+                self.kernel
+                    .execution
+                    .pool
+                    .add(instance_id, transport_config)
+                    .await;
+            }
+            instance_list.push(instance);
+        }
+        // Read view swap happens last and atomically: readers see the fully
+        // rebuilt registry or the previous one, never an empty or half state.
+        self.kernel
+            .control
+            .registry
+            .swap_all(definitions, instance_list)
+            .await;
+        Ok(())
+    }
+
+    /// Shared-store query side: direct key reads; never goes through or backfills the in-memory registry.
+    /// Full `load_from_db` hydration is reserved for startup and the periodic reconcile loop.
+    pub(crate) async fn definition_from_kv(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServiceDefinition>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .kv
+            .get_entity("service_definitions", service_name)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceDefinitionEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service definition entity deserialization failed: {error}"),
+            )
+        })?;
+        Ok(Some(ServiceDefinition::from(entity)))
+    }
+
+    pub(crate) async fn definitions_from_kv(&self) -> Result<Vec<ServiceDefinition>> {
+        let values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("service_definitions")
+            .await?;
+        let mut definitions = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceDefinitionEntity =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Service definition entity deserialization failed: {error}"),
+                    )
+                })?;
+            definitions.push(ServiceDefinition::from(entity));
+        }
+        Ok(definitions)
+    }
+
+    pub(crate) async fn instance_from_kv(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<ServiceInstance>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .kv
+            .get_entity("service_instances", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service instance entity deserialization failed: {error}"),
+            )
+        })?;
+        let tools = self.tools_from_kv(entity.instance_id).await?;
+        Ok(Some(ServiceInstance {
+            instance_id: entity.instance_id,
+            service_name: entity.service_name,
+            scope: entity.scope,
+            transport: entity.transport,
+            url: entity.url,
+            command: entity.command,
+            tools,
+            effective_config: entity.effective_config,
+            config_revision: entity.config_revision,
+            applied_config_revision: entity.applied_config_revision,
+            added_time: entity.added_time,
+        }))
+    }
+
+    pub(crate) async fn instances_from_kv(&self) -> Result<Vec<ServiceInstance>> {
+        let values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_entities_async("service_instances")
+            .await?;
+        // Batched loads: one relation scan + one multi-get for every instance's
+        // tool entities, instead of two per-instance reads (N+1 KV amplification).
+        let relation_values = self
+            .kernel
+            .persistence
+            .kv
+            .get_all_relations_async("instance_tools")
+            .await?;
+        let mut tool_names: HashMap<InstanceId, Vec<String>> =
+            HashMap::with_capacity(relation_values.len());
+        for (key, value) in relation_values {
+            let relation: InstanceToolRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
+                })?;
+            if key != relation.instance_id.to_string() {
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Instance tool relation cache key '{key}' does not match instance '{}'",
+                        relation.instance_id
+                    ),
+                ));
+            }
+            tool_names.insert(relation.instance_id, relation.tools);
+        }
+        let mut all_keys: Vec<String> = Vec::new();
+        for (instance_id, names) in &tool_names {
+            for name in names {
+                all_keys.push(format!("{instance_id}:{name}"));
+            }
+        }
+        let tool_values = if all_keys.is_empty() {
+            Vec::new()
+        } else {
+            self.kernel
+                .persistence
+                .kv
+                .get_entities_many("tools", &all_keys)
+                .await?
+        };
+        let mut tools_by_key: HashMap<String, ToolInfo> = HashMap::with_capacity(all_keys.len());
+        for (key, tool_value) in all_keys.iter().zip(tool_values) {
+            let Some(tool_value) = tool_value else {
+                continue;
+            };
+            let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            tools_by_key.insert(
+                key.clone(),
+                ToolInfo {
+                    name: tool.tool_name,
+                    title: tool.title,
+                    description: tool.description,
+                    input_schema: tool.input_schema,
+                    output_schema: tool.output_schema,
+                    annotations: tool.annotations,
+                    icons: tool.icons,
+                    meta: tool.meta,
+                },
+            );
+        }
+        let mut instances = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance entity deserialization failed: {error}"),
+                )
+            })?;
+            let names = tool_names.remove(&entity.instance_id).unwrap_or_default();
+            let tools = names
+                .iter()
+                .filter_map(|name| tools_by_key.get(&format!("{}:{name}", entity.instance_id)))
+                .cloned()
+                .collect::<Vec<ToolInfo>>();
+            instances.push(ServiceInstance {
+                instance_id: entity.instance_id,
+                service_name: entity.service_name,
+                scope: entity.scope,
+                transport: entity.transport,
+                url: entity.url,
+                command: entity.command,
+                tools,
+                effective_config: entity.effective_config,
+                config_revision: entity.config_revision,
+                applied_config_revision: entity.applied_config_revision,
+                added_time: entity.added_time,
+            });
+        }
+        Ok(instances)
+    }
+
+    pub(crate) async fn tools_from_kv(&self, instance_id: InstanceId) -> Result<Vec<ToolInfo>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .kv
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let relation: InstanceToolRelation = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Instance tool relation deserialization failed: {error}"),
+            )
+        })?;
+        let keys: Vec<String> = relation
+            .tools
+            .iter()
+            .map(|tool_name| format!("{instance_id}:{tool_name}"))
+            .collect();
+        let values = self
+            .kernel
+            .persistence
+            .kv
+            .get_entities_many("tools", &keys)
+            .await?;
+        let mut tools = Vec::with_capacity(relation.tools.len());
+        for (_relation_name, tool_value) in relation.tools.into_iter().zip(values) {
+            let Some(tool_value) = tool_value else {
+                continue;
+            };
+            let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            tools.push(ToolInfo {
+                name: tool.tool_name,
+                title: tool.title,
+                description: tool.description,
+                input_schema: tool.input_schema,
+                output_schema: tool.output_schema,
+                annotations: tool.annotations,
+                icons: tool.icons,
+                meta: tool.meta,
+            });
+        }
+        Ok(tools)
+    }
+}

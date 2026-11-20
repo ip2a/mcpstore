@@ -1,0 +1,66 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "mcpstore"
+version = "2.3.1"
+description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [    "pydantic[email]>=2.11.7",]
+
+authors = [
+    {name = "ooooofish", email = "ooooofish@126.com"}
+]
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/ip2a/mcpstore"
+"Bug Tracker" = "https://github.com/ip2a/mcpstore/issues"
+
+# Heavy backend extras are excluded from binary wheels and require installation from source:
+#   pip install mcpstore[postgres] --no-binary mcpstore
+# The corresponding Cargo features are enabled automatically at build time.
+[project.optional-dependencies]
+postgres = []
+mongodb = []
+s3 = []
+duckdb = []
+sqlite = []
+rocksdb = []
+opensearch = []
+vault = []
+firestore = []
+dynamodb = []
+disk = []
+keyring = []
+
+
+
+[tool.maturin]
+manifest-path = "Cargo.toml"
+python-source = "."
+module-name = "mcpstore._rust"
+# Native KV backends are unconditional in mcpstore (openkeyv 0.6 core):
+# memory/simple/null/filetree/disk/shm(unix)/redis/valkey/memcached.
+# Heavy SDK backends live in openkeyv-bridges, pending a dedicated wheel round.
+features = []
+
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "maturin>=1.14.1",
+]

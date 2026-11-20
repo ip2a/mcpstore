@@ -1,0 +1,81 @@
+use std::collections::HashMap;
+use std::time::Instant;
+
+use crate::kv::{KvError, KvLayerManager, Result};
+
+impl KvLayerManager {
+    pub async fn put_event(
+        &self,
+        event_type: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        self.ensure_current_schema().await?;
+        if !value.is_object() {
+            return Err(KvError::NotAnObject(format!(
+                "event_type={event_type}, key={key}"
+            )));
+        }
+        let collection = self.event_collection(event_type);
+        let started_at = Instant::now();
+        let (_route, store) = self.write_store().await;
+        let result = store.put(key, value, &collection).await;
+        self.record_request(started_at, None, result.is_ok());
+        result
+    }
+
+    pub async fn compare_and_put_event(
+        &self,
+        event_type: &str,
+        key: &str,
+        expected_version: Option<u64>,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        self.ensure_current_schema().await?;
+        if !value.is_object() {
+            return Err(KvError::NotAnObject(format!(
+                "event_type={event_type}, key={key}"
+            )));
+        }
+        let collection = self.event_collection(event_type);
+        let started_at = Instant::now();
+        let (_route, store) = self.write_store().await;
+        let result = store
+            .compare_and_put(key, expected_version, value, &collection)
+            .await;
+        self.record_request(started_at, None, result.is_ok());
+        result
+    }
+
+    pub async fn get_event(
+        &self,
+        event_type: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        self.ensure_current_schema().await?;
+        let collection = self.event_collection(event_type);
+        let started_at = Instant::now();
+        let result = self.active_store().get(key, &collection).await;
+        let hit = result.as_ref().ok().map(|value| value.is_some());
+        self.record_request(started_at, hit, result.is_ok());
+        result
+    }
+
+    pub async fn delete_event(&self, event_type: &str, key: &str) -> Result<()> {
+        self.ensure_current_schema().await?;
+        let collection = self.event_collection(event_type);
+        let started_at = Instant::now();
+        let (_route, store) = self.write_store().await;
+        let result = store.delete(key, &collection).await;
+        self.record_request(started_at, None, result.is_ok());
+        result
+    }
+
+    pub async fn get_all_events_async(
+        &self,
+        event_type: &str,
+    ) -> Result<HashMap<String, serde_json::Value>> {
+        let collection = self.event_collection(event_type);
+        self.get_all_from_collection(&collection).await
+    }
+}

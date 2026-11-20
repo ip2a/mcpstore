@@ -1,0 +1,129 @@
+#![recursion_limit = "256"]
+
+pub(crate) mod agent;
+pub mod agent_shell;
+pub mod agents;
+pub mod auth;
+pub mod client_agent;
+pub mod client_config;
+pub mod client_wire;
+pub mod config;
+pub mod config_formats;
+pub(crate) mod control;
+pub mod core;
+pub mod error;
+pub mod events;
+pub mod facade;
+pub(crate) mod health;
+pub mod http_limit;
+pub mod identity;
+pub mod kv;
+pub mod openapi;
+pub mod openapi_runtime;
+pub mod routing;
+pub mod perspective;
+pub mod registry;
+pub(crate) mod service;
+pub mod session;
+pub mod state;
+pub mod store;
+pub mod telemetry;
+pub mod transport;
+
+// Facade re-exports: configuration
+pub use auth::{
+    default_oauth_redirect_uri, http_endpoint_requires_oauth, AuthConfig, AuthCredentialKey,
+    AuthError, AuthFlow, AuthRequired, AuthStatus, AuthStatusView,
+    AuthorizationCodeClientAuthMethod, AuthorizationStart, ClientCredentialsAuthMethod,
+    ClientSecret, JwtSigningAlgorithm, KeyringClientSecretStore, KeyringCredentialStore,
+    KeyringPrivateKeyStore, KeyringStateStore, LocalCallbackListener, OAuthAuthorizationCodeConfig,
+    OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
+};
+pub use config::{
+    AppConfig, ConfigManager, GatewayConfig, KvConfig, McpConfig, RouteConfig, RouteConfigError,
+    RuntimeLogConfig, ServerConfig,
+};
+
+// Facade re-exports: KV layer
+pub use kv::{KvLayerManager, KvSnapshot};
+
+// Facade re-exports: OpenAPI runtime imports
+pub use openapi::{
+    OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
+    OpenApiBundleOptions, OpenApiComponent, OpenApiComponentCounts, OpenApiComponentType,
+    OpenApiEndpoint, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
+    OpenApiSpecInfo,
+};
+
+// Facade re-exports: event bus
+pub use events::{Event, EventBus};
+
+// Facade re-exports: scope-first SDK facade
+pub use facade::{Prompt, Resource, ResourceTemplate, ScopeContext, Service, ServiceTarget, Tool};
+
+// Facade re-exports: service instance identity
+pub use agent_shell::{
+    ensure_agent_shell, load_agent_shell_registry, remove_agent_shell, validate_agent_shell_id,
+    AgentShell, AgentShellRegistry,
+};
+pub use identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
+
+// Facade re-exports: registry
+pub use registry::{
+    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance,
+    ServiceListProjection, ToolInfo,
+};
+
+// Facade re-exports: business sessions
+pub use kv::models::{
+    SessionContextState, SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation,
+    SessionStateData, SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
+    ToolPreferenceState,
+};
+pub use session::{
+    CreateSessionRequest, SessionBuilder, SessionCleanupReport, SessionContext,
+    SessionImportReport, SessionRestartReport, SessionRetryPolicy, SessionToolSelection,
+};
+
+// Facade re-exports: transport
+pub use transport::{
+    ContentItem, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
+    McpCompletion, McpCompletionReference, McpCompletionRequest, McpElicitationRequest,
+    McpElicitationRequestKind, McpElicitationResponseError, McpElicitationSession,
+    McpElicitationSessionOptions, McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate,
+    McpServerCapabilities, McpServerImplementation, McpServerMetadata, McpTask, McpTaskRecord,
+    McpTaskStatus, McpToolExecution, McpToolExecutionHandle, ToolCallResult,
+};
+
+// Facade re-exports: execution service
+pub use service::{McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
+
+// Facade re-exports: service state
+pub use state::{
+    AuthState, DesiredState, FailureInfo, FailurePhase, HealthMetrics, HealthState, Readiness,
+    ReadinessReason, ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
+    ServiceStateEvent, ServiceStateManager, ServiceStateManagerError, ToolAvailability,
+    ToolStateItem, ToolsState, ToolsStatus,
+};
+
+// Facade re-exports: unified errors
+pub use error::{Error, ErrorContext, FailureCategory, FailureCode, RecoveryPolicy};
+
+// Facade re-exports: core store
+pub use error::Result;
+pub use routing::{
+    ComponentKind, RouteFields, PromptRoutePatch, PromptRouteRule,
+    ResourceRoutePatch, ResourceRouteRule, ResourceTemplateRoutePatch,
+    ResourceTemplateRouteRule, ServiceRoutePatch, ServiceRouteRule, ToolArgumentRoute,
+    ToolRoutePatch, ToolRouteRule, ToolRouteSafetyPolicy,
+};
+pub use store::swap::SwapResult;
+#[cfg(unix)]
+pub use store::ShmStoreConfig;
+pub use store::ValkeyStoreConfig;
+pub use store::{
+    CoreDiagnosticsOptions, CoreEventHistoryOptions, CoreFrameCaptureOptions,
+    CoreRequestCaptureOptions, CoreStdioStderrOptions, JsonStoreConfig, MCPStore,
+    MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource, PanelRole, RedisStoreConfig,
+    StoreOptions, StoreSpec, ToolVisibilityFilter,
+};

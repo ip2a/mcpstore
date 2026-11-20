@@ -1,0 +1,206 @@
+use crate::state::{RecoveryState, RuntimePhase};
+use crate::store::prelude::*;
+
+impl MCPStore {
+    pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
+        // Single connection entry for every execution surface (tools / prompts / resources / tasks /
+        // completions): a data panel consults its local placement config — local services connect
+        // here, delegated ones fail loudly (only tool calls are routed remotely).
+        self.ensure_delegation_allowed(instance_id).await?;
+        if matches!(
+            &self.kernel.runtime.panel_role,
+            crate::store::PanelRole::DataPanel { .. }
+        ) {
+            return self.ensure_data_panel_instance_connected(instance_id).await;
+        }
+        // The read view is maintained by startup hydration + the reconcile loop;
+        // an instance absent from it is absent from the store.
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
+        }
+        let state = self
+            .kernel
+            .control
+            .state
+            .get(instance_id)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let transport_connected = if self.is_openapi_virtual_instance(instance_id).await? {
+            state.phase == RuntimePhase::Running
+        } else {
+            self.kernel.execution.pool.is_connected(instance_id).await
+                && state.phase == RuntimePhase::Running
+        };
+        if transport_connected {
+            return Ok(());
+        }
+        self.ensure_service_auto_start_allowed(instance_id).await?;
+        self.connect_service_internal(
+            instance_id,
+            matches!(state.recovery, RecoveryState::Waiting { .. }),
+        )
+        .await
+    }
+
+    /// Resolution gate for the execution funnel: tool-name resolution reads
+    /// the synced projection (`instance_tools`), which a connect fills. An
+    /// instance whose projection is already populated resolves without a
+    /// transport connection — listings and policy checks are projection
+    /// reads, and forcing a connect would re-sync over injected or
+    /// hand-maintained projections. An instance with no projection yet
+    /// connects once so tool sync fills it.
+    pub(crate) async fn ensure_instance_resolvable(&self, instance_id: InstanceId) -> Result<()> {
+        if self
+            .kernel
+            .persistence
+            .kv
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        self.ensure_instance_connected(instance_id).await
+    }
+
+    /// Delegation half of the execution gate, shared with the read-only
+    /// listing gate: a delegated data panel has no local surface beyond tool
+    /// calls, so every other surface fails loudly here.
+    async fn ensure_delegation_allowed(&self, instance_id: InstanceId) -> Result<()> {
+        if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
+            if !self.panel_executes_locally(instance_id).await? {
+                return Err(Error::new(
+                    FailureCode::ServiceUnavailable,
+                    "service execution is delegated to the control panel; only tool calls are routed remotely, other surfaces must target the owning panel",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn is_openapi_virtual_instance(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let Some(instance) = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+        else {
+            return Ok(false);
+        };
+        Ok(instance.transport == "openapi")
+    }
+
+    /// Read-only listing gate: answers whether primitives may be listed right
+    /// now, with NO connect side effect. Listing is a read — a disconnected
+    /// instance returns NotConnected and the caller connects explicitly,
+    /// instead of every panel poll nudging the connect/recovery machinery.
+    pub(crate) async fn require_instance_connected_for_read(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        self.ensure_delegation_allowed(instance_id).await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let state = self
+                .kernel
+                .control
+                .state
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+            if state.phase != RuntimePhase::Running {
+                return Err(Error::new(
+                    FailureCode::NotConnected,
+                    format!(
+                        "service instance is not running; listing never connects — start it explicitly first: {instance_id}"
+                    ),
+                ));
+            }
+            return Ok(());
+        }
+        if !self.kernel.execution.pool.is_connected(instance_id).await {
+            return Err(Error::new(
+                FailureCode::NotConnected,
+                format!(
+                    "service instance is not connected; listing never connects — connect it explicitly first: {instance_id}"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Shared-store query side: direct KV reads, never the in-memory read view.
+    pub async fn list_instances(&self) -> Vec<ServiceInstance> {
+        self.instances_from_kv().await.unwrap_or_default()
+    }
+
+    pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
+        self.instance_from_kv(instance_id).await.ok().flatten()
+    }
+
+    pub async fn find_definition(&self, service_name: &str) -> Option<ServiceDefinition> {
+        self.definition_from_kv(service_name).await.ok().flatten()
+    }
+
+    pub async fn list_tools(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<crate::registry::ToolInfo>> {
+        if self.instance_from_kv(instance_id).await?.is_none() {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
+        }
+        self.tools_from_kv(instance_id).await
+    }
+
+    pub async fn list_all_tools(&self) -> Vec<(InstanceId, crate::registry::ToolInfo)> {
+        self.instances_from_kv()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|instance| {
+                instance
+                    .tools
+                    .into_iter()
+                    .map(move |tool| (instance.instance_id, tool))
+            })
+            .collect()
+    }
+
+    pub async fn list_agents(&self) -> Result<Vec<serde_json::Value>> {
+        let mut by_agent = std::collections::BTreeMap::new();
+        for instance in self.instances_from_kv().await? {
+            if let ScopeRef::Agent { agent_id } = instance.scope {
+                by_agent
+                    .entry(agent_id)
+                    .or_insert_with(Vec::new)
+                    .push(instance.instance_id);
+            }
+        }
+        // Empty shells (agent-shells.json + client-agent bindings) with no instances yet.
+        for agent_id in self.listed_shell_agent_ids()? {
+            by_agent.entry(agent_id).or_insert_with(Vec::new);
+        }
+        Ok(by_agent
+            .into_iter()
+            .map(|(agent_id, instance_ids)| {
+                serde_json::json!({ "agent_id": agent_id, "instance_ids": instance_ids })
+            })
+            .collect())
+    }
+}

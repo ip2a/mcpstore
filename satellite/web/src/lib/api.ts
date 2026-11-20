@@ -1,0 +1,597 @@
+export type KvStoreName = "memory" | "redis"
+
+export type DesiredState = "running" | "stopped"
+export type RuntimePhase = "stopped" | "starting" | "running" | "stopping"
+export type HealthState = "unknown" | "healthy" | "degraded" | "unhealthy"
+export type RecoveryState =
+  | { status: "idle" }
+  | {
+      status: "waiting"
+      attempt: number
+      retry_at: number
+      hard_deadline: number
+    }
+  | { status: "probing"; attempt: number; hard_deadline: number }
+  | { status: "exhausted"; attempts: number }
+export type ServiceAuthState =
+  | { status: "not_required" }
+  | { status: "unauthenticated" }
+  | { status: "authorizing" }
+  | { status: "authenticated" }
+  | { status: "refreshing" }
+  | { status: "scope_upgrade_required"; required_scope: string | null }
+  | { status: "failed" }
+export type ToolsStatus = "unknown" | "syncing" | "ready" | "stale" | "failed"
+export type ToolAvailability = "available" | "unavailable"
+export type ReadinessStatus = "unknown" | "ready" | "not_ready"
+export type ReadinessReason =
+  | "unknown"
+  | "stopped"
+  | "starting"
+  | "recovering"
+  | "unhealthy"
+  | "auth_required"
+  | "tools_not_ready"
+  | "ready"
+export type FailurePhase = "start" | "transport" | "health" | "recovery" | "auth" | "tools"
+export type FailureInfo = {
+  phase: FailurePhase
+  code: string
+  retryable: boolean
+  message: string
+  since: number
+}
+export type ServiceState = {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  desired: DesiredState
+  phase: RuntimePhase
+  health: HealthState
+  health_metrics: {
+    error_rate: number | null
+    latency_p95_ms: number | null
+    latency_p99_ms: number | null
+    sample_size: number
+  }
+  last_observed_at: number | null
+  recovery: RecoveryState
+  auth: ServiceAuthState
+  tools: {
+    status: ToolsStatus
+    items: Array<{ name: string; availability: ToolAvailability }>
+  }
+  readiness: {
+    status: ReadinessStatus
+    reason: ReadinessReason
+    message: string | null
+    last_transition_at: number
+  }
+  failure: FailureInfo | null
+  version: number
+  updated_at: number
+}
+
+export type AuthStatus =
+  | "not_required"
+  | "unauthenticated"
+  | "authorizing"
+  | "authenticated"
+  | "refreshing"
+  | "scope_upgrade_required"
+  | "error"
+
+export type AuthFlow = "authorization_code" | "client_credentials"
+
+export type AuthStatusView = {
+  instance_id: string
+  status: AuthStatus
+  flow?: AuthFlow
+  scopes?: string[]
+  required_scope?: string
+}
+
+export type AuthorizationStart = {
+  instance_id: string
+  authorization_url: string
+  scopes: string[]
+}
+
+export type AuthOperationResult = {
+  auth: AuthStatusView
+  authorization?: AuthorizationStart | null
+}
+
+export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string }
+
+export type ToolArgumentRoute = Record<string, unknown>
+export type RouteFields = {
+  display_name?: string
+  description?: string
+  meta?: unknown
+  annotations?: unknown
+  icons?: unknown
+  tags?: string[]
+  /** false = hide from gateway; restore by deleting the route entry */
+  enabled?: boolean
+  /** Gateway same-name routing weight; default 0. Highest wins; ties random. */
+  weight?: number
+}
+export type ToolRoutePatch = RouteFields & {
+  arguments?: ToolArgumentRoute[]
+  safety_policy?: unknown
+}
+export type PromptRoutePatch = RouteFields
+export type ResourceRoutePatch = RouteFields & { mime_type?: string }
+export type ResourceTemplateRoutePatch = ResourceRoutePatch
+export type ToolRouteRule = ToolRoutePatch & {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  tool_name: string
+  updated_at: number
+  version: number
+}
+export type PromptRouteRule = PromptRoutePatch & {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  prompt_name: string
+  updated_at: number
+  version: number
+}
+export type ResourceRouteRule = ResourceRoutePatch & {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  uri: string
+  updated_at: number
+  version: number
+}
+export type ResourceTemplateRouteRule = ResourceTemplateRoutePatch & {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  uri_template: string
+  updated_at: number
+  version: number
+}
+export type ServiceRoutePatch = RouteFields
+export type ServiceRouteRule = ServiceRoutePatch & {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  updated_at: number
+  version: number
+}
+
+/** Service addressing (doc §0.4: service name + scope; no instance_id in the URL). Structurally compatible with ServiceInstance. */
+export type ServiceAddress = {
+  service_name: string
+  scope: ScopeRef
+}
+
+/** Read-view scope (doc §17.2): all aggregation / store / agent. All is a read-only aggregate and cannot be used for declarations. */
+export type ScopeView = { type: "all" } | { type: "store" } | { type: "agent"; agent_id: string }
+
+/** Scope registry entry (GET /scopes/list). */
+export type ScopeSummary = {
+  scope: ScopeView
+  service_count: number
+}
+
+export type ConfigRevision = {
+  base_revision: number
+  scope_revision: number
+}
+
+export type ToolVisibilityFilter = "all" | "available" | "removed"
+
+/** Catalog entry that carries its owning instance (scope-wide catalog routes). */
+type Scoped = { instance_id: string; service_name: string; scope: ScopeRef }
+export type ScopedToolInfo = ToolInfo & Scoped
+export type ScopedPromptInfo = PromptInfo & Scoped
+export type ScopedResourceInfo = ResourceInfo & Scoped
+
+/** Scope-wide catalog page: entries + how many instances the backend skipped (disconnected, auth pending…). */
+export type ScopeCatalogPage<T> = {
+  entries: T[]
+  skippedInstances: number
+}
+
+export type ToolInfo = {
+  name: string
+  original_name?: string
+  /** Raw registry name when the list is route-projected (tools/list). */
+  tool_name?: string
+  title?: string | null
+  description: string
+  input_schema: unknown
+  output_schema?: unknown
+  annotations?: unknown
+  icons?: unknown
+  meta?: unknown
+}
+
+export type ResourceInfo = {
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+  icons?: unknown
+  annotations?: unknown
+  _meta?: unknown
+}
+
+export type PromptInfo = {
+  name: string
+  title?: string
+  description?: string
+  arguments?: unknown
+  icons?: unknown
+  _meta?: unknown
+}
+
+export type ResourceTemplateInfo = {
+  uriTemplate: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  icons?: unknown
+  annotations?: unknown
+  _meta?: unknown
+}
+
+export type McpServerCapabilities = {
+  tools: boolean
+  toolsListChanged: boolean
+  resources: boolean
+  resourcesSubscribe: boolean
+  resourcesListChanged: boolean
+  prompts: boolean
+  promptsListChanged: boolean
+  completions: boolean
+  tasks: boolean
+  taskList: boolean
+  taskCancel: boolean
+  taskToolCalls: boolean
+  extensions?: Record<string, unknown>
+  experimental?: Record<string, unknown>
+}
+
+export type McpServerMetadata = {
+  protocolVersion: string
+  serverInfo: {
+    name: string
+    title?: string
+    version: string
+    description?: string
+    websiteUrl?: string
+    icons?: unknown
+  }
+  instructions?: string
+  capabilities: McpServerCapabilities
+}
+
+export type ServiceInstance = {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  transport: string
+  url: string | null
+  command: string | null
+  state: ServiceState
+  tools: ToolInfo[]
+  effective_config: Record<string, unknown>
+  config_revision: ConfigRevision
+  applied_config_revision: ConfigRevision | null
+  added_time: number
+  mcp?: McpServerMetadata | null
+  /** List enrichment: route display_name, else service_name. */
+  display_name?: string
+  /** List enrichment: route description, else effective_config.description. */
+  description?: string
+  /** List enrichment: route icons when set (else use mcp.serverInfo.icons). */
+  icons?: unknown
+  /** List enrichment: tools.len() — prefer over re-fetching /tools/list for counts. */
+  tool_count?: number
+}
+
+export type AgentItem = {
+  agent_id: string
+  instance_ids: string[]
+}
+
+export type KvReport = Record<string, unknown>
+export type ConfigReport = Record<string, unknown>
+
+export type UiLanguage = "auto" | "en" | "zh" | string
+
+export type LogSettingsPayload = {
+  max_size_bytes?: number | null
+  retention_days?: number | null
+}
+
+export type HostEntry = {
+  urls: string[]
+}
+
+export type HostsPayload = {
+  active: string
+  [name: string]: string | HostEntry
+}
+
+export type ServiceTabsSettingsPayload = {
+  sort?: "name" | "added_newest" | "added_oldest"
+  show_disconnected?: boolean
+}
+
+export type SettingsPayload = {
+  language?: UiLanguage
+  api?: { host?: string; port?: number; url_prefix?: string }
+  web?: { host?: string; port?: number; auth?: boolean; auth_token_path?: string }
+  gateway?: { port?: number }
+  diagnostics?: DiagnosticsSettingsPayload
+  hosts?: HostsPayload
+  service_tabs?: ServiceTabsSettingsPayload
+  [key: string]: unknown
+}
+
+export type DiagnosticsSettingsPayload = {
+  runtime_log?: {
+    enabled?: boolean
+    level?: string
+    max_size_bytes?: number
+    retention_days?: number | null
+  }
+  requests?: {
+    enabled?: boolean
+    capture_tool?: boolean
+    capture_management?: boolean
+    capture_cli?: boolean
+    capture_payload?: boolean
+    max_payload_bytes?: number
+    retention_days?: number | null
+    max_records?: number | null
+  }
+  gateway_calls?: {
+    enabled?: boolean
+    persist?: boolean
+    memory_capacity?: number
+    retention_days?: number | null
+    max_calls?: number | null
+  }
+  frames?: {
+    enabled?: boolean
+    capture_gateway?: boolean
+    capture_upstream?: boolean
+    capture_payload?: boolean
+    max_payload_bytes?: number
+    retention_days?: number | null
+    max_records?: number | null
+  }
+  event_history?: {
+    enabled?: boolean
+    capacity?: number
+  }
+  stdio_stderr?: {
+    enabled?: boolean
+    tail_lines?: number
+    forward_to_runtime_log?: boolean
+    include_in_error?: boolean
+  }
+  daemon_output?: {
+    enabled?: boolean
+  }
+}
+
+export type SettingsPathsPayload = {
+  log_dir?: string | null
+  log_file_name?: string | null
+  log_file_path?: string | null
+}
+
+export type ConfigFilePayload = {
+  path?: string
+  format?: string
+  content?: string
+}
+
+export type MetaPayload = {
+  version?: string
+  node?: { id: string; mode: string }
+  settings?: SettingsPayload
+  settings_paths?: SettingsPathsPayload
+  config_file?: ConfigFilePayload
+  [key: string]: unknown
+}
+
+export type UpdateSettingsPayload = {
+  language?: UiLanguage
+  api?: { port?: number }
+  web?: { port?: number; auth?: boolean }
+  gateway?: { port?: number }
+  diagnostics?: DiagnosticsSettingsPayload
+  hosts?: HostsPayload
+  service_tabs?: ServiceTabsSettingsPayload
+  [key: string]: unknown
+}
+
+export type ApiEnvelope<T> = {
+  success: boolean
+  message: string
+  data?: T
+  errors?: Array<{ code: string; message: string; field?: string }>
+}
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.code = code
+  }
+}
+
+export type ServiceStartupPolicy = "manual" | "lazy" | "on-store-start"
+export type ServiceRestartPolicy =
+  | "no"
+  | "on-failure"
+  | `on-failure:${number}`
+  | "always"
+  | "unless-stopped"
+
+export type ServiceLifecycleConfig = {
+  startup_policy?: ServiceStartupPolicy
+  restart_policy?: ServiceRestartPolicy
+}
+
+export type ScopeDescriptor = {
+  config?: Record<string, unknown>
+  lifecycle?: ServiceLifecycleConfig
+  handshake_mode?: HandshakeMode
+}
+
+export type HandshakeMode = "auto" | "discover" | "initialize"
+
+export type AddServiceInput = {
+  name: string
+  scope: ScopeRef
+  transport: "stdio" | "streamable-http"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
+}
+
+export type UpdateServiceScopeInput = {
+  serviceName: string
+  scope: ScopeRef
+  transport: "stdio" | "streamable-http"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
+  config?: Record<string, unknown>
+  handshakeMode?: HandshakeMode
+}
+
+export {
+  health,
+  listServices,
+  listScopes,
+  createAgentShell,
+  removeAgentShell,
+  listAgents,
+  listAgentServices,
+  getServiceInstance,
+  getServiceState,
+  getInstanceAuthStatus,
+  startInstanceAuthorization,
+  refreshInstanceAuthorization,
+  logoutInstanceAuthorization,
+  upgradeInstanceAuthorizationScope,
+  listInstanceTools,
+  listScopeTools,
+  listScopePrompts,
+  listScopeResources,
+  setInstanceToolPolicy,
+  clearInstanceToolPolicy,
+  listInstanceResources,
+  listInstanceResourceTemplates,
+  listInstancePrompts,
+  readInstanceResource,
+  checkInstance,
+  connectInstance,
+  disconnectInstance,
+  restartInstance,
+  callInstanceTool,
+  getInstancePrompt,
+} from "./api/service"
+export {
+  getMcpHubDescriptor,
+  getMcpHubStatus,
+  startMcpHub,
+  stopMcpHub,
+  importClientServices,
+  type McpHubOptions,
+  type McpHubStatus,
+} from "./api/config"
+export {
+  showConfig,
+  showAgentConfig,
+  getMeta,
+  getHostStatus,
+  type HostStatus,
+  updateSettings,
+  resetConfig,
+  resetAgentConfig,
+} from "./api/settings"
+export { kvHealth, kvInspect, switchKv } from "./api/kv"
+export {
+  addService,
+  addServiceFromConfig,
+  declareAgentServiceScope,
+  removeServiceScope,
+  updateServiceScope,
+  parseKvLines,
+  formatKvLines,
+} from "./api/service-config"
+export {
+  listClients,
+  getClientVersion,
+  wireClient,
+  unwireClient,
+  getGatewayStatus,
+  getGatewayRequests,
+  getGatewayProjection,
+  getWiredClients,
+  type ClientInventory,
+  type DetectedBy,
+  type ExposeConfig,
+  type GatewayBoot,
+  type GatewayBootPhase,
+  type GatewayStatus,
+  type GatewayProjection,
+  type GatewayProjectionIssue,
+  type GatewayProjectionMount,
+  type GatewayRequestRecord,
+  type GatewayRequestsPage,
+  type WireOptions,
+  type WireResult,
+  type WiredEntry,
+} from "./api/clients"
+export {
+  getUsageStats,
+  getDailyUsageStats,
+  getHeatmapStats,
+  getFrameActivityStats,
+  getFrameActivityByService,
+  getFrameActivityByMethod,
+  getRequestHistory,
+  getRequestDetail,
+  getFrameSessions,
+  getFrameHistory,
+  getRecentFrames,
+  getFrameDetail,
+  type RequestRecord,
+  type HistoryPage,
+  type UsageStats,
+  type UsageSeriesPoint,
+  type UsageTotals,
+  type HeatmapDay,
+  type ServiceActivityPoint,
+  type FrameSessionSummary,
+  type FrameSessionsPage,
+  type FrameRecord,
+} from "./api/telemetry"

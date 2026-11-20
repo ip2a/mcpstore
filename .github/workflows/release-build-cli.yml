@@ -1,9 +1,13 @@
-# Manual release flow:
-#   1. Bump version (scripts/sync_version.py) and push to main
+# Release flow:
+#   1. Bump version (scripts/sync_version.py app) and push to main
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 #   3. This workflow builds all platform binaries and uploads assets to the GitHub Release
+#   4. For stable tags pushed to the repo, npm publishing is dispatched automatically
+#      (release-publish-npm.yml, which then dispatches release-finalize.yml)
 #
-# Create the GitHub Release before or after pushing the tag; assets are uploaded once the build finishes.
+# Manual (workflow_dispatch) runs and prerelease tags stop after step 3: npm
+# publishing and the finalize gate stay manual for candidates. Create the
+# GitHub Release before or after pushing the tag; assets are uploaded once the build finishes.
 name: release-build-cli
 
 on:
@@ -46,19 +50,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
       - name: Validate release metadata
         shell: bash
-        run: python scripts/release_preflight.py --require-tag --allow-prerelease-tag
+        run: python scripts/release_preflight.py --domain app --require-tag --allow-prerelease-tag
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: ${{ matrix.target }}
 
@@ -98,7 +102,7 @@ jobs:
 
       - name: Upload build artifact
         if: matrix.platform_id != 'darwin'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcpstore-${{ matrix.platform_id }}
           path: dist/${{ matrix.platform_id }}/*
@@ -106,7 +110,7 @@ jobs:
 
       - name: Upload macOS arm64 artifact
         if: matrix.platform_id == 'darwin'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcpstore-darwin-arm64
           path: dist/darwin-arm64/*
@@ -126,15 +130,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
       - name: Validate release metadata
-        run: python scripts/release_preflight.py --require-tag --allow-prerelease-tag
+        run: python scripts/release_preflight.py --domain app --require-tag --allow-prerelease-tag
 
       - name: Download build artifacts
         shell: bash
@@ -148,7 +152,7 @@ jobs:
         run: python scripts/prepare_github_release_assets.py --dist-root dist --assets-dir release-assets
 
       - name: Attest GitHub Release assets
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-assets/*
 
@@ -158,7 +162,38 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           # tags with a pre-release suffix (vX.Y.Z-rc.N) must not ship as latest
           case "${tag}" in *-*) prerelease=(--prerelease) ;; *) prerelease=() ;; esac
+          # release assets are immutable once the release is public; only
+          # release-finalize may publish a draft, so a public release here
+          # means the gate already ran (or was bypassed) — refuse to mutate
+          if [ "$(gh release view "${tag}" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            echo "::error::Release ${tag} is already public; refusing to mutate its assets"
+            exit 1
+          fi
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft "${prerelease[@]}"
+            # release-build-desktop may create the same draft release
+            # concurrently; losing that create race is fine as long as the
+            # release exists
+            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft "${prerelease[@]}" \
+              || gh release view "${tag}" >/dev/null
           fi
           gh release upload "${tag}" release-assets/* --clobber
+
+  dispatch-npm:
+    name: dispatch-publish-npm
+    runs-on: ubuntu-latest
+    needs: upload-release-assets
+    # Auto-chain only for formal tag pushes of stable versions; candidate
+    # (prerelease) tags and manual build runs stay manual all the way through.
+    # The workflow file name is load-bearing: npm trusted publishing (OIDC)
+    # is bound to release-publish-npm.yml.
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch npm publish
+        # -R: this job has no checkout, so gh has no repo context from git.
+        # build_run_id pins the originating run: the npm workflow downloads
+        # artifacts from exactly this run instead of re-discovering it.
+        run: gh workflow run release-publish-npm.yml --ref "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}" -f build_run_id="${GITHUB_RUN_ID}"

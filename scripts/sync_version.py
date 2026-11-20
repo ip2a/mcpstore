@@ -7,23 +7,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from release_version import sync_version
+from release_version import sync_app, sync_sdk
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Synchronize MCPStore release versions across Rust, Python, npm, desktop, and web",
+        description="Synchronize release versions for one domain: sdk (crate+PyPI) or app (CLI/desktop/web/npm)",
     )
+    parser.add_argument("domain", choices=("sdk", "app"), help="which version domain to write")
     parser.add_argument("version", help="Version without leading v")
     args = parser.parse_args()
 
-    changed = sync_version(args.version)
+    sync = sync_sdk if args.domain == "sdk" else sync_app
+    changed = sync(args.version)
     if changed:
-        print(f"[ok] synchronized version {args.version.lstrip('v')} in {len(changed)} file(s):")
+        print(f"[ok] synchronized {args.domain} version {args.version.lstrip('v')} in {len(changed)} file(s):")
         for path in changed:
             print(f"  - {path}")
     else:
-        print(f"[ok] version {args.version.lstrip('v')} already synchronized")
+        print(f"[ok] {args.domain} version {args.version.lstrip('v')} already synchronized")
 
 
 if __name__ == "__main__":

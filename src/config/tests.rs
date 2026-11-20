@@ -1,0 +1,967 @@
+use serde_json::{json, Value};
+
+use super::{examples::default_server_config, *};
+use crate::identity::ScopeRef;
+
+#[test]
+fn runtime_roundtrips_as_stable_string() {
+    for (runtime, encoded) in [
+        (Runtime::Local, "\"local\""),
+        (Runtime::Daemon, "\"daemon\""),
+    ] {
+        assert_eq!(serde_json::to_string(&runtime).unwrap(), encoded);
+        assert_eq!(serde_json::from_str::<Runtime>(encoded).unwrap(), runtime);
+    }
+    assert!(serde_json::from_str::<Runtime>("\"node:browser-host\"").is_err());
+}
+
+#[test]
+fn test_load_save_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mcp.json");
+
+    let mgr = ConfigManager::with_path(&path);
+    let mut config = McpConfig::default();
+    config.mcp_servers.insert(
+        "test".to_string(),
+        ServerConfig {
+            url: Some("http://localhost:8080/mcp".to_string()),
+            transport: Some("streamable-http".to_string()),
+            ..default_server_config()
+        },
+    );
+
+    mgr.save(&config).unwrap();
+    let loaded = mgr.load().unwrap();
+    assert_eq!(loaded.mcp_servers.len(), 1);
+    assert!(loaded.mcp_servers.contains_key("test"));
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(!raw.contains("kv"));
+    assert_eq!(
+        loaded.mcp_servers["test"].scopes(),
+        ScopeDeclarations::store_only()
+    );
+    assert!(raw.contains("\"scopes\""));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn oauth_config_roundtrip_contains_only_declarative_fields() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_oauth_config_{}", uuid::Uuid::new_v4()));
+    let path = dir.join("mcp.json");
+    let manager = ConfigManager::with_path(&path);
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "protected": {
+                "url": "https://mcp.example/mcp",
+                "auth": {
+                    "type": "oauth_authorization_code",
+                    "client_id": "client-1",
+                    "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+                    "scopes": ["tools.read"],
+                    "resource": "https://mcp.example/resource",
+                    "credential_profile": "alice"
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    manager.save(&config).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let loaded = manager.load().unwrap();
+    assert!(matches!(
+        loaded.mcp_servers["protected"].auth,
+        AuthConfig::OAuthAuthorizationCode(_)
+    ));
+    for secret_key in [
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "pkce_verifier",
+        "oauth_state",
+    ] {
+        assert!(!raw.contains(secret_key));
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn scoped_effective_config_rejects_oauth_secret_injection() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "protected": {
+                "url": "https://mcp.example/mcp",
+                "auth": {
+                    "type": "oauth_authorization_code",
+                    "client_id": "client-1",
+                    "redirect_uri": "http://127.0.0.1:8787/oauth/callback"
+                },
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {
+                            "config": {
+                                "auth": {
+                                    "client_secret": "must-not-enter-effective-config"
+                                }
+                            }
+                        },
+                        "agents": {}
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let error = config.mcp_servers["protected"]
+        .effective_config(&ScopeRef::Store)
+        .unwrap_err();
+    assert!(error.contains("effective config cannot be decoded"));
+    assert!(!error.contains("must-not-enter-effective-config"));
+}
+
+#[test]
+fn third_party_service_without_extension_has_store_scope() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "futureTransportOption": {
+                    "mode": "strict"
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let service = &config.mcp_servers["demo"];
+    assert_eq!(service.scopes(), ScopeDeclarations::store_only());
+    assert_eq!(
+        service.extra["futureTransportOption"],
+        json!({ "mode": "strict" })
+    );
+}
+
+#[test]
+fn native_extension_requires_scopes() {
+    let error = serde_json::from_value::<McpConfig>(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "_mcpstore": {
+                    "lifecycle": {
+                        "startup_policy": "lazy"
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap_err();
+
+    assert!(error.to_string().contains("scopes"));
+}
+
+#[test]
+fn agent_only_service_has_no_implicit_store_scope() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "private": {
+                "command": "private-mcp",
+                "_mcpstore": {
+                    "scopes": {
+                        "agents": {
+                            "agent1": {
+                                "config": {
+                                    "env": {
+                                        "TOKEN": "agent-token"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let scopes = config.mcp_servers["private"].scopes();
+    assert!(scopes.store.is_none());
+    assert!(scopes.agents.contains_key("agent1"));
+}
+
+#[test]
+fn effective_config_applies_scope_route_and_null_deletion() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "args": ["base"],
+                "env": {
+                    "TOKEN": "store-token",
+                    "REGION": "default"
+                },
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {},
+                        "agents": {
+                            "agent1": {
+                                "config": {
+                                    "args": [],
+                                    "env": {
+                                        "TOKEN": null
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let scope = ScopeRef::Agent {
+        agent_id: "agent1".to_string(),
+    };
+    let effective = config.mcp_servers["demo"].effective_config(&scope).unwrap();
+    assert!(!effective.contains_key("_mcpstore"));
+    let transport = config.mcp_servers["demo"].transport_config(&scope).unwrap();
+    assert!(transport.mcpstore.is_none());
+    assert_eq!(
+        Value::Object(effective),
+        json!({
+            "command": "demo",
+            "args": [],
+            "env": {
+                "REGION": "default"
+            }
+        })
+    );
+}
+
+#[test]
+fn save_allows_structurally_valid_but_unconnectable_config() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    let path = dir.join("mcp.json");
+    let mgr = ConfigManager::with_path(&path);
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "incomplete": {
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {
+                            "config": {
+                                "command": null
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    mgr.save(&config).unwrap();
+    assert!(mgr.load().unwrap().mcp_servers.contains_key("incomplete"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn malformed_existing_config_is_not_replaced_with_empty_config() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mcp.json");
+    std::fs::write(&path, "{ malformed").unwrap();
+    let mgr = ConfigManager::with_path(&path);
+
+    assert!(mgr.load_or_empty().is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn test_app_config_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    let mut config = AppConfig::default();
+    config.kv.store = "redis".to_string();
+    config.kv.config = serde_json::json!({"url": "redis://127.0.0.1/"});
+    config.api.url_prefix = "/demo".to_string();
+    config.diagnostics.runtime_log.level = "debug".to_string();
+    config.gateway.port = 19400;
+    config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
+    config.diagnostics.runtime_log.retention_days = Some(14);
+
+    mgr.save_app_config(&config).unwrap();
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.kv.store, "redis");
+    assert_eq!(loaded.kv.namespace, "mcpstore");
+    assert_eq!(loaded.api.url_prefix, "/demo");
+    assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
+    assert_eq!(loaded.gateway.port, 19400);
+    assert_eq!(
+        loaded.diagnostics.runtime_log.max_size_bytes,
+        8 * 1024 * 1024
+    );
+    assert_eq!(loaded.diagnostics.runtime_log.retention_days, Some(14));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn diagnostics_defaults_preserve_existing_behavior() {
+    let diagnostics = DiagnosticsConfig::default();
+    assert!(diagnostics.runtime_log.enabled);
+    assert_eq!(diagnostics.runtime_log.level, "info");
+    assert_eq!(diagnostics.runtime_log.max_size_bytes, 5 * 1024 * 1024);
+    assert_eq!(diagnostics.runtime_log.retention_days, None);
+    assert!(diagnostics.requests.enabled);
+    assert!(diagnostics.requests.capture_tool);
+    assert!(diagnostics.requests.capture_management);
+    assert!(diagnostics.requests.capture_cli);
+    assert!(diagnostics.requests.capture_payload);
+    assert_eq!(diagnostics.requests.max_payload_bytes, 1024 * 1024);
+    assert_eq!(diagnostics.requests.retention_days, Some(30));
+    assert_eq!(diagnostics.requests.max_records, None);
+    assert!(diagnostics.gateway_calls.enabled);
+    assert!(diagnostics.gateway_calls.persist);
+    assert_eq!(diagnostics.gateway_calls.memory_capacity, 256);
+    assert_eq!(diagnostics.gateway_calls.retention_days, Some(30));
+    assert_eq!(diagnostics.gateway_calls.max_calls, Some(5_000));
+    assert!(diagnostics.frames.enabled);
+    assert!(diagnostics.frames.capture_gateway);
+    assert!(diagnostics.frames.capture_upstream);
+    assert!(diagnostics.frames.capture_payload);
+    assert_eq!(diagnostics.frames.max_payload_bytes, 1024 * 1024);
+    assert_eq!(diagnostics.frames.retention_days, Some(7));
+    assert_eq!(diagnostics.frames.max_records, None);
+    assert!(diagnostics.event_history.enabled);
+    assert_eq!(diagnostics.event_history.capacity, 10_000);
+    assert!(diagnostics.stdio_stderr.enabled);
+    assert_eq!(diagnostics.stdio_stderr.tail_lines, 50);
+    assert!(diagnostics.stdio_stderr.forward_to_runtime_log);
+    assert!(diagnostics.stdio_stderr.include_in_error);
+    assert!(diagnostics.daemon_output.enabled);
+}
+
+#[test]
+fn diagnostics_config_roundtrips_every_channel() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    let mut config = AppConfig::default();
+    config.diagnostics.runtime_log.retention_days = Some(14);
+    config.diagnostics.requests.enabled = false;
+    config.diagnostics.requests.capture_cli = false;
+    config.diagnostics.requests.capture_payload = false;
+    config.diagnostics.requests.max_payload_bytes = 2_048;
+    config.diagnostics.requests.retention_days = None;
+    config.diagnostics.requests.max_records = Some(9);
+    config.diagnostics.gateway_calls.enabled = false;
+    config.diagnostics.gateway_calls.persist = false;
+    config.diagnostics.gateway_calls.memory_capacity = 12;
+    config.diagnostics.gateway_calls.retention_days = Some(2);
+    config.diagnostics.gateway_calls.max_calls = Some(3);
+    config.diagnostics.frames.capture_gateway = false;
+    config.diagnostics.frames.capture_upstream = false;
+    config.diagnostics.frames.capture_payload = false;
+    config.diagnostics.frames.max_payload_bytes = 4_096;
+    config.diagnostics.frames.retention_days = Some(1);
+    config.diagnostics.frames.max_records = Some(8);
+    config.diagnostics.event_history.enabled = false;
+    config.diagnostics.event_history.capacity = 20;
+    config.diagnostics.stdio_stderr.enabled = false;
+    config.diagnostics.stdio_stderr.tail_lines = 0;
+    config.diagnostics.stdio_stderr.forward_to_runtime_log = false;
+    config.diagnostics.stdio_stderr.include_in_error = false;
+    config.diagnostics.daemon_output.enabled = false;
+
+    mgr.save_app_config(&config).unwrap();
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(
+        serde_json::to_value(&loaded.diagnostics).unwrap(),
+        serde_json::to_value(&config.diagnostics).unwrap()
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn legacy_diagnostics_switches_migrate_before_deserialize() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    for (contents, expected) in [
+        ("[diagnostics]\nenabled = false\n", false),
+        ("[diagnostics.runtime_log]\nenabled = false\n", false),
+        (
+            "[diagnostics]\nenabled = true\n[diagnostics.runtime_log]\nenabled = false\n",
+            false,
+        ),
+        (
+            "[diagnostics]\nenabled = false\n[diagnostics.runtime_log]\nenabled = true\n",
+            false,
+        ),
+        (
+            "[diagnostics]\nenabled = true\n[diagnostics.runtime_log]\nenabled = true\n",
+            true,
+        ),
+    ] {
+        std::fs::write(mgr.app_config_path(), contents).unwrap();
+        let config = mgr.load_app_config().unwrap();
+        assert_eq!(config.diagnostics.runtime_log.enabled, expected);
+    }
+
+    std::fs::write(
+        mgr.app_config_path(),
+        "[diagnostics]\nenabled = false\n[diagnostics.runtime_log]\nenabled = true\n[diagnostics.requests]\ncapture_payload = false\n",
+    )
+    .unwrap();
+    let config = mgr.load_app_config().unwrap();
+    assert!(config.diagnostics.runtime_log.enabled);
+    assert!(!config.diagnostics.requests.capture_payload);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn legacy_diagnostics_switches_reject_non_booleans() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    for (contents, field) in [
+        ("[diagnostics]\nenabled = \"no\"\n", "diagnostics.enabled"),
+        (
+            "[diagnostics.runtime_log]\nenabled = 0\n",
+            "diagnostics.runtime_log.enabled",
+        ),
+    ] {
+        std::fs::write(mgr.app_config_path(), contents).unwrap();
+        let error = mgr.load_app_config().unwrap_err().to_string();
+        assert!(error.contains(field), "unexpected error: {error}");
+        assert!(error.contains("boolean"), "unexpected error: {error}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn saving_migrated_diagnostics_removes_legacy_key_and_preserves_foreign_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[diagnostics]\nenabled = false\n\n[ui]\nlanguage = \"zh\"\n",
+    )
+    .unwrap();
+    let config = mgr.load_app_config().unwrap();
+    mgr.save_app_config(&config).unwrap();
+
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["diagnostics"]["runtime_log"]["enabled"], json!(false));
+    assert!(raw["diagnostics"].get("enabled").is_none());
+    assert_eq!(raw["ui"]["language"], json!("zh"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn diagnostics_validation_rejects_zero_limits_but_allows_empty_stdio_tail() {
+    let mut config = AppConfig::default();
+    config.diagnostics.runtime_log.max_size_bytes = 0;
+    config.diagnostics.runtime_log.retention_days = Some(0);
+    config.diagnostics.requests.max_payload_bytes = 0;
+    config.diagnostics.requests.retention_days = Some(0);
+    config.diagnostics.requests.max_records = Some(0);
+    config.diagnostics.gateway_calls.memory_capacity = 0;
+    config.diagnostics.gateway_calls.retention_days = Some(0);
+    config.diagnostics.gateway_calls.max_calls = Some(0);
+    config.diagnostics.frames.max_payload_bytes = 0;
+    config.diagnostics.frames.retention_days = Some(0);
+    config.diagnostics.frames.max_records = Some(0);
+    config.diagnostics.event_history.capacity = 0;
+    config.diagnostics.event_history.enabled = false;
+
+    let error = super::app_validation::validate_app_config(&config)
+        .unwrap_err()
+        .to_string();
+    for field in [
+        "diagnostics.runtime_log.max_size_bytes",
+        "diagnostics.runtime_log.retention_days",
+        "diagnostics.requests.max_payload_bytes",
+        "diagnostics.requests.retention_days",
+        "diagnostics.requests.max_records",
+        "diagnostics.gateway_calls.memory_capacity",
+        "diagnostics.gateway_calls.retention_days",
+        "diagnostics.gateway_calls.max_calls",
+        "diagnostics.frames.max_payload_bytes",
+        "diagnostics.frames.retention_days",
+        "diagnostics.frames.max_records",
+        "diagnostics.event_history.capacity",
+    ] {
+        assert!(error.contains(field), "missing {field} in: {error}");
+    }
+
+    let mut config = AppConfig::default();
+    config.diagnostics.stdio_stderr.tail_lines = 0;
+    super::app_validation::validate_app_config(&config).unwrap();
+}
+
+#[test]
+fn legacy_cache_section_is_rejected_loudly() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[cache]\nstore = \"redis\"\n\n[api]\nurl_prefix = \"/demo\"\n",
+    )
+    .unwrap();
+
+    let error = mgr.load_app_config().unwrap_err().to_string();
+    assert!(
+        error.contains("[cache] was renamed to [kv]"),
+        "expected rename error, got: {error}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn test_default_template_contains_runtime_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    let template = mgr.default_app_config_toml().unwrap();
+
+    assert!(template.contains("[api]"));
+    assert!(template.contains("[web]"));
+    assert!(template.contains("[server]"));
+    assert!(template.contains("[gateway]"));
+    assert!(template.contains("port = 1830"));
+    assert!(template.contains("[health_check]"));
+    assert!(template.contains("[service_defaults.lifecycle]"));
+    assert!(template.contains("startup_policy = \"lazy\""));
+    assert!(template.contains("restart_policy = \"no\""));
+    assert!(template.contains("[diagnostics.runtime_log]"));
+    assert!(template.contains("max_size_bytes = 5242880"));
+    assert!(template.contains("level = \"info\""));
+    assert!(!template.contains("[monitoring]"));
+    assert!(!template.contains("[standalone]"));
+    // Hosts live in the panel's own panel-settings.json now, not in the
+    // daemon config template.
+    assert!(!template.contains("[hosts]"));
+}
+
+#[test]
+fn test_hosts_config_roundtrip() {
+    use super::HostsConfig;
+
+    // Legacy single-`url` entries migrate to `urls`; multi-URL entries pass
+    // through in preference order; `active` selects which one wins.
+    let hosts: HostsConfig = serde_json::from_value(serde_json::json!({
+        "active": "测试 A",
+        "local": { "url": "http://127.0.0.1:1820" },
+        "测试 A": { "urls": ["http://115.191.69.41:8021", "http://100.64.0.8:8021"] }
+    }))
+    .unwrap();
+    assert_eq!(hosts.active, "测试 A");
+    assert_eq!(
+        hosts
+            .entries
+            .get("local")
+            .map(|entry| entry.urls.as_slice()),
+        Some(&["http://127.0.0.1:1820".to_string()][..])
+    );
+    assert_eq!(
+        hosts
+            .entries
+            .get("测试 A")
+            .map(|entry| entry.urls.as_slice()),
+        Some(
+            &[
+                "http://115.191.69.41:8021".to_string(),
+                "http://100.64.0.8:8021".to_string()
+            ][..]
+        )
+    );
+    assert_eq!(
+        hosts.active_urls(),
+        vec![
+            "http://115.191.69.41:8021".to_string(),
+            "http://100.64.0.8:8021".to_string()
+        ]
+    );
+}
+
+#[test]
+fn test_flatten_raw_app_config_only_contains_explicit_keys() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[api]\nhost = \"127.0.0.1\"\n[health_check]\nstartup_interval = 2.5\n",
+    )
+    .unwrap();
+
+    let flattened = mgr.flatten_raw_app_config().unwrap();
+    assert_eq!(
+        flattened.get("api.host"),
+        Some(&Value::String("127.0.0.1".to_string()))
+    );
+    assert_eq!(
+        flattened.get("health_check.startup_interval"),
+        Some(&serde_json::json!(2.5))
+    );
+    assert!(!flattened.contains_key("api.port"));
+}
+
+#[test]
+fn test_invalid_app_config_fails_fast() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        "[health_check]\nstartup_interval = 0.0\n",
+    )
+    .unwrap();
+
+    let err = mgr.load_app_config().unwrap_err();
+    assert!(err.to_string().contains("health_check.startup_interval"));
+}
+
+#[test]
+fn test_init_splits_mcp_json_and_app_toml() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    mgr.init(true, Some("redis://127.0.0.1/".to_string()))
+        .unwrap();
+
+    let mcp_raw = std::fs::read_to_string(mgr.mcp_path()).unwrap();
+    assert!(mcp_raw.contains("mcpServers"));
+    assert!(!mcp_raw.contains("kv"));
+
+    let app_config = mgr.load_app_config().unwrap();
+    assert_eq!(app_config.kv.store, "redis");
+    assert_eq!(app_config.kv.config["url"], "redis://127.0.0.1/");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn test_infer_transport() {
+    let http = ServerConfig {
+        url: Some("http://x".into()),
+        ..default_server_config()
+    };
+    assert_eq!(http.infer_transport(), "streamable-http");
+
+    let stdio = ServerConfig {
+        command: Some("python".into()),
+        ..default_server_config()
+    };
+    assert_eq!(stdio.infer_transport(), "stdio");
+}
+
+#[test]
+fn test_service_lifecycle_extension_roundtrip_and_defaults() {
+    let raw = r#"
+    {
+      "command": "node",
+      "args": ["server.js"],
+      "_mcpstore": {
+        "scopes": {
+          "store": {
+            "config": {}
+          },
+          "agents": {}
+        },
+        "lifecycle": {
+          "startup_policy": "on-store-start",
+          "restart_policy": "on-failure:3"
+        }
+      }
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    let lifecycle = config.resolved_lifecycle(&ServiceLifecycleDefaults::default());
+
+    assert_eq!(lifecycle.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(lifecycle.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(lifecycle.restart_policy.max_retries, Some(3));
+
+    let serialized = serde_json::to_value(config).unwrap();
+    assert_eq!(
+        serialized["_mcpstore"]["lifecycle"]["restart_policy"],
+        serde_json::json!("on-failure:3")
+    );
+}
+
+#[test]
+fn scope_lifecycle_overrides_definition_fields_independently() {
+    let config: ServerConfig = serde_json::from_value(json!({
+        "command": "node",
+        "_mcpstore": {
+            "lifecycle": {
+                "startup_policy": "on-store-start",
+                "restart_policy": "on-failure:3"
+            },
+            "scopes": {
+                "store": {
+                    "config": {},
+                    "lifecycle": {
+                        "startup_policy": "manual"
+                    }
+                },
+                "agents": {
+                    "agent1": {
+                        "config": {},
+                        "lifecycle": {
+                            "restart_policy": "always"
+                        }
+                    },
+                    "agent2": {
+                        "config": {}
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+    let defaults = ServiceLifecycleDefaults::default();
+
+    let store = config.resolved_lifecycle_for_scope(&ScopeRef::Store, &defaults);
+    assert_eq!(store.startup_policy, StartupPolicy::Manual);
+    assert_eq!(store.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(store.restart_policy.max_retries, Some(3));
+
+    let agent1 = config.resolved_lifecycle_for_scope(
+        &ScopeRef::Agent {
+            agent_id: "agent1".to_string(),
+        },
+        &defaults,
+    );
+    assert_eq!(agent1.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(agent1.restart_policy.kind, RestartPolicyKind::Always);
+    assert_eq!(agent1.restart_policy.max_retries, None);
+
+    let agent2 = config.resolved_lifecycle_for_scope(
+        &ScopeRef::Agent {
+            agent_id: "agent2".to_string(),
+        },
+        &defaults,
+    );
+    assert_eq!(agent2.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(agent2.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(agent2.restart_policy.max_retries, Some(3));
+}
+
+#[test]
+fn test_service_lifecycle_ignores_old_draft_field_names() {
+    let raw = r#"
+    {
+      "command": "node",
+      "startup": "on-store-start",
+      "restart": "always"
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    let lifecycle = config.resolved_lifecycle(&ServiceLifecycleDefaults::default());
+
+    assert_eq!(lifecycle.startup_policy, StartupPolicy::Lazy);
+    assert_eq!(lifecycle.restart_policy.kind, RestartPolicyKind::No);
+}
+
+#[test]
+fn test_service_lifecycle_keep_alive_defaults_and_resolves() {
+    // Not configured: preserves legacy ephemeral behavior.
+    let raw = r#"{ "command": "node" }"#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .and_then(|ext| ext.lifecycle.as_ref())
+            .and_then(|lc| lc.keep_alive),
+        None
+    );
+    assert!(
+        !config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Configured true: parses and flows through to the resolved lifecycle.
+    let raw = r#"
+    {
+      "command": "node",
+      "_mcpstore": { "scopes": {}, "lifecycle": { "keep_alive": true } }
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .keep_alive,
+        Some(true)
+    );
+    assert!(
+        config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Field name is preserved on serialization.
+    let serialized = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        serialized["_mcpstore"]["lifecycle"]["keep_alive"],
+        serde_json::json!(true)
+    );
+}
+
+#[test]
+fn test_app_config_service_lifecycle_defaults_from_toml() {
+    let config: AppConfig = toml::from_str(
+        r#"
+        [service_defaults.lifecycle]
+        startup_policy = "on-store-start"
+        restart_policy = "unless-stopped"
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        config.service_defaults.lifecycle.startup_policy,
+        StartupPolicy::OnStoreStart
+    );
+    assert_eq!(
+        config.service_defaults.lifecycle.restart_policy.kind,
+        RestartPolicyKind::UnlessStopped
+    );
+}
+
+#[test]
+fn test_add_examples_only_inserts_missing_entries() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    let path = dir.join("mcp.json");
+    let mgr = ConfigManager::with_path(&path);
+
+    let mut config = McpConfig::default();
+    config.mcp_servers.insert(
+        "remote-http-service".to_string(),
+        ServerConfig {
+            url: Some("https://override.example.com/mcp".to_string()),
+            transport: Some("streamable-http".to_string()),
+            description: Some("Existing service".to_string()),
+            ..default_server_config()
+        },
+    );
+    config.mcp_servers.insert(
+        "custom-service".to_string(),
+        ServerConfig {
+            command: Some("echo".to_string()),
+            args: vec!["ok".to_string()],
+            transport: Some("stdio".to_string()),
+            ..default_server_config()
+        },
+    );
+
+    mgr.save(&config).unwrap();
+    let added = mgr.add_examples().unwrap();
+    let loaded = mgr.load().unwrap();
+
+    assert_eq!(added, 2);
+    assert_eq!(loaded.mcp_servers.len(), 4);
+    assert_eq!(
+        loaded
+            .mcp_servers
+            .get("remote-http-service")
+            .and_then(|svc| svc.url.as_deref()),
+        Some("https://override.example.com/mcp")
+    );
+    assert!(loaded.mcp_servers.contains_key("local-command-service"));
+    assert!(loaded.mcp_servers.contains_key("npm-package-service"));
+    assert!(loaded.mcp_servers.contains_key("custom-service"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn test_server_settings_daemon_surfaces_default() {
+    let server = ServerSettings::default();
+    assert_eq!(server.host, "127.0.0.1");
+    assert_eq!(server.port, 1820);
+    assert!(server.core_enabled);
+    assert!(!server.auto_open_browser);
+    // The web panel is a separate process; its bind lives in [web].
+    assert_eq!(WebSettings::default().port, 1828);
+    assert_eq!(GatewayConfig::default().port, 1830);
+}
+
+#[test]
+fn test_save_app_config_round_trips_without_tmp_residue() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    let mut config = AppConfig::default();
+    config.web.port = 1829;
+    config.gateway.port = 1831;
+    mgr.save_app_config(&config).unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.web.port, 1829);
+    assert_eq!(loaded.gateway.port, 1831);
+    assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_preserves_foreign_top_level_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        "[ui]\nlanguage = \"zh\"\ntheme = \"dark\"\n\n[api]\nport = 1822\n",
+    )
+    .unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // A save that knows nothing about [ui] must not drop it: the panel
+    // migration has not read it yet.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["ui"]["language"], json!("zh"));
+    assert_eq!(raw["ui"]["theme"], json!("dark"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_still_drops_reverted_fields_from_known_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(&path, "[api]\nport = 1822\nurl_prefix = \"/x\"\n").unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // [api] is owned: a config back at defaults rewrites the section, the
+    // stale non-default values must not leak back from the old file.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert!(raw.get("api").is_none());
+
+    std::fs::remove_dir_all(&dir).ok();
+}

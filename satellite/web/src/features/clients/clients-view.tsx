@@ -1,0 +1,955 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+
+import {
+  CircleDashed,
+  FileJsonIcon,
+  FolderIcon,
+  PencilIcon,
+  PlusIcon,
+  TerminalIcon,
+} from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
+
+import { clientIconUrls } from "@/assets/icons/clients"
+import { BasicCard, basicCardIconClassName } from "@/components/shared/basic-card"
+import { PathBrowser } from "@/components/shared/path-browser"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
+import { PageError, PageSkeleton } from "@/components/shared/page-states"
+import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  ClientPluginRowActions,
+  useClientPluginMarketQuery,
+  useClientPluginsQuery,
+  usePluginAction,
+  usePluginUpdate,
+} from "@/features/clients/client-plugins-panel"
+import {
+  useClientsQuery,
+  useClientToggle,
+  useClientVersionQuery,
+  useWiredClientsQuery,
+} from "@/features/clients/queries"
+import { useI18n } from "@/lib/i18n-context"
+import type { ClientInventory, ExposeConfig, WiredEntry, WireOptions, WireResult } from "@/lib/api"
+import type { ClientPlugin, MarketPlugin } from "@/lib/api/plugins"
+import { queryKeys } from "@/lib/query-keys"
+import { cn } from "@/lib/utils"
+
+type ClientTab = "active" | "inactive" | "all"
+
+/**
+ * Families that a future standalone "mcpstore management MCP" would expose.
+ * Not gateway surface — kept for Settings preview / later wiring. Do not attach
+ * these to gateway start or client wire UI.
+ */
+export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
+  "tool",
+  "prompt",
+  "resource",
+  "openapi",
+  "service",
+  "kv",
+  "search",
+  "session_state",
+]
+
+/** All-off; wire always sends this. Per-mount management expose is retired from UI. */
+const DEFAULT_EXPOSE: ExposeConfig = {
+  session_state: false,
+  tool: false,
+  prompt: false,
+  resource: false,
+  openapi: false,
+  service: false,
+  kv: false,
+  search: false,
+}
+
+const EMPTY_CLIENTS: ClientInventory[] = []
+
+/** Wire dialog scope toggle only. Management-tool expose is a separate MCP (Settings). */
+export function WireOptionsFields({
+  dedicatedScope,
+  dedicatedScopeLabel,
+  onDedicatedScopeChange,
+}: {
+  dedicatedScope: boolean
+  dedicatedScopeLabel: string
+  onDedicatedScopeChange: (dedicated: boolean) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-0.5">
+        <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
+        <span className="font-mono text-xs text-muted-foreground">
+          {dedicatedScope ? dedicatedScopeLabel : t("gatewayScopeStore")}
+        </span>
+      </div>
+      <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={onDedicatedScopeChange} />
+    </div>
+  )
+}
+
+export function ClientsView() {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { data, isPending, isError, error, isFetching } = useClientsQuery()
+  const wiredQuery = useWiredClientsQuery()
+  const { toggle, busy } = useClientToggle()
+  const pluginAction = usePluginAction()
+  const pluginUpdate = usePluginUpdate()
+  const pluginsQuery = useClientPluginsQuery()
+  const marketQuery = useClientPluginMarketQuery()
+  const [tab, setTab] = useState<ClientTab>("active")
+  const [query, setQuery] = useState("")
+  const [cardClientId, setCardClientId] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [wireDialog, setWireDialog] = useState<WireDialogState | null>(null)
+  const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
+
+  const clients = data ?? EMPTY_CLIENTS
+  const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
+  const refreshing =
+    isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
+  const installedById = useMemo(
+    () =>
+      Object.fromEntries(
+        (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
+      ) as Record<string, ClientPlugin>,
+    [pluginsQuery.data?.plugins],
+  )
+  const marketById = Object.fromEntries(
+    (marketQuery.data?.plugins ?? []).map((entry) => [entry.id, entry]),
+  ) as Record<string, MarketPlugin>
+  const wiredById = Object.fromEntries(
+    (wiredQuery.data ?? []).map((entry) => [entry.client_id, entry]),
+  ) as Record<string, WiredEntry>
+  const cardClient = cardClientId
+    ? (clients.find((client) => client.id === cardClientId) ?? null)
+    : null
+
+  const tabs = useMemo(
+    () => [
+      { id: "active" as const, label: t("clientsTabActive") },
+      { id: "inactive" as const, label: t("clientsTabInactive") },
+      { id: "all" as const, label: t("clientsTabAll") },
+    ],
+    [t],
+  )
+
+  // Agents only lists installed adapters (active + inactive). not_installed lives in Plugins.
+  const installedClients = useMemo(
+    () =>
+      clients.filter(
+        (client) => client.wired || client.detected_by != null || Boolean(installedById[client.id]),
+      ),
+    [clients, installedById],
+  )
+
+  // Sticky membership for active/inactive: wire/unwire updates status in place,
+  // but cards stay until the user re-enters the tab (or remounts the page).
+  const membershipRef = useRef<{ tab: ClientTab; ids: Set<string> } | null>(null)
+  const membershipTabRef = useRef<ClientTab>(tab)
+  const [membershipVersion, setMembershipVersion] = useState(0)
+
+  useEffect(() => {
+    const tabChanged = membershipTabRef.current !== tab
+    membershipTabRef.current = tab
+
+    if (tab === "all") {
+      membershipRef.current = null
+      if (tabChanged) setMembershipVersion((value) => value + 1)
+      return
+    }
+
+    const existing = membershipRef.current
+    const sameTab = existing?.tab === tab
+    // Keep sticky ids while staying on the same tab (ignore wired flips).
+    // Re-seed only when entering the tab, or when data first arrives into an empty snapshot.
+    if (sameTab && !tabChanged && existing.ids.size > 0) return
+
+    const nextIds = new Set(
+      installedClients
+        .filter((client) => (tab === "active" ? client.wired : !client.wired))
+        .map((client) => client.id),
+    )
+    // Empty→empty on the same tab: wait for real data; bumping would loop forever.
+    if (sameTab && !tabChanged && nextIds.size === 0) return
+
+    membershipRef.current = { tab, ids: nextIds }
+    setMembershipVersion((value) => value + 1)
+  }, [tab, installedClients])
+
+  const visibleClients = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    const membership = membershipRef.current
+    return installedClients.filter((client) => {
+      if (tab === "active" || tab === "inactive") {
+        if (membership?.tab === tab) {
+          if (!membership.ids.has(client.id)) return false
+        } else if (tab === "active" ? !client.wired : client.wired) {
+          return false
+        }
+      }
+      if (!normalized) return true
+      return (
+        client.id.toLowerCase().includes(normalized) ||
+        client.label.toLowerCase().includes(normalized)
+      )
+    })
+  }, [installedClients, query, tab, membershipVersion])
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.wiredClients })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clientPlugins })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clientPluginMarket })
+  }
+
+  const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+
+  return (
+    <>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
+        subtitle={t("clientsWorkspaceDescription", { count: visibleClients.length })}
+      />
+
+      <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as ClientTab)}
+          className={WORKSPACE_TABS_CLASSNAME}
+        >
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <WorkspaceTabsList value={tab}>
+              {tabs.map((item) => (
+                <TabsTrigger key={item.id} value={item.id} title={item.label} className="flex-none">
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </WorkspaceTabsList>
+            <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              <UiverseSearchInput
+                id="client-list-search"
+                placeholder={t("searchClients")}
+                value={query}
+                onChange={setQuery}
+              />
+              <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshing} />
+                {t("refresh")}
+              </Button>
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <PlusIcon data-icon="inline-start" />
+                {t("clientsAddCardLabel")}
+              </Button>
+            </div>
+          </div>
+
+          {tabs.map((item) => (
+            <TabsContent key={item.id} value={item.id} className={tabContentClassName}>
+              {tab !== item.id ? null : isError ? (
+                <div className="px-4 py-2">
+                  <PageError
+                    title={t("clientsLoadFailed")}
+                    message={error instanceof Error ? error.message : String(error)}
+                    onRefresh={refresh}
+                  />
+                </div>
+              ) : isPending ? (
+                <div className="px-4 py-2">
+                  <PageSkeleton />
+                </div>
+              ) : (
+                <>
+                  <ScrollPane
+                    className="min-h-0 flex-1"
+                    innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+                  >
+                    {visibleClients.map((client) => (
+                      <ClientListCard
+                        key={client.id}
+                        client={client}
+                        onSelect={() => setCardClientId(client.id)}
+                      />
+                    ))}
+                    <AddAgentCard onSelect={() => setAddOpen(true)} />
+                  </ScrollPane>
+                  {cardClient ? (
+                    <ClientDetailDialog
+                      client={cardClient}
+                      open
+                      onOpenChange={(open) => {
+                        if (!open) setCardClientId(null)
+                      }}
+                      actions={
+                        <ClientCardActions
+                          busy={pluginBusy}
+                          client={cardClient}
+                          installed={installedById[cardClient.id]}
+                          marketEntry={marketById[cardClient.id]}
+                          onWire={() => {
+                            setCardClientId(null)
+                            setWireDialog({ mode: "wire", client: cardClient })
+                          }}
+                          onEditWire={() => {
+                            const entry = wiredById[cardClient.id]
+                            if (!entry) return
+                            setCardClientId(null)
+                            setWireDialog({ mode: "edit", client: cardClient, entry })
+                          }}
+                          onUnwire={() => void toggle(cardClient, true)}
+                          onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                          onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
+                          onUpdate={(id) => pluginUpdate.mutate(id)}
+                        />
+                      }
+                    />
+                  ) : null}
+                </>
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
+      </PanelCard>
+
+      <AddAgentDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onBrowseMarket={() => {
+          setAddOpen(false)
+          navigate("/plugins?tab=agents")
+        }}
+      />
+
+      <WireDialog
+        state={wireDialog}
+        busy={busy}
+        onClose={() => setWireDialog(null)}
+        onConfirm={async (client, options) => {
+          const editing = wireDialog?.mode === "edit"
+          setWireDialog(null)
+          const result = await toggle(client, false, options)
+          if (!editing && result?.outcome === "conflict") {
+            setWireConflict({ client, options, result })
+          }
+        }}
+      />
+
+      <WireConflictDialog
+        state={wireConflict}
+        busy={busy}
+        onClose={() => setWireConflict(null)}
+        onReplace={async (client, options) => {
+          setWireConflict(null)
+          await toggle(client, false, options, true)
+        }}
+      />
+    </>
+  )
+}
+
+type WireDialogState =
+  | { mode: "wire"; client: ClientInventory }
+  | { mode: "edit"; client: ClientInventory; entry: WiredEntry }
+
+/** Wire conflict: the target file already contains an mcpstore entry with different content; waiting for the user to confirm replacement. */
+type WireConflictState = {
+  client: ClientInventory
+  options: WireOptions
+  result: Extract<WireResult, { outcome: "conflict" }>
+}
+
+/** Wire / edit an existing wiring: scope only. Management expose is not a gateway concern. */
+function WireDialog({
+  state,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  state: WireDialogState | null
+  busy: boolean
+  onClose: () => void
+  onConfirm: (client: ClientInventory, options: WireOptions) => void
+}) {
+  const { t } = useI18n()
+  const [dedicatedScope, setDedicatedScope] = useState(true)
+  const client = state?.client ?? null
+  const editing = state?.mode === "edit"
+
+  useEffect(() => {
+    if (!state) return
+    if (state.mode === "edit") {
+      setDedicatedScope(state.entry.scope.type === "agent")
+      return
+    }
+    setDedicatedScope(true)
+  }, [state])
+
+  if (!client || !state) return null
+  const agentId =
+    state.mode === "edit" && state.entry.scope.type === "agent"
+      ? state.entry.scope.agent_id
+      : client.id
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {editing
+              ? t("gatewayEditWireTitle", { client: client.label })
+              : t("clientsWireDialogTitle", { client: client.label })}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <WireOptionsFields
+            dedicatedScope={dedicatedScope}
+            dedicatedScopeLabel={`Agent:${agentId}`}
+            onDedicatedScopeChange={setDedicatedScope}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("cancel")}
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() =>
+              onConfirm(client, {
+                scope: dedicatedScope ? "agent" : "store",
+                agentId: dedicatedScope ? agentId : undefined,
+                // Always all-off: management tools are a future separate MCP, not wire/gateway.
+                expose: DEFAULT_EXPOSE,
+              })
+            }
+          >
+            {editing ? t("save") : t("clientsWire")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Conflict confirmation: shows the existing entry and the values to be written side by side; on confirm re-sends with force to replace. */
+function WireConflictDialog({
+  state,
+  busy,
+  onClose,
+  onReplace,
+}: {
+  state: WireConflictState | null
+  busy: boolean
+  onClose: () => void
+  onReplace: (client: ClientInventory, options: WireOptions) => void
+}) {
+  const { t } = useI18n()
+  if (!state) return null
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{t("clientsWireConflictTitle", { client: state.client.label })}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {t("clientsWireConflictMessage", { path: state.result.path })}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <Label>{t("clientsWireConflictCurrent")}</Label>
+            <pre className="mt-1 max-h-36 overflow-auto rounded-md bg-muted p-2 font-mono text-xs break-all whitespace-pre-wrap">
+              {JSON.stringify(state.result.current, null, 2)}
+            </pre>
+          </div>
+          <div className="min-w-0">
+            <Label>{t("clientsWireConflictExpected")}</Label>
+            <pre className="mt-1 max-h-36 overflow-auto rounded-md bg-muted p-2 font-mono text-xs break-all whitespace-pre-wrap">
+              {JSON.stringify(state.result.expected, null, 2)}
+            </pre>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("cancel")}
+          </Button>
+          <Button disabled={busy} onClick={() => onReplace(state.client, state.options)}>
+            {t("clientsWireConflictReplace")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function clientStatusText(
+  client: ClientInventory,
+  t: (key: string, vars?: Record<string, string | number | null | undefined>) => string,
+) {
+  return client.wired ? t("clientsStatusActive") : t("clientsStatusInactive")
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <span
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        active ? "bg-emerald-500" : "bg-muted-foreground/40",
+      )}
+    />
+  )
+}
+
+/** Plugin install/update actions + edit-wire pencil + wire toggle for the card detail dialog. */
+function ClientWireActions({
+  busy,
+  client,
+  installed,
+  marketEntry,
+  onInstall,
+  onUninstall,
+  onUpdate,
+  onWire,
+  onEditWire,
+  onUnwire,
+  showWireLabel,
+}: {
+  busy: boolean
+  client: ClientInventory
+  installed: ClientPlugin | undefined
+  marketEntry: MarketPlugin | undefined
+  onInstall: (id: string) => void
+  onUninstall: (id: string) => void
+  onUpdate: (id: string) => void
+  onWire: () => void
+  onEditWire: () => void
+  onUnwire: () => void
+  showWireLabel?: boolean
+}) {
+  const { t } = useI18n()
+  const wireSwitch = (
+    <Switch
+      checked={client.wired}
+      disabled={busy}
+      aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
+      onCheckedChange={(checked) => {
+        if (checked) onWire()
+        else onUnwire()
+      }}
+    />
+  )
+  return (
+    <>
+      <ClientPluginRowActions
+        clientId={client.id}
+        busy={busy}
+        installed={installed}
+        marketEntry={marketEntry}
+        onInstall={onInstall}
+        onUninstall={onUninstall}
+        onUpdate={onUpdate}
+      />
+      {client.wired ? (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={busy}
+          aria-label={t("gatewayEditWire")}
+          onClick={onEditWire}
+        >
+          <PencilIcon className="size-3.5" />
+        </Button>
+      ) : null}
+      {showWireLabel ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {client.wired ? t("clientsUnwire") : t("clientsWire")}
+          </span>
+          {wireSwitch}
+        </div>
+      ) : (
+        wireSwitch
+      )}
+    </>
+  )
+}
+
+function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelect: () => void }) {
+  const { t } = useI18n()
+  const mcpCount = client.mcp_servers?.length ?? 0
+  const statusText = clientStatusText(client, t)
+  const executable = client.executable_path?.trim()
+  const path = client.config_path?.trim()
+  const detected = client.detected_by != null
+  const versionQuery = useClientVersionQuery(client.id, detected)
+  const version = versionQuery.data ?? client.version ?? null
+  const metaParts = [version, client.mcp_servers != null ? `mcp ${mcpCount}` : null].filter(
+    (part): part is string => Boolean(part),
+  )
+
+  return (
+    <BasicCard
+      onClick={onSelect}
+      icon={
+        <ClientLogo
+          clientId={client.id}
+          label={client.label}
+          className={basicCardIconClassName}
+          imageClassName={basicCardIconClassName}
+        />
+      }
+      title={client.label || client.id}
+      subtitle={
+        <>
+          <StatusDot active={client.wired} />
+          <span className="truncate">{statusText}</span>
+        </>
+      }
+      body={
+        <>
+          <p className="truncate" title={executable || path || undefined}>
+            {executable || path || t("noDescription")}
+          </p>
+          {metaParts.length ? (
+            <p className="truncate lowercase font-mono tabular-nums" title={metaParts.join(" · ")}>
+              {metaParts.join(" · ")}
+            </p>
+          ) : (
+            <p className="truncate text-muted-foreground/60">&nbsp;</p>
+          )}
+        </>
+      }
+      footer={
+        <p className="truncate">
+          by <span className="text-[#0077c2]">{client.id}</span>
+        </p>
+      }
+    />
+  )
+}
+
+function AddAgentCard({ onSelect }: { onSelect: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="group flex h-[9.5rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+        <PlusIcon className="size-4" />
+      </span>
+      <span className="text-sm font-medium">{t("clientsAddCardLabel")}</span>
+    </div>
+  )
+}
+
+function AddAgentDialog({
+  open,
+  onOpenChange,
+  onBrowseMarket,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onBrowseMarket: () => void
+}) {
+  const { t } = useI18n()
+  const [tab, setTab] = useState<"path" | "market">("path")
+  const [path, setPath] = useState<string | null>(null)
+  const canConfirm = tab === "path" && Boolean(path?.trim())
+
+  function handleConfirm() {
+    if (!canConfirm) return
+    toast.message(t("clientsAddImportSoon"))
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>{t("clientsAddTitle")}</DialogTitle>
+        </DialogHeader>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as "path" | "market")}
+          className="flex h-[min(60vh,28rem)] min-h-0 flex-col gap-2"
+        >
+          <TabsList variant="line" className="h-9 w-full shrink-0 justify-start">
+            <TabsTrigger value="path" className="flex-none">
+              {t("clientsAddTabPath")}
+            </TabsTrigger>
+            <TabsTrigger value="market" className="flex-none">
+              {t("clientsAddMarket")}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="path" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <PathBrowser
+              active={open && tab === "path"}
+              initialPath={path}
+              onPathChange={setPath}
+            />
+          </TabsContent>
+
+          <TabsContent
+            value="market"
+            className="mt-0 flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden"
+          >
+            <Button variant="outline" onClick={onBrowseMarket}>
+              {t("clientsAddMarketMore")}
+            </Button>
+          </TabsContent>
+        </Tabs>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t("cancel")}
+          </Button>
+          <Button disabled={!canConfirm} onClick={handleConfirm}>
+            {t("confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ClientCardActions({
+  busy,
+  client,
+  installed,
+  marketEntry,
+  onWire,
+  onEditWire,
+  onUnwire,
+  onInstall,
+  onUninstall,
+  onUpdate,
+}: {
+  busy: boolean
+  client: ClientInventory
+  installed: ClientPlugin | undefined
+  marketEntry: MarketPlugin | undefined
+  onWire: () => void
+  onEditWire: () => void
+  onUnwire: () => void
+  onInstall: (id: string) => void
+  onUninstall: (id: string) => void
+  onUpdate: (id: string) => void
+}) {
+  return (
+    <div className="flex w-full flex-wrap items-center justify-end gap-2">
+      <ClientWireActions
+        busy={busy}
+        client={client}
+        installed={installed}
+        marketEntry={marketEntry}
+        onInstall={onInstall}
+        onUninstall={onUninstall}
+        onUpdate={onUpdate}
+        onWire={onWire}
+        onEditWire={onEditWire}
+        onUnwire={onUnwire}
+        showWireLabel
+      />
+    </div>
+  )
+}
+
+function ClientLogo({
+  clientId,
+  label,
+  className,
+  imageClassName,
+}: {
+  clientId: string
+  label: string
+  className?: string
+  imageClassName?: string
+}) {
+  const iconUrl = clientIconUrls[clientId]
+  return (
+    <span className={cn("flex size-8 shrink-0 items-center justify-center", className)}>
+      {iconUrl ? (
+        <img
+          src={iconUrl}
+          alt=""
+          className={cn("size-7 object-contain", imageClassName)}
+          aria-hidden
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md bg-muted text-xs font-medium uppercase",
+            imageClassName,
+          )}
+        >
+          {clientId.slice(0, 2)}
+        </span>
+      )}
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
+function ClientDetailDialog({
+  actions,
+  client,
+  version: versionProp,
+  open,
+  onOpenChange,
+}: {
+  actions?: ReactNode
+  client: ClientInventory
+  version?: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useI18n()
+  const detected = client.detected_by != null
+  const versionQuery = useClientVersionQuery(client.id, open && detected && versionProp == null)
+  const version = versionProp ?? versionQuery.data ?? client.version ?? null
+  const statusText = clientStatusText(client, t)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="sr-only">
+            {t("clientsDetailTitle", { client: client.label })}
+          </DialogTitle>
+          <div className="flex items-center gap-3 pr-6">
+            <ClientLogo
+              clientId={client.id}
+              label={client.label}
+              className="size-12"
+              imageClassName="size-8"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">{client.label || client.id}</p>
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <StatusDot active={client.wired} />
+                <span className="truncate">{statusText}</span>
+                {version ? (
+                  <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                    · {version}
+                  </span>
+                ) : null}
+              </p>
+            </div>
+          </div>
+        </DialogHeader>
+        <dl className="flex flex-col gap-3 text-sm">
+          <DetailRow label={t("clientsConfigPath")}>
+            <span className="font-mono text-xs break-all">
+              {client.config_path}
+              {client.config_exists ? "" : ` (${t("clientsConfigMissing")})`}
+            </span>
+          </DetailRow>
+          {client.wired_url ? (
+            <DetailRow label={t("clientsWiredUrl")}>
+              <span className="font-mono text-xs break-all">{client.wired_url}</span>
+            </DetailRow>
+          ) : null}
+          <DetailRow label={t("clientsDetected")}>
+            <DetectedDetail client={client} />
+          </DetailRow>
+          {client.mcp_servers != null ? (
+            <DetailRow label={t("clientsServers")}>
+              {client.mcp_servers.length > 0 ? (
+                <ul className="flex flex-col gap-1 font-mono text-xs">
+                  {client.mcp_servers.map((name) => (
+                    <li key={name}>{name}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </DetailRow>
+          ) : null}
+          {client.unsupported_fields.length > 0 ? (
+            <DetailRow label={t("clientsUnsupported")}>
+              <ul className="flex flex-col gap-1 font-mono text-xs text-amber-600 dark:text-amber-400">
+                {client.unsupported_fields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </DetailRow>
+          ) : null}
+        </dl>
+        {actions ? <DialogFooter>{actions}</DialogFooter> : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  )
+}
+
+function DetectedDetail({ client }: { client: ClientInventory }) {
+  const { t } = useI18n()
+  const icon =
+    client.detected_by === "config_file" ? (
+      <FileJsonIcon className="size-3.5 shrink-0" />
+    ) : client.detected_by === "config_dir" ? (
+      <FolderIcon className="size-3.5 shrink-0" />
+    ) : client.detected_by === "command" ? (
+      <TerminalIcon className="size-3.5 shrink-0" />
+    ) : (
+      <CircleDashed className="size-3.5 shrink-0" />
+    )
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      {icon}
+      {client.detected_by ? t("clientsDetected") : t("clientsNotDetected")}
+    </span>
+  )
+}

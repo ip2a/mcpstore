@@ -1,14 +1,16 @@
 name: CodeQL
 
-# Release-time security scan only: runs on v* tags (rc and final) and manual
-# dispatch. Daily PR/push CI (ci.yml) deliberately does not include CodeQL —
-# it is a slow analyzer and was dragging every merge down. Default setup is
-# disabled at the repo level; this workflow is the sole CodeQL entry point.
+# Release-time security scan only: runs on App v* tags (rc and final), SDK
+# sdk-v* tags and manual dispatch. Daily PR/push CI (ci.yml) deliberately does
+# not include CodeQL — it is a slow analyzer and was dragging every merge
+# down. Default setup is disabled at the repo level; this workflow is the sole
+# CodeQL entry point.
 
 on:
   push:
     tags:
       - "v*"
+      - "sdk-v*"
   workflow_dispatch:
 
 permissions:
@@ -25,18 +27,18 @@ jobs:
         language: [actions, javascript-typescript, python, rust]
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
 
       - name: Autobuild
         if: matrix.language == 'rust'
-        uses: github/codeql-action/autobuild@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"

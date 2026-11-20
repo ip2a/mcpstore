@@ -1,0 +1,1386 @@
+use super::*;
+
+use axum::extract::{Path, Query, State};
+use axum::Json;
+use mcpstore::config_formats::ConfigFormat;
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+use super::{
+    envelope::{success, ApiError, ApiResult},
+    ApiState,
+};
+
+// ===== Request body / query structs =====
+
+/// `GET /services/{name}/tools/list?scope=&filter=` — scope + tool filter.
+#[derive(Deserialize)]
+pub(super) struct ServiceToolsListQuery {
+    scope: Option<String>,
+    agent_id: Option<String>,
+    filter: Option<String>,
+}
+
+/// `GET /services/{name}/wait?scope=&timeout=`.
+#[derive(Deserialize)]
+pub(super) struct ServiceWaitQuery {
+    scope: Option<String>,
+    agent_id: Option<String>,
+    timeout: Option<u64>,
+}
+
+/// `GET /services/{name}/resources/read?scope=&uri=`.
+#[derive(Deserialize)]
+pub(super) struct ServiceReadResourceQuery {
+    scope: Option<String>,
+    agent_id: Option<String>,
+    uri: String,
+}
+
+/// `GET|PUT|DELETE /services/{name}/resource_routes?scope=&uri=`.
+#[derive(Deserialize)]
+pub(super) struct ResourceRouteQuery {
+    #[serde(flatten)]
+    scope: ScopeQuery,
+    uri: String,
+}
+
+/// `GET|PUT|DELETE /services/{name}/resource_template_routes?scope=&uri_template=`.
+#[derive(Deserialize)]
+pub(super) struct ResourceTemplateRouteQuery {
+    #[serde(flatten)]
+    scope: ScopeQuery,
+    uri_template: String,
+}
+
+/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool list. With
+/// `service_name` absent it answers the whole scope catalog in one page
+/// (scope=all|store|agent; entries carry their service_name/instance_id).
+#[derive(Deserialize)]
+pub(super) struct ToolsListQuery {
+    service_name: Option<String>,
+    scope: Option<String>,
+    agent_id: Option<String>,
+    filter: Option<String>,
+}
+
+// -- tool policy / config query structs --
+#[derive(Deserialize)]
+pub(super) struct ToolVisibilityRequest {
+    available_tools: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ShowConfigQuery {
+    format: Option<String>,
+    service_name: Option<String>,
+    scope: Option<String>,
+    agent_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ResourceSubscriptionRequest {
+    uri: String,
+}
+
+// ===== Tool filter parsing =====
+
+fn parse_tool_filter(value: &str) -> ApiResult<mcpstore::ToolVisibilityFilter> {
+    match value {
+        "all" => Ok(mcpstore::ToolVisibilityFilter::All),
+        "available" => Ok(mcpstore::ToolVisibilityFilter::Available),
+        "removed" => Ok(mcpstore::ToolVisibilityFilter::Removed),
+        other => Err(ApiError::invalid_parameter(
+            format!("Unsupported tool filter: {other}"),
+            Some("filter"),
+        )),
+    }
+}
+
+fn tool_filter_label(filter: mcpstore::ToolVisibilityFilter) -> &'static str {
+    match filter {
+        mcpstore::ToolVisibilityFilter::All => "all",
+        mcpstore::ToolVisibilityFilter::Available => "available",
+        mcpstore::ToolVisibilityFilter::Removed => "removed",
+    }
+}
+
+fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
+    value
+        .unwrap_or("native")
+        .parse()
+        .map_err(ApiError::from_store)
+}
+
+// ===== List endpoints =====
+
+/// `GET /services/list?scope=all|store|agent&agent_id=&fields=summary|full&include=tools,config`
+/// — service list (all = aggregation of all scopes). Absent payload params keep
+/// the legacy full response; `fields=summary` strips the heavy per-row fields.
+pub(super) async fn service_list_services(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+    Query(list_query): Query<ServiceListQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let projection = list_query.into_projection()?;
+    let services = state
+        .store
+        .list_services_viewed_projected(&view, projection)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service list retrieved successfully",
+        json!({ "services": services, "total": services.len() }),
+    ))
+}
+
+/// `GET /scopes/list` — scope registry (all + store + each agent), each entry with its service count.
+pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let scopes = state
+        .store
+        .list_scopes()
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = scopes.len();
+    Ok(success(
+        "Scope list retrieved successfully",
+        json!({ "scopes": scopes, "total": total }),
+    ))
+}
+
+/// `GET /scopes/all` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` — single scope detail.
+pub(super) async fn scope_info_all(State(state): State<Arc<ApiState>>) -> ApiResult {
+    scope_info_for(&state, ScopeView::All).await
+}
+
+pub(super) async fn scope_info_store(State(state): State<Arc<ApiState>>) -> ApiResult {
+    scope_info_for(&state, ScopeView::Store).await
+}
+
+pub(super) async fn scope_info_agent(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    scope_info_for(&state, ScopeView::Agent { agent_id }).await
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CreateAgentShellBody {
+    pub agent_id: String,
+}
+
+/// `POST /scopes/agents` — create an empty agent scope shell (no services).
+pub(super) async fn create_agent_shell(
+    State(state): State<Arc<ApiState>>,
+    Json(body): Json<CreateAgentShellBody>,
+) -> ApiResult {
+    let agent_id = body.agent_id.trim().to_string();
+    state
+        .store
+        .create_agent_shell(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scope = state
+        .store
+        .scope_info(&ScopeView::Agent {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::ServiceNotFound,
+                format!("Agent scope '{agent_id}' was created but could not be loaded"),
+                Some("agent_id"),
+                None,
+            )
+        })?;
+    Ok(success("Agent scope shell created", json!(scope)))
+}
+
+/// `DELETE /scopes/agents/:agent_id` — remove empty-shell registration only.
+/// Declared service instances are kept; the agent stays listed while it has
+/// instances or a client-agent binding.
+pub(super) async fn remove_agent_shell(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    let removed = state
+        .store
+        .remove_agent_shell(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        if removed {
+            "Agent scope shell removed"
+        } else {
+            "Agent scope shell was not present"
+        },
+        json!({ "agent_id": agent_id, "removed": removed }),
+    ))
+}
+
+async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
+    let scope = state
+        .store
+        .scope_info(&view)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::ServiceNotFound,
+                "Scope does not exist".to_string(),
+                Some("scope"),
+                None,
+            )
+        })?;
+    Ok(success(
+        "Scope details retrieved successfully",
+        json!(scope),
+    ))
+}
+
+/// `GET /agents/list` — agent list (kept).
+pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let agents = state
+        .store
+        .list_agents()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Agent list retrieved successfully",
+        json!({ "agents": agents, "total": agents.len() }),
+    ))
+}
+
+/// `GET /agents/:agent_id` — agent detail (agent_id + its instance ids).
+pub(super) async fn agent_info(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    let agent = state
+        .store
+        .find_agent(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::ServiceNotFound,
+                format!("Agent '{agent_id}' does not exist"),
+                Some("agent_id"),
+                None,
+            )
+        })?;
+    Ok(success(
+        "Agent details retrieved successfully",
+        json!(agent),
+    ))
+}
+
+// ===== Service instances: info / status / lifecycle (service name + scope addressing) =====
+
+pub(super) async fn service_info(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let service = state
+        .store
+        .service_info_scoped(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Service info retrieved successfully", service))
+}
+
+pub(super) async fn service_state(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let service_state = state
+        .store
+        .service_state(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service status retrieved successfully",
+        service_state,
+    ))
+}
+
+pub(super) async fn service_connect(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+
+    // Trigger connection intent (fire-and-forget), supervisor will handle retries
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.connect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
+        .store
+        .service_state(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Connect intent recorded", service_state))
+}
+
+pub(super) async fn service_disconnect(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+
+    // Trigger disconnect intent (fire-and-forget)
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.disconnect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
+        .store
+        .service_state(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Disconnect intent recorded", service_state))
+}
+
+pub(super) async fn service_restart(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .restart_service(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service restarted successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn service_wait(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ServiceWaitQuery>,
+) -> ApiResult {
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let timeout = query.timeout.unwrap_or(10);
+    let status = state
+        .store
+        .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
+        .await
+        .map_err(ApiError::from_store)?;
+    let status = serde_json::to_value(status).map_err(|error| {
+        ApiError::invalid_request(format!("Failed to serialize service status: {error}"))
+    })?;
+    Ok(success("Service wait completed", status))
+}
+
+pub(super) async fn service_check(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let result = state
+        .store
+        .health_check(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Service check completed", json!(result)))
+}
+
+// ===== Tools =====
+
+/// `GET /services/{name}/tools/list?scope=&filter=`
+pub(super) async fn service_list_tools(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ServiceToolsListQuery>,
+) -> ApiResult {
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
+    let filter_name = tool_filter_label(filter);
+    let tools = state
+        .store
+        .list_tools_for_instance_with_filter(instance_id, filter)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool list retrieved successfully",
+        json!({ "filter": filter_name, "tools": tools, "total": tools.len() }),
+    ))
+}
+
+/// `GET /tools/list?service_name=&scope=&filter=` — with `service_name` the
+/// per-instance form (same as the service-nested route); without it, the whole
+/// scope catalog in one page (scope=all|store|agent, default store).
+pub(super) async fn tools_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ToolsListQuery>,
+) -> ApiResult {
+    let service_name = query.service_name.as_deref().unwrap_or("").trim();
+    if service_name.is_empty() {
+        let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
+        let view = ScopeQuery {
+            scope: query.scope,
+            agent_id: query.agent_id,
+        }
+        .into_scope_view()?;
+        let page = state
+            .store
+            .list_tool_entries_viewed(&view, filter)
+            .await
+            .map_err(ApiError::from_store)?;
+        let total = page.entries.len();
+        return Ok(success(
+            "Tool catalog retrieved successfully",
+            json!({
+                "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+                "filter": tool_filter_label(filter),
+                "tools": page.entries,
+                "total": total,
+                "skipped_instances": page.skipped_instances,
+            }),
+        ));
+    }
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+    let instance_id = resolve_instance(&state, service_name, &scope).await?;
+    let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
+    let filter_name = tool_filter_label(filter);
+
+    match state
+        .store
+        .list_tools_for_instance_with_filter(instance_id, filter)
+        .await
+    {
+        Ok(tools) => Ok(success(
+            "Tool list retrieved successfully",
+            json!({
+                "service_name": service_name,
+                "filter": filter_name,
+                "tools": tools,
+                "total": tools.len(),
+            }),
+        )),
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "service_name": service_name,
+                "filter": filter_name,
+                "tools": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
+    }
+}
+
+/// `POST /services/{name}/tools/call` —— body: `{ tool_name, args? }`
+pub(super) async fn service_call_tool(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let tool_name = extract_tool_name(&payload)?;
+    let args = extract_tool_args(&payload)?;
+    let result = state
+        .store
+        .call_tool(instance_id, &tool_name, args)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool call completed",
+        serde_json::to_value(result).unwrap_or(Value::Null),
+    ))
+}
+
+/// `POST /tools/call` —— body: `{ service_name|service, scope?, agent_id?, tool_name, args? }`
+pub(super) async fn tools_call(
+    State(state): State<Arc<ApiState>>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    let service_name = payload
+        .get("service_name")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("service").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::missing_parameter("service_name"))?;
+    let scope = parse_scope_ref(
+        payload.get("scope").and_then(Value::as_str),
+        payload.get("agent_id").and_then(Value::as_str),
+    )?;
+    let instance_id = resolve_instance(&state, service_name, &scope).await?;
+    let tool_name = extract_tool_name(&payload)?;
+    let args = extract_tool_args(&payload)?;
+    let result = state
+        .store
+        .call_tool(instance_id, &tool_name, args)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool call completed",
+        serde_json::to_value(result).unwrap_or(Value::Null),
+    ))
+}
+
+// ===== Resources / Prompts =====
+
+/// `GET /services/{name}/resources/list?scope=`
+pub(super) async fn service_list_resources(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+
+    // MCP service errors (401, 409, 502, etc.) are expected business states,
+    // not system failures. Return them as successful responses with error info.
+    match state.store.list_resources_for_instance(instance_id).await {
+        Ok(resources) => Ok(success(
+            "Resource list retrieved successfully",
+            json!({ "resources": resources, "total": resources.len() }),
+        )),
+        Err(err) => {
+            // Return 200 OK with error details in the response body
+            Ok(success(
+                "Service unavailable",
+                json!({
+                    "resources": [],
+                    "total": 0,
+                    "service_error": {
+                        "code": err.code().as_str(),
+                        "message": err.message(),
+                    }
+                }),
+            ))
+        }
+    }
+}
+
+/// `GET /services/{name}/resources/templates?scope=`
+pub(super) async fn service_list_resource_templates(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let templates = state
+        .store
+        .list_resource_templates_for_instance(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource template list retrieved successfully",
+        json!({ "resource_templates": templates, "total": templates.len() }),
+    ))
+}
+
+/// `GET /services/{name}/resources/read?scope=&uri=`
+pub(super) async fn service_read_resource(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ServiceReadResourceQuery>,
+) -> ApiResult {
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let uri = query.uri.trim();
+    if uri.is_empty() {
+        return Err(ApiError::missing_parameter("uri"));
+    }
+    let result = state
+        .store
+        .read_resource_scoped(instance_id, uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Resource read successfully", result))
+}
+
+/// `GET /services/{name}/prompts/list?scope=`
+pub(super) async fn service_list_prompts(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+
+    match state.store.list_prompts_for_instance(instance_id).await {
+        Ok(prompts) => Ok(success(
+            "Prompt list retrieved successfully",
+            json!({ "prompts": prompts, "total": prompts.len() }),
+        )),
+        Err(err) => Ok(success(
+            "Service unavailable",
+            json!({
+                "prompts": [],
+                "total": 0,
+                "service_error": {
+                    "code": err.code().as_str(),
+                    "message": err.message(),
+                }
+            }),
+        )),
+    }
+}
+
+/// `POST /services/{name}/prompts/get` —— body: `{ prompt_name, args? }`
+pub(super) async fn service_get_prompt(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let prompt_name = extract_prompt_name(&payload)?;
+    let args = extract_prompt_args(&payload)?;
+    let result = state
+        .store
+        .get_prompt_scoped(instance_id, &prompt_name, args)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Prompt retrieved successfully", result))
+}
+
+/// `GET /prompts/list?scope=all|store|agent&agent_id=` — whole-scope prompt
+/// catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn prompts_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_prompts_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Prompt catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "prompts": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
+}
+
+/// `GET /resources/list?scope=all|store|agent&agent_id=` — whole-scope
+/// resource catalog in one page (entries carry their service_name/instance_id).
+pub(super) async fn resources_list(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let view = query.into_scope_view()?;
+    let page = state
+        .store
+        .list_resources_viewed(&view)
+        .await
+        .map_err(ApiError::from_store)?;
+    let total = page.entries.len();
+    Ok(success(
+        "Resource catalog retrieved successfully",
+        json!({
+            "scope": serde_json::to_value(view).unwrap_or(Value::Null),
+            "resources": page.entries,
+            "total": total,
+            "skipped_instances": page.skipped_instances,
+        }),
+    ))
+}
+
+// ===== Service definitions (root-level CRUD, kept) =====
+
+pub(super) async fn add_service_definition(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
+    // Scope-aware add: create the definition, or attach missing scopes from
+    // `_mcpstore.scopes` when the base config already exists (same semantics as
+    // the SDK facade). Create-only imports still use MCPStore::add_service.
+    state
+        .store
+        .add_service_into_scopes(&service_name, config)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service added successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn update_service_definition(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    if payload
+        .as_object()
+        .is_some_and(|config| config.contains_key("_mcpstore"))
+    {
+        return Err(ApiError::invalid_request(
+            "Base config update cannot contain _mcpstore; use the scope API to modify scope",
+        ));
+    }
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
+    state
+        .store
+        .update_service(&service_name, config)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service definition updated successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn remove_service_definition(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+) -> ApiResult {
+    state
+        .store
+        .remove_service(&service_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service definition removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+// ===== Scope declarations (kept) =====
+
+pub(super) async fn declare_store_scope(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Json(descriptor): Json<ScopeDescriptor>,
+) -> ApiResult {
+    state
+        .store
+        .declare_service_scope(&service_name, &ScopeRef::Store, descriptor)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Store scope declared", json!({ "status": "ok" })))
+}
+
+pub(super) async fn remove_store_scope(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+) -> ApiResult {
+    state
+        .store
+        .remove_service_scope(&service_name, &ScopeRef::Store)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Store scope removed", json!({ "status": "ok" })))
+}
+
+pub(super) async fn declare_agent_scope(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, agent_id)): Path<(String, String)>,
+    Json(descriptor): Json<ScopeDescriptor>,
+) -> ApiResult {
+    state
+        .store
+        .declare_service_scope(&service_name, &ScopeRef::Agent { agent_id }, descriptor)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Agent scope declared", json!({ "status": "ok" })))
+}
+
+pub(super) async fn remove_agent_scope(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, agent_id)): Path<(String, String)>,
+) -> ApiResult {
+    state
+        .store
+        .remove_service_scope(&service_name, &ScopeRef::Agent { agent_id })
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Agent scope removed", json!({ "status": "ok" })))
+}
+
+// ===== Tool policy (service name + scope addressing) =====
+
+pub(super) async fn service_get_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let policy = state
+        .store
+        .get_context_tool_visibility(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool policy retrieved successfully",
+        json!({ "policy": policy }),
+    ))
+}
+
+pub(super) async fn service_set_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<ToolVisibilityRequest>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let policy = state
+        .store
+        .set_context_tool_visibility(instance_id, payload.available_tools)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool policy updated successfully",
+        json!({ "policy": policy }),
+    ))
+}
+
+pub(super) async fn service_clear_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .clear_context_tool_visibility(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Tool policy cleared", json!({ "policy": null })))
+}
+
+// ===== Component route rules (global list + per service+scope management) =====
+
+pub(super) async fn store_list_tool_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let rules = state
+        .store
+        .list_tool_routes()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_tool_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, tool_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_tool_route(instance_id, &tool_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool route retrieved successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_set_tool_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, tool_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<ToolRoutePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_tool_route(instance_id, &tool_name, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool route set successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_remove_tool_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, tool_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .remove_tool_route(instance_id, &tool_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Tool route removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_list_prompt_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let rules = state
+        .store
+        .list_prompt_routes()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_prompt_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_prompt_route(instance_id, &prompt_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt route retrieved successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_set_prompt_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<PromptRoutePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_prompt_route(instance_id, &prompt_name, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt route set successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_remove_prompt_route(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .remove_prompt_route(instance_id, &prompt_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt route removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_list_resource_routes(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let rules = state
+        .store
+        .list_resource_routes()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource route list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_resource_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceRouteQuery>,
+) -> ApiResult {
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_resource_route(instance_id, &uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource route retrieved successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_set_resource_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceRouteQuery>,
+    Json(patch): Json<ResourceRoutePatch>,
+) -> ApiResult {
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_resource_route(instance_id, &uri, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource route set successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_remove_resource_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceRouteQuery>,
+) -> ApiResult {
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .remove_resource_route(instance_id, &uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource route removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_list_resource_template_routes(
+    State(state): State<Arc<ApiState>>,
+) -> ApiResult {
+    let rules = state
+        .store
+        .list_resource_template_routes()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource template override list retrieved successfully",
+        json!({ "routes": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_resource_template_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
+) -> ApiResult {
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_resource_template_route(instance_id, &uri_template)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource template override retrieved successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_set_resource_template_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
+    Json(patch): Json<ResourceTemplateRoutePatch>,
+) -> ApiResult {
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_resource_template_route(instance_id, &uri_template, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource template override set successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_remove_resource_template_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateRouteQuery>,
+) -> ApiResult {
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .remove_resource_template_route(instance_id, &uri_template)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource template override removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+// ===== Service route rules (gateway-facing service projection) =====
+
+pub(super) async fn service_get_service_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_service_route(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service route retrieved successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_set_service_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<ServiceRoutePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_service_route(instance_id, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service route set successfully",
+        json!({ "route": rule }),
+    ))
+}
+
+pub(super) async fn service_remove_service_route(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .remove_service_route(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Service route removed successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+// ===== Argument completions (service name + scope addressing) =====
+
+pub(super) async fn service_complete_argument(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<McpCompletionRequest>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let completion = state
+        .store
+        .complete_mcp_argument(instance_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Argument completion succeeded", json!(completion)))
+}
+
+// ===== Resource subscriptions (service name + scope addressing) =====
+
+pub(super) async fn service_subscribe_resource(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<ResourceSubscriptionRequest>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "Resource URI cannot be empty",
+            Some("uri"),
+        ));
+    }
+    state
+        .store
+        .subscribe_resource_updates(instance_id, uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource updates subscribed successfully",
+        json!({ "uri": uri }),
+    ))
+}
+
+pub(super) async fn service_unsubscribe_resource(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(payload): Json<ResourceSubscriptionRequest>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "Resource URI cannot be empty",
+            Some("uri"),
+        ));
+    }
+    state
+        .store
+        .unsubscribe_resource_updates(instance_id, uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource update subscription removed",
+        json!({ "uri": uri }),
+    ))
+}
+
+// ===== Config view / reset (kept) =====
+
+pub(super) async fn store_show_config(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ShowConfigQuery>,
+) -> ApiResult {
+    let format = parse_config_format(query.format.as_deref())?;
+    let config = if format == ConfigFormat::Native {
+        state.store.show_config().await
+    } else {
+        let service_name = query
+            .service_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ApiError::missing_parameter("service_name"))?;
+        let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+        let instance_id = resolve_instance(&state, service_name, &scope).await?;
+        state
+            .store
+            .export_instance_config(instance_id, format)
+            .await
+    }
+    .map_err(ApiError::from_store)?;
+    Ok(success("Config retrieved successfully", config))
+}
+
+pub(super) async fn agent_show_config(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+    Query(query): Query<ShowConfigQuery>,
+) -> ApiResult {
+    let format = parse_config_format(query.format.as_deref())?;
+    let scope = ScopeRef::Agent { agent_id };
+    let config = if format == ConfigFormat::Native {
+        state.store.show_scope_config(&scope).await
+    } else {
+        let service_name = query
+            .service_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ApiError::missing_parameter("service_name"))?;
+        let instance_id = resolve_instance(&state, service_name, &scope).await?;
+        state
+            .store
+            .export_instance_config(instance_id, format)
+            .await
+    }
+    .map_err(ApiError::from_store)?;
+    Ok(success("Agent config retrieved successfully", config))
+}
+
+pub(super) async fn agent_reset_config(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    state
+        .store
+        .reset_scope(&ScopeRef::Agent { agent_id })
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Agent config reset successfully",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> ApiResult {
+    state
+        .store
+        .reset_config()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Config reset successfully",
+        json!({ "status": "ok" }),
+    ))
+}

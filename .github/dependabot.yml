@@ -7,19 +7,22 @@ updates:
     target-branch: main
 
   - package-ecosystem: cargo
-    directory: "/rust"
+    directories:
+      - "/"
+      - "/satellite/cli"
+      - "/satellite/desktop/tauri"
     schedule:
       interval: weekly
     target-branch: main
 
   - package-ecosystem: pip
-    directory: "/python"
+    directory: "/satellite/python"
     schedule:
       interval: weekly
     target-branch: main
 
   - package-ecosystem: npm
-    directory: "/web"
+    directory: "/satellite/web"
     schedule:
       interval: weekly
     target-branch: main

@@ -1,27 +1,45 @@
 #!/usr/bin/env python3
+"""Package dist CLI binaries into GitHub Release archives.
+
+The CLI release is an App-domain artifact: archives are named after the
+exact release tag (vX.Y.Z, or vX.Y.Z-rc.N for candidates) so the download
+URLs install.sh builds from the tag always resolve. The tag's version core
+must equal the App canonical version in satellite/cli/Cargo.toml; candidate
+binaries embed the stable version, only the archive name carries the suffix.
+"""
 from __future__ import annotations
 
 import argparse
 import hashlib
-import re
+import os
+import sys
 import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from release_version import read_app_version
 
 
-def read_workspace_version() -> str:
-    cargo_toml = (ROOT / "rust" / "Cargo.toml").read_text(encoding="utf-8")
-    match = re.search(r'^version\s*=\s*"([^"]+)"', cargo_toml, flags=re.MULTILINE)
-    if not match:
-        raise SystemExit("[error] rust/Cargo.toml workspace version is missing")
-    return match.group(1)
+def resolve_release_tag(app_version: str) -> str:
+    """Archive names follow the exact tag, including any -rc.N suffix."""
+    ref_type = os.environ.get("GITHUB_REF_TYPE")
+    ref_name = os.environ.get("GITHUB_REF_NAME")
+    stable_tag = f"v{app_version}"
+    if ref_type == "tag" and ref_name:
+        if ref_name != stable_tag and not ref_name.startswith(f"{stable_tag}-"):
+            raise SystemExit(
+                f"[error] Release tag {ref_name} does not match App version {app_version} ({stable_tag}[...])"
+            )
+        return ref_name
+    return stable_tag
 
 
 def load_platform_config() -> tuple[dict[str, str], list[dict[str, str]]]:
-    data = tomllib.loads((ROOT / "platforms.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((ROOT / "satellite" / "platforms.toml").read_text(encoding="utf-8"))
     return data["meta"], data["platforms"]
 
 
@@ -65,7 +83,7 @@ def write_platform_archive(
     dist_root: Path,
     assets_dir: Path,
     release_name: str,
-    version: str,
+    release_tag: str,
     platform: dict[str, str],
 ) -> Path:
     platform_id = platform["id"]
@@ -77,7 +95,7 @@ def write_platform_archive(
     if not checksum.exists():
         raise FileNotFoundError(f"Platform checksum not found: {checksum}")
 
-    base_name = f"{release_name}-v{version}-{platform_id}"
+    base_name = f"{release_name}-{release_tag}-{platform_id}"
     if platform_id.startswith("win32-"):
         archive_path = assets_dir / f"{base_name}.zip"
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -107,9 +125,9 @@ def main() -> None:
 
     meta, platforms = load_platform_config()
     release_name = meta.get("binary_name", "mcpstore")
-    version = read_workspace_version()
+    release_tag = resolve_release_tag(read_app_version())
     archives = [
-        write_platform_archive(dist_root, assets_dir, release_name, version, platform)
+        write_platform_archive(dist_root, assets_dir, release_name, release_tag, platform)
         for platform in platforms
     ]
 

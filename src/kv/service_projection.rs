@@ -1,0 +1,631 @@
+use std::hash::{Hash, Hasher};
+
+use crate::identity::{InstanceId, ScopeRef};
+use crate::kv::models::{
+    ContextToolVisibilityState, InstanceToolRelation, ServiceDefinitionEntity,
+    ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
+    ToolPreferenceState,
+};
+use crate::kv::KvError;
+use crate::routing::ToolRouteRule;
+use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
+use crate::state::{AuthState, DesiredState, ServiceState};
+use crate::store::prelude::*;
+
+impl MCPStore {
+    pub(crate) async fn upsert_instance_projection(&self, instance_id: InstanceId) -> Result<()> {
+        let instance = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let definition = self
+            .kernel
+            .control
+            .registry
+            .find_definition(&instance.service_name)
+            .await
+            .ok_or_else(|| {
+                Error::new(FailureCode::ServiceNotFound, instance.service_name.clone())
+            })?;
+
+        self.upsert_definition_projection(&definition).await?;
+        self.kernel
+            .persistence
+            .kv
+            .put_entity(
+                "service_instances",
+                &instance_id.to_string(),
+                serde_json::to_value(Self::instance_entity(&instance)).unwrap_or_default(),
+            )
+            .await?;
+
+        if let ScopeRef::Agent { agent_id } = &instance.scope {
+            self.upsert_agent_instance_relation(agent_id, &instance, instance.added_time)
+                .await?;
+        }
+
+        if self.kernel.control.state.get(instance_id).await?.is_none() {
+            let config: crate::config::ServerConfig = serde_json::from_value(
+                serde_json::Value::Object(instance.effective_config.clone()),
+            )
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Effective config for instance {instance_id} is invalid: {error}"),
+                )
+            })?;
+            let auth = match config.auth {
+                crate::auth::AuthConfig::None => AuthState::NotRequired,
+                crate::auth::AuthConfig::OAuthAuthorizationCode(_)
+                | crate::auth::AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
+            };
+            // effective_config is the base config for connections, without _mcpstore extensions;
+            // lifecycle must be resolved from the definition (same source as resolved_instance_lifecycle).
+            let lifecycle = Self::server_config_from_definition(&definition)?
+                .resolved_lifecycle_for_scope(
+                    &instance.scope,
+                    &self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .service_lifecycle_defaults,
+                );
+            // keep_alive=true implies a resident expectation: desired=Running handed to the existing self-healing loop
+            // (disconnect reconnects); an explicit disconnect to Stopped still wins and is never overridden.
+            let desired = if lifecycle.startup_policy == crate::config::StartupPolicy::OnStoreStart
+                || lifecycle.keep_alive
+            {
+                DesiredState::Running
+            } else {
+                DesiredState::Stopped
+            };
+            self.kernel
+                .control
+                .state
+                .create(ServiceState::new(
+                    instance_id,
+                    instance.service_name.clone(),
+                    instance.scope.clone(),
+                    desired,
+                    auth,
+                    instance.added_time,
+                ))
+                .await?;
+        }
+        self.kernel
+            .persistence
+            .kv
+            .put_event(
+                "instance",
+                &format!("{instance_id}:added:{}", instance.added_time),
+                serde_json::json!({
+                    "event": "instance_added",
+                    "instance_id": instance_id,
+                    "service_name": instance.service_name,
+                    "scope": instance.scope,
+                    "timestamp": instance.added_time
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn upsert_instance_tools_projection(
+        &self,
+        instance_id: InstanceId,
+        tools: &[ToolInfo],
+    ) -> Result<()> {
+        let instance = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let now = chrono::Utc::now().timestamp();
+        let mut relation_tools = Vec::with_capacity(tools.len());
+        for tool in tools {
+            let entity = ToolEntity {
+                instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
+                tool_name: tool.name.clone(),
+                title: tool.title.clone(),
+                description: tool.description.clone(),
+                input_schema: tool.input_schema.clone(),
+                output_schema: tool.output_schema.clone(),
+                annotations: tool.annotations.clone(),
+                icons: tool.icons.clone(),
+                meta: tool.meta.clone(),
+                created_time: now,
+                tool_hash: Self::tool_content_hash(instance_id, tool),
+            };
+            self.kernel
+                .persistence
+                .kv
+                .put_entity(
+                    "tools",
+                    &Self::instance_tool_key(instance_id, &tool.name),
+                    serde_json::to_value(entity).unwrap_or_default(),
+                )
+                .await?;
+            relation_tools.push(tool.name.clone());
+        }
+
+        let relation = InstanceToolRelation {
+            instance_id,
+            service_name: instance.service_name.clone(),
+            scope: instance.scope.clone(),
+            tools: relation_tools,
+        };
+        self.kernel
+            .persistence
+            .kv
+            .put_relation(
+                "instance_tools",
+                &instance_id.to_string(),
+                serde_json::to_value(relation).unwrap_or_default(),
+            )
+            .await?;
+        self.kernel
+            .persistence
+            .kv
+            .put_event(
+                "instance",
+                &format!("{instance_id}:connected:{now}"),
+                serde_json::json!({
+                    "event": "instance_connected",
+                    "instance_id": instance_id,
+                    "service_name": instance.service_name,
+                    "scope": instance.scope,
+                    "timestamp": now,
+                    "tools_count": tools.len()
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn remove_instance_projection(&self, instance_id: InstanceId) -> Result<()> {
+        if let Some(supervisor) = self.kernel.execution.supervisor.get() {
+            supervisor.remove(instance_id).await;
+        }
+        if let Some(value) = self
+            .kernel
+            .persistence
+            .kv
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+        {
+            let relation: InstanceToolRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
+                })?;
+            for tool_name in relation.tools {
+                self.kernel
+                    .persistence
+                    .kv
+                    .delete_entity("tools", &Self::instance_tool_key(instance_id, &tool_name))
+                    .await?;
+            }
+        }
+
+        self.kernel
+            .persistence
+            .kv
+            .delete_entity("service_instances", &instance_id.to_string())
+            .await?;
+        self.kernel
+            .persistence
+            .kv
+            .delete_relation("instance_tools", &instance_id.to_string())
+            .await?;
+        self.kernel.control.state.delete(instance_id).await?;
+        self.remove_instance_from_session_relations(instance_id)
+            .await?;
+        self.remove_instance_owned_states(instance_id).await?;
+        self.remove_instance_from_agent_relations(instance_id)
+            .await?;
+
+        let now = chrono::Utc::now().timestamp();
+        self.kernel
+            .persistence
+            .kv
+            .put_event(
+                "instance",
+                &format!("{instance_id}:removed:{now}"),
+                serde_json::json!({
+                    "event": "instance_removed",
+                    "instance_id": instance_id,
+                    "timestamp": now
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn mark_instance_applied(&self, instance_id: InstanceId) -> Result<()> {
+        self.kernel.control.registry.mark_applied(instance_id).await;
+        let instance = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        self.kernel
+            .persistence
+            .kv
+            .put_entity(
+                "service_instances",
+                &instance_id.to_string(),
+                serde_json::to_value(Self::instance_entity(&instance)).unwrap_or_default(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn remove_definition_projection(&self, service_name: &str) -> Result<()> {
+        self.kernel
+            .persistence
+            .kv
+            .delete_entity("service_definitions", service_name)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn upsert_definition_projection(
+        &self,
+        definition: &ServiceDefinition,
+    ) -> Result<()> {
+        let entity = ServiceDefinitionEntity::from(definition);
+        self.kernel
+            .persistence
+            .kv
+            .put_entity(
+                "service_definitions",
+                &definition.service_name,
+                serde_json::to_value(entity).unwrap_or_default(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn remove_instance_from_session_relations(&self, instance_id: InstanceId) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        for (key, _) in self
+            .kernel
+            .persistence
+            .kv
+            .get_all_relations_async("session_services")
+            .await?
+        {
+            let mut complete = false;
+            for _ in 0..3 {
+                let Some(value) = self
+                    .kernel
+                    .persistence
+                    .kv
+                    .get_relation("session_services", &key)
+                    .await?
+                else {
+                    complete = true;
+                    break;
+                };
+                let mut relation: SessionServiceRelation =
+                    serde_json::from_value(value).map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
+                            "Session service relation deserialization failed for {key}: {error}"
+                        ),
+                        )
+                    })?;
+                let expected_version = relation.version;
+                let previous_len = relation.services.len();
+                relation
+                    .services
+                    .retain(|item| item.instance_id != instance_id);
+                if relation.services.len() == previous_len {
+                    complete = true;
+                    break;
+                }
+                relation.updated_at = now;
+                relation.version += 1;
+                match self
+                    .kernel
+                    .persistence
+                    .kv
+                    .compare_and_put_relation(
+                        "session_services",
+                        &key,
+                        Some(expected_version),
+                        serde_json::to_value(relation).unwrap_or_default(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        complete = true;
+                        break;
+                    }
+                    Err(KvError::Conflict(_)) => continue,
+                    Err(error) => return Err(Error::from(error)),
+                }
+            }
+            if !complete {
+                return Err(Error::from(KvError::Conflict(format!(
+                    "session service relation conflict after retries: session_key={key}"
+                ))));
+            }
+        }
+
+        for (key, _) in self
+            .kernel
+            .persistence
+            .kv
+            .get_all_relations_async("session_tools")
+            .await?
+        {
+            let mut complete = false;
+            for _ in 0..3 {
+                let Some(value) = self
+                    .kernel
+                    .persistence
+                    .kv
+                    .get_relation("session_tools", &key)
+                    .await?
+                else {
+                    complete = true;
+                    break;
+                };
+                let mut relation: SessionToolVisibility =
+                    serde_json::from_value(value).map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Session tool relation deserialization failed for {key}: {error}"
+                            ),
+                        )
+                    })?;
+                let expected_version = relation.version;
+                let previous_len = relation.tools.len();
+                relation
+                    .tools
+                    .retain(|item| item.instance_id != instance_id);
+                if relation.tools.len() == previous_len {
+                    complete = true;
+                    break;
+                }
+                relation.updated_at = now;
+                relation.version += 1;
+                match self
+                    .kernel
+                    .persistence
+                    .kv
+                    .compare_and_put_relation(
+                        "session_tools",
+                        &key,
+                        Some(expected_version),
+                        serde_json::to_value(relation).unwrap_or_default(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        complete = true;
+                        break;
+                    }
+                    Err(KvError::Conflict(_)) => continue,
+                    Err(error) => return Err(Error::from(error)),
+                }
+            }
+            if !complete {
+                return Err(Error::from(KvError::Conflict(format!(
+                    "session tool relation conflict after retries: session_key={key}"
+                ))));
+            }
+        }
+        Ok(())
+    }
+
+    async fn remove_instance_owned_states(&self, instance_id: InstanceId) -> Result<()> {
+        for (state_type, matches_instance) in [
+            (
+                "context_tool_visibility",
+                Self::context_visibility_matches_instance
+                    as fn(&serde_json::Value, InstanceId) -> Result<bool>,
+            ),
+            ("tool_preferences", Self::tool_preference_matches_instance),
+            ("tool_routes", Self::tool_route_matches_instance),
+            ("prompt_routes", Self::prompt_override_matches_instance),
+            (
+                "resource_routes",
+                Self::resource_override_matches_instance,
+            ),
+            (
+                "resource_template_routes",
+                Self::resource_template_override_matches_instance,
+            ),
+        ] {
+            for (key, value) in self
+                .kernel
+                .persistence
+                .kv
+                .get_all_states_async(state_type)
+                .await?
+            {
+                if matches_instance(&value, instance_id)? {
+                    self.kernel
+                        .persistence
+                        .kv
+                        .delete_state(state_type, &key)
+                        .await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn context_visibility_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ContextToolVisibilityState =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Context tool visibility deserialization failed: {error}"),
+                )
+            })?;
+        Ok(state.instance_id == instance_id)
+    }
+
+    fn tool_preference_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ToolPreferenceState =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool preference deserialization failed: {error}"),
+                )
+            })?;
+        Ok(state.instance_id == instance_id)
+    }
+
+    fn tool_route_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ToolRouteRule = serde_json::from_value(value.clone()).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Tool route deserialization failed: {error}"),
+            )
+        })?;
+        Ok(state.instance_id == instance_id)
+    }
+
+    fn prompt_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id)
+    }
+
+    fn resource_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id)
+    }
+
+    fn resource_template_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id)
+    }
+
+    fn weak_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let Some(value_id) = value
+            .get("instance_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| value.parse::<InstanceId>().ok())
+        else {
+            // These three route state types intentionally use a weak
+            // ownership check.  A corrupt unrelated entry must not prevent
+            // the rest of instance removal from being cleaned up; without a
+            // valid owner it is deterministically treated as not owned.
+            return Ok(false);
+        };
+        Ok(value_id == instance_id)
+    }
+
+    fn instance_entity(instance: &ServiceInstance) -> ServiceInstanceEntity {
+        ServiceInstanceEntity {
+            instance_id: instance.instance_id,
+            service_name: instance.service_name.clone(),
+            scope: instance.scope.clone(),
+            transport: instance.transport.clone(),
+            url: instance.url.clone(),
+            command: instance.command.clone(),
+            effective_config: instance.effective_config.clone(),
+            config_revision: instance.config_revision,
+            applied_config_revision: instance.applied_config_revision,
+            added_time: instance.added_time,
+        }
+    }
+
+    fn instance_tool_key(instance_id: InstanceId, tool_name: &str) -> String {
+        format!("{instance_id}:{tool_name}")
+    }
+
+    fn tool_content_hash(instance_id: InstanceId, tool: &ToolInfo) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        instance_id.hash(&mut hasher);
+        tool.name.hash(&mut hasher);
+        tool.description.hash(&mut hasher);
+        serde_json::to_string(&tool.input_schema)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.output_schema)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.annotations)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.meta)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::ServiceInstanceKey;
+
+    #[test]
+    fn malformed_weak_override_entries_are_ignored() {
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+
+        assert!(!MCPStore::prompt_override_matches_instance(
+            &serde_json::json!({"instance_id": "not-an-instance-id"}),
+            instance_id,
+        )
+        .unwrap());
+        assert!(!MCPStore::resource_override_matches_instance(
+            &serde_json::json!({"unexpected": true}),
+            instance_id,
+        )
+        .unwrap());
+        assert!(!MCPStore::resource_template_override_matches_instance(
+            &serde_json::json!({"instance_id": null}),
+            instance_id,
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn weak_override_entries_with_valid_owner_are_removed() {
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+        let value = serde_json::json!({"instance_id": instance_id.to_string()});
+
+        assert!(MCPStore::prompt_override_matches_instance(&value, instance_id).unwrap());
+        assert!(MCPStore::resource_override_matches_instance(&value, instance_id).unwrap());
+        assert!(
+            MCPStore::resource_template_override_matches_instance(&value, instance_id).unwrap()
+        );
+    }
+}

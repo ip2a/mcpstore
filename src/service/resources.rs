@@ -1,0 +1,124 @@
+use crate::store::prelude::*;
+
+impl MCPStore {
+    pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
+        self.require_instance_connected_for_read(instance_id)
+            .await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let instance = self
+                .kernel
+                .control
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+            let import = self
+                .get_openapi_import(&instance.service_name)
+                .await?
+                .ok_or_else(|| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI import not found for instance {instance_id}"),
+                    )
+                })?;
+            return crate::openapi_runtime::list_openapi_resources(&import)
+                .into_iter()
+                .map(|resource| {
+                    serde_json::from_value(resource).map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("OpenAPI resource model failed: {error}"),
+                        )
+                    })
+                })
+                .collect();
+        }
+        self.kernel.execution.pool.list_resources(instance_id).await
+    }
+
+    pub async fn list_resource_templates(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<DiscoveredResourceTemplate>> {
+        self.require_instance_connected_for_read(instance_id)
+            .await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let instance = self
+                .kernel
+                .control
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+            let import = self
+                .get_openapi_import(&instance.service_name)
+                .await?
+                .ok_or_else(|| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI import not found for instance {instance_id}"),
+                    )
+                })?;
+            return crate::openapi_runtime::list_openapi_resource_templates(&import)
+                .into_iter()
+                .map(|template| {
+                    serde_json::from_value(template).map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("OpenAPI resource template model failed: {error}"),
+                        )
+                    })
+                })
+                .collect();
+        }
+        self.kernel
+            .execution
+            .pool
+            .list_resource_templates(instance_id)
+            .await
+    }
+
+    pub async fn read_resource(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+    ) -> Result<serde_json::Value> {
+        self.read_resource_traced(instance_id, uri, None).await
+    }
+
+    pub(crate) async fn read_resource_traced(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+        trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+    ) -> Result<serde_json::Value> {
+        self.ensure_instance_connected(instance_id).await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let instance = self
+                .kernel
+                .control
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+            let import = self
+                .get_openapi_import(&instance.service_name)
+                .await?
+                .ok_or_else(|| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI import not found for instance {instance_id}"),
+                    )
+                })?;
+            let options = self
+                .openapi_runtime_options_for_instance(instance_id)
+                .await?;
+            return crate::openapi_runtime::read_openapi_resource(&import, uri, &options).await;
+        }
+        self.kernel
+            .execution
+            .pool
+            .read_resource_traced(instance_id, uri, trace)
+            .await
+    }
+}

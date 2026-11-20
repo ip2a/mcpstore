@@ -1,0 +1,85 @@
+import { useEffect, useMemo, useState } from "react"
+
+import { getAgentId } from "@/features/agents/model"
+import { useAgentServicesQuery } from "@/features/agents/queries"
+import {
+  filterAndSortScopeInstances,
+  parseServiceTabsPrefs,
+  type ServiceTabsPrefs,
+} from "@/features/mcp-registry/service-tabs-prefs"
+import { useSettingsMetaQuery } from "@/features/settings/queries"
+import type { AgentItem, ServiceInstance } from "@/lib/api"
+
+export function countActiveMcpRegistryFilters(filters: { scope: "store" | "agent" }) {
+  let count = 0
+  if (filters.scope !== "store") count++
+  return count
+}
+
+export function useMcpRegistryScope({
+  agents,
+  services,
+}: {
+  agents: AgentItem[]
+  services: ServiceInstance[]
+}) {
+  const agentIds = agents.map(getAgentId).filter(Boolean)
+  const [scope, setScope] = useState<"store" | "agent">("store")
+  const [agentId, setAgentId] = useState(agentIds[0] || "")
+  const [instanceId, setInstanceId] = useState("all")
+  const [query, setQuery] = useState("")
+  const agentServicesQuery = useAgentServicesQuery(scope === "agent" ? agentId : "")
+  const metaQuery = useSettingsMetaQuery()
+
+  const serviceTabsPrefs: ServiceTabsPrefs = useMemo(
+    () => parseServiceTabsPrefs(metaQuery.data?.settings?.service_tabs),
+    [metaQuery.data?.settings?.service_tabs],
+  )
+
+  // Default: ALL − disconnected − error (− connecting). Sort by prefs.
+  const scopeInstances = useMemo(() => {
+    const raw = scope === "agent" ? agentServicesQuery.data || [] : services
+    return filterAndSortScopeInstances(raw, serviceTabsPrefs)
+  }, [agentServicesQuery.data, scope, serviceTabsPrefs, services])
+
+  const selectedInstances =
+    instanceId === "all"
+      ? scopeInstances
+      : scopeInstances.filter((instance) => instance.instance_id === instanceId)
+
+  useEffect(() => {
+    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
+  }, [agentId, agentIds])
+
+  useEffect(() => {
+    setInstanceId("all")
+  }, [scope, agentId])
+
+  useEffect(() => {
+    if (
+      instanceId !== "all" &&
+      !scopeInstances.some((instance) => instance.instance_id === instanceId)
+    ) {
+      setInstanceId("all")
+    }
+  }, [instanceId, scopeInstances])
+
+  const activeFilterCount = countActiveMcpRegistryFilters({ scope })
+
+  return {
+    activeFilterCount,
+    agentId,
+    agentIds,
+    agentServicesQuery,
+    instanceId,
+    query,
+    scope,
+    scopeInstances,
+    selectedInstances,
+    serviceTabsPrefs,
+    setAgentId,
+    setInstanceId,
+    setQuery,
+    setScope,
+  }
+}

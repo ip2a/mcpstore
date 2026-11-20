@@ -44,6 +44,17 @@ normalize_version() {
   printf '%s' "$raw"
 }
 
+# vX.Y.Z or vX.Y.Z-<prerelease> (e.g. v2.3.2-rc.1); rejects sdk-v* and garbage
+# so a bad "latest" resolution fails loudly instead of 404-ing on a mangled name.
+validate_version_format() {
+  local version="$1"
+  if ! printf '%s' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+    echo "[error] Not a CLI release version: ${version}" >&2
+    echo "[hint] CLI releases are tagged vX.Y.Z (candidates: vX.Y.Z-rc.N); SDK releases use sdk-vX.Y.Z and ship no install.sh assets." >&2
+    exit 1
+  fi
+}
+
 resolve_latest_version() {
   local latest_url
   latest_url="$(
@@ -100,6 +111,7 @@ main() {
   else
     version="$(resolve_latest_version)"
   fi
+  validate_version_format "${version}"
   tag="v${version}"
   platform_id="$(detect_platform_id)"
   archive_name="${TOOL_NAME}-${tag}-${platform_id}.tar.gz"
@@ -137,8 +149,12 @@ main() {
 
   local installed_version
   installed_version="$("${installed_bin}" --version 2>/dev/null || "${installed_bin}" version)"
-  if [[ "${installed_version}" != *"${version}"* ]]; then
+  # Candidate tags (vX.Y.Z-rc.N) ship binaries that embed the stable version;
+  # validate against the version core, not the full tag.
+  local version_core="${version%%-*}"
+  if [[ "${installed_version}" != *"${version_core}"* ]]; then
     echo "[error] Installed binary version mismatch: ${installed_version}" >&2
+    echo "[hint] Expected ${version_core} (tag ${tag}; candidate binaries embed the stable version)." >&2
     exit 1
   fi
 

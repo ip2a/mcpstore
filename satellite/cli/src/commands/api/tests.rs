@@ -1,0 +1,2669 @@
+use super::*;
+use mcpstore::{
+    config::{McpStoreExtension, ScopeDeclarations},
+    kv::models::{InstanceToolRelation, ToolEntity},
+    JsonStoreConfig, ServiceInstanceKey, StoreOptions,
+};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::SystemTime,
+};
+
+static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn unique_namespace() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_nanos();
+    format!("api-session-test-{nanos}")
+}
+
+fn unique_temp_dir_path(prefix: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_nanos();
+    let count = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{count}", std::process::id()))
+}
+
+fn stdio_config() -> ServerConfig {
+    ServerConfig {
+        url: None,
+        command: Some("echo".to_string()),
+        args: vec!["fixture".to_string()],
+        env: HashMap::new(),
+        headers: HashMap::new(),
+        auth: Default::default(),
+        transport: Some("stdio".to_string()),
+        working_dir: None,
+        description: Some("fixture".to_string()),
+        mcpstore: None,
+        extra: Default::default(),
+    }
+}
+
+fn stdio_config_with_lifecycle() -> ServerConfig {
+    let mut config = stdio_config();
+    config.mcpstore = Some(mcpstore::config::McpStoreExtension {
+        scopes: ScopeDeclarations::store_only(),
+        lifecycle: Some(mcpstore::config::ServiceLifecycleConfig {
+            startup_policy: Some(mcpstore::config::StartupPolicy::Lazy),
+            restart_policy: Some(mcpstore::config::RestartPolicy {
+                kind: mcpstore::config::RestartPolicyKind::OnFailure,
+                max_retries: Some(3),
+            }),
+            keep_alive: None,
+        }),
+        ..mcpstore::config::McpStoreExtension::default()
+    });
+    config
+}
+
+async fn seed_db_service(store: &MCPStore) {
+    let config = stdio_config();
+    seed_db_service_config(store, config).await;
+}
+
+async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
+    // The registry is an eventually-consistent read view owned by hydration +
+    // reconcile; raw KV writes only converge after the feed debounce, so API
+    // reads right after a raw seed see ServiceNotFound. Register through the
+    // management path for immediate visibility, then keep the tool projection
+    // as raw KV — KV is the documented source of truth for tools.
+    store.add_service("demo", config).await.unwrap();
+    let scope = ScopeRef::Store;
+    let instance_id = ServiceInstanceKey::new("demo", scope.clone()).instance_id();
+    let cache = store.kv();
+    cache
+        .put_entity(
+            "tools",
+            &format!("{instance_id}:echo"),
+            serde_json::to_value(ToolEntity {
+                instance_id,
+                service_name: "demo".to_string(),
+                scope: scope.clone(),
+                tool_name: "echo".to_string(),
+                title: None,
+                description: "echo tool".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Original text."},
+                        "debug": {"type": "boolean"}
+                    },
+                    "required": ["text", "debug"]
+                }),
+                output_schema: None,
+                annotations: None,
+                icons: None,
+                meta: None,
+                created_time: 111,
+                tool_hash: "fixture".to_string(),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    cache
+        .put_relation(
+            "instance_tools",
+            &instance_id.to_string(),
+            serde_json::to_value(InstanceToolRelation {
+                instance_id,
+                service_name: "demo".to_string(),
+                scope,
+                tools: vec!["echo".to_string()],
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+}
+
+async fn spawn_test_api(store: Arc<MCPStore>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let (addr, handle, _) = spawn_test_api_with_state(store).await;
+    (addr, handle)
+}
+
+async fn spawn_test_api_with_state(
+    store: Arc<MCPStore>,
+) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = state_for_store(store);
+    let app = full_router(Arc::clone(&state), "");
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle, state)
+}
+
+#[tokio::test]
+async fn app_and_core_routers_expose_the_expected_faces() {
+    let store_path = unique_temp_dir_path("split-api-store").with_extension("json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let state = state_for_store(store);
+    let client = reqwest::Client::new();
+
+    let app_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let app_addr = app_listener.local_addr().unwrap();
+    let app_state = Arc::clone(&state);
+    let app_handle = tokio::spawn(async move {
+        axum::serve(app_listener, app_router(app_state))
+            .await
+            .unwrap();
+    });
+    let core_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let core_addr = core_listener.local_addr().unwrap();
+    let core_state = Arc::clone(&state);
+    let core_handle = tokio::spawn(async move {
+        axum::serve(core_listener, core_router(core_state))
+            .await
+            .unwrap();
+    });
+
+    // The app face owns panel-local routes and exposes resource routes through
+    // the selected-host facade when a selector is supplied.
+    assert_eq!(
+        client
+            .get(format!("http://{app_addr}/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(format!("http://{app_addr}/services/list"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+
+    // A panel-local endpoint never accepts a resource selector.
+    assert_eq!(
+        client
+            .get(format!("http://{app_addr}/health"))
+            .header(hosts::HOST_HEADER, "local")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::BAD_REQUEST
+    );
+
+    // The core face exposes the daemon health contract and resource routes.
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+
+    // The internal MCP face is never public: no token is 401, and a valid
+    // token without a started backend is a loud 503 rather than a fallback.
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/internal/gateway/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/internal/gateway/health"))
+            .bearer_auth(state.gateway_token.as_str())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    app_handle.abort();
+    core_handle.abort();
+    let _ = std::fs::remove_file(store_path);
+}
+
+#[tokio::test]
+async fn gateway_routes_report_http_configuration() {
+    let store_path = unique_temp_dir_path("gateway-api-store").with_extension("json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let status: Value = client
+        .get(format!("{base_url}/gateway/status?port=1830"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["data"]["running"], false);
+    assert_eq!(status["data"]["starting"], false);
+    assert!(status["data"]["boot"].is_null());
+    assert_eq!(status["data"]["port"], 1830);
+    assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
+    handle.abort();
+    let _ = std::fs::remove_file(store_path);
+}
+
+/// Backend construction never changes the daemon's store and is reused across
+/// proxy launches. No child process is needed to verify this ownership boundary.
+#[tokio::test]
+async fn gateway_backend_preserves_memory_store_and_is_reused() {
+    let base = unique_temp_dir_path("gateway-daemon-backend");
+    std::fs::create_dir_all(&base).unwrap();
+    let mcp_json = base.join("mcp.json");
+    std::fs::write(&mcp_json, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(mcp_json.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let state = state_for_store(store.clone());
+    let options = GatewayOptions::default();
+
+    let first = client::ensure_gateway_backend(&state, &options)
+        .await
+        .unwrap();
+    assert_eq!(store.store_config().await.store, "memory");
+    assert!(!base.join("run").join("shm").exists());
+
+    let second = client::ensure_gateway_backend(&state, &options)
+        .await
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+
+    drop(state);
+    drop(store);
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[tokio::test]
+async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
+    mcpstore::agents::registry::install_for_tests();
+    let path = unique_temp_dir_path("client-config-api").with_extension("json");
+    let secret = "api-secret-do-not-return";
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {
+                "existing": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "env": {"TOKEN": secret},
+                    "headers": {"Authorization": "Bearer header-secret"}
+                },
+                "new": {"command": "python"},
+                "conflict": {"command": "node"},
+                "unrelated": {"enabled": true}
+            },
+            "otherSettings": {"keep": true}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let store_path = unique_temp_dir_path("client-config-api-store").with_extension("json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle, state) = spawn_test_api_with_state(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    state
+        .store
+        .add_service(
+            "conflict",
+            ServerConfig {
+                command: Some("already-owned".to_string()),
+                ..ServerConfig::default()
+            },
+        )
+        .await
+        .unwrap();
+    let partial_import = client
+        .post(format!("{base_url}/client-config/import"))
+        .json(&json!({
+            "client": "claude",
+            "path": path,
+            "names": ["new", "conflict"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(partial_import.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert!(state
+        .store
+        .get_definition_config("new")
+        .await
+        .unwrap()
+        .is_none());
+
+    let import = client
+        .post(format!("{base_url}/client-config/import"))
+        .json(&json!({
+            "client": "claude",
+            "path": path,
+            "names": ["existing"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    let import_status = import.status();
+    let import_body = import.text().await.unwrap();
+    assert!(
+        import_status.is_success(),
+        "status={} body={}",
+        import_status,
+        import_body
+    );
+    assert!(import_body.contains("existing"));
+    assert!(!import_body.contains(secret));
+    assert!(!import_body.contains("Bearer header-secret"));
+    let imported = state
+        .store
+        .get_definition_config("existing")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(imported["command"], "node");
+    assert_eq!(imported["env"]["TOKEN"], secret);
+
+    handle.abort();
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&store_path);
+}
+
+#[tokio::test]
+async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let config = ServerConfig {
+        url: Some("http://127.0.0.1:9/mcp".to_string()),
+        auth: serde_json::from_value(json!({
+            "type": "oauth_authorization_code",
+            "client_id": "api-client",
+            "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+            "scopes": ["tools.read"]
+        }))
+        .unwrap(),
+        transport: Some("streamable-http".to_string()),
+        ..ServerConfig::default()
+    };
+    seed_db_service_config(&store, config).await;
+    store.load_from_source().await.unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let status = client
+        .get(format!("{base_url}/services/demo/auth"))
+        .send()
+        .await
+        .unwrap();
+    let status_code = status.status();
+    let status_body = status.text().await.unwrap();
+    assert!(
+        status_code.is_success(),
+        "status={status_code} body={status_body}"
+    );
+    let status_payload = serde_json::from_str::<Value>(&status_body).unwrap();
+    assert_eq!(status_payload["data"]["auth"]["status"], "unauthenticated");
+    assert_eq!(status_payload["data"]["auth"]["flow"], "authorization_code");
+    assert_eq!(
+        status_payload["data"]["auth"]["scopes"],
+        json!(["tools.read"])
+    );
+
+    let callback = client
+        .get(format!("{base_url}/services/demo/auth/callback"))
+        .query(&[
+            ("code", "sensitive-code"),
+            ("state", "sensitive-state"),
+            ("iss", "https://issuer.example"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        callback.status(),
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    );
+    let callback_body = callback.text().await.unwrap();
+    assert!(callback_body.contains("auth_failed"));
+    assert!(!callback_body.contains("sensitive-code"));
+    assert!(!callback_body.contains("sensitive-state"));
+
+    let empty_secret = client
+        .post(format!("{base_url}/services/demo/auth/client-secret"))
+        .json(&json!({"client_secret": ""}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty_secret.status(), axum::http::StatusCode::BAD_REQUEST);
+    let secret_body = empty_secret.text().await.unwrap();
+    assert!(secret_body.contains("config_invalid"));
+    assert!(!secret_body.contains("client_secret"));
+
+    let empty_key = client
+        .post(format!("{base_url}/services/demo/auth/private-key"))
+        .json(&json!({"private_key_pem": ""}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty_key.status(), axum::http::StatusCode::BAD_REQUEST);
+    let key_body = empty_key.text().await.unwrap();
+    assert!(key_body.contains("config_invalid"));
+    assert!(!key_body.contains("private_key_pem"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn session_routes_use_rust_core_session_state_from_shared_cache() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&store).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let create = client
+        .post(format!("{base_url}/sessions/create"))
+        .json(&json!({
+            "session_id": "api-core-session",
+            "lease_seconds": 60,
+            "metadata": {"owner": "api-test"},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(create.status().is_success());
+    let create_payload = create.json::<Value>().await.unwrap();
+    let session_key = create_payload["data"]["session"]["session_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(session_key, "store:api-core-session");
+
+    let bind = client
+        .post(format!("{base_url}/sessions/bind_service"))
+        .json(&json!({"session_key": session_key, "service_name": "demo", "scope": "store"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(bind.status().is_success());
+
+    let tools = client
+        .get(format!("{base_url}/sessions/list_tools"))
+        .query(&[("session_key", session_key.as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert!(tools.status().is_success());
+    let tools_payload = tools.json::<Value>().await.unwrap();
+    assert_eq!(tools_payload["data"]["total"], 1);
+    assert_eq!(tools_payload["data"]["tools"][0]["name"], "echo");
+
+    let set_state = client
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "cursor",
+            "value": {"page": 1},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_state.status().is_success());
+    let set_state_payload = set_state.json::<Value>().await.unwrap();
+    assert_eq!(
+        set_state_payload["data"]["state"]["values"]["cursor"]["page"],
+        1
+    );
+
+    let get_state_value = client
+        .get(format!("{base_url}/sessions/state/value"))
+        .query(&[("session_key", session_key.as_str()), ("key", "cursor")])
+        .send()
+        .await
+        .unwrap();
+    assert!(get_state_value.status().is_success());
+    let get_state_value_payload = get_state_value.json::<Value>().await.unwrap();
+    assert_eq!(get_state_value_payload["data"]["value"]["page"], 1);
+
+    let list_state = client
+        .get(format!("{base_url}/sessions/state/list"))
+        .query(&[("session_key", session_key.as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert!(list_state.status().is_success());
+    let list_state_payload = list_state.json::<Value>().await.unwrap();
+    assert_eq!(list_state_payload["data"]["values"]["cursor"]["page"], 1);
+
+    let delete_state = client
+        .post(format!("{base_url}/sessions/state/delete"))
+        .json(&json!({"session_key": session_key, "key": "cursor"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(delete_state.status().is_success());
+    let delete_state_payload = delete_state.json::<Value>().await.unwrap();
+    assert!(delete_state_payload["data"]["state"]["values"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+
+    let set_answer = client
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({"session_key": session_key, "key": "answer", "value": 42}))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_answer.status().is_success());
+
+    let clear_state = client
+        .post(format!("{base_url}/sessions/state/clear"))
+        .json(&json!({"session_key": session_key}))
+        .send()
+        .await
+        .unwrap();
+    assert!(clear_state.status().is_success());
+    let clear_state_payload = clear_state.json::<Value>().await.unwrap();
+    assert!(clear_state_payload["data"]["state"]["values"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+
+    let set_path_clear = client
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({"session_key": session_key, "key": "path_clear", "value": true}))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_path_clear.status().is_success());
+
+    let clear_state_by_path = client
+        .post(format!("{base_url}/sessions/state/clear"))
+        .json(&json!({"session_key": session_key}))
+        .send()
+        .await
+        .unwrap();
+    assert!(clear_state_by_path.status().is_success());
+    let clear_state_by_path_payload = clear_state_by_path.json::<Value>().await.unwrap();
+    assert!(clear_state_by_path_payload["data"]["state"]["values"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+
+    let close = client
+        .post(format!("{base_url}/sessions/close"))
+        .json(&json!({"session_key": session_key, "reason": "done"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(close.status().is_success());
+
+    let closed_tools = client
+        .get(format!("{base_url}/sessions/list_tools"))
+        .query(&[("session_key", session_key.as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(closed_tools.status(), axum::http::StatusCode::CONFLICT);
+    let closed_payload = closed_tools.json::<Value>().await.unwrap();
+    assert_eq!(closed_payload["errors"][0]["code"], "session_not_active");
+
+    let closed_set_state = client
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "after_close",
+            "value": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(closed_set_state.status(), axum::http::StatusCode::CONFLICT);
+    let closed_set_state_payload = closed_set_state.json::<Value>().await.unwrap();
+    assert_eq!(
+        closed_set_state_payload["errors"][0]["code"],
+        "session_not_active"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn third_party_config_export_requires_service_name() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service_config(&store, stdio_config_with_lifecycle()).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let native = client
+        .get(format!("{base_url}/config"))
+        .send()
+        .await
+        .unwrap();
+    assert!(native.status().is_success());
+    let native_payload = native.json::<Value>().await.unwrap();
+    assert!(native_payload["data"]["mcpServers"]["demo"]
+        .get("_mcpstore")
+        .is_some());
+
+    let missing_instance = client
+        .get(format!("{base_url}/config?format=claude"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        missing_instance.status(),
+        axum::http::StatusCode::BAD_REQUEST
+    );
+    let missing_payload = missing_instance.json::<Value>().await.unwrap();
+    assert_eq!(missing_payload["errors"][0]["code"], json!("invalid_input"));
+
+    let claude = client
+        .get(format!(
+            "{base_url}/config?format=claude&service_name=demo&scope=store"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(claude.status().is_success());
+    let claude_payload = claude.json::<Value>().await.unwrap();
+    assert!(claude_payload["data"]["mcpServers"]["demo"]
+        .get("_mcpstore")
+        .is_none());
+    assert_eq!(
+        claude_payload["data"]["mcpServers"]["demo"]["command"],
+        json!("echo")
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn store_update_only_changes_base_config() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-update");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    store
+        .add_service("demo", stdio_config_with_lifecycle())
+        .await
+        .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let update = client
+        .put(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["updated"],
+            "transport": "stdio",
+            "description": "updated fixture"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(update.status().is_success());
+
+    let native = client
+        .get(format!("{base_url}/config"))
+        .send()
+        .await
+        .unwrap();
+    assert!(native.status().is_success());
+    let native_payload = native.json::<Value>().await.unwrap();
+    let service = &native_payload["data"]["mcpServers"]["demo"];
+    assert_eq!(service["command"], "printf");
+    assert_eq!(service["args"], json!(["updated"]));
+    assert!(service["_mcpstore"]["scopes"]["store"].is_object());
+    assert_eq!(service["_mcpstore"]["lifecycle"]["startup_policy"], "lazy");
+
+    let invalid = client
+        .put(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "_mcpstore": {"scopes": {"agents": {"agent-a": {}}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let invalid_null = client
+        .put(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "_mcpstore": null
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_null.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn store_scope_endpoint_declares_scope_for_existing_agent_only_definition() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-store-scope");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let mut config = stdio_config();
+    let mut scopes = ScopeDeclarations::default();
+    scopes
+        .agents
+        .insert("agent-a".to_string(), ScopeDescriptor::default());
+    config.mcpstore = Some(McpStoreExtension {
+        scopes,
+        ..McpStoreExtension::default()
+    });
+    store.add_service("demo", config).await.unwrap();
+
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let add = client
+        .put(format!("{base_url}/services/demo/scopes/store"))
+        .json(&json!({
+            "config": {
+                "command": "printf",
+                "args": ["store"],
+                "transport": "stdio"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(add.status().is_success());
+
+    let native = client
+        .get(format!("{base_url}/config"))
+        .send()
+        .await
+        .unwrap();
+    assert!(native.status().is_success());
+    let native_payload = native.json::<Value>().await.unwrap();
+    let service = &native_payload["data"]["mcpServers"]["demo"];
+    assert!(service["_mcpstore"]["scopes"]["store"].is_object());
+    assert!(service["_mcpstore"]["scopes"]["agents"]["agent-a"].is_object());
+    assert_eq!(
+        service["_mcpstore"]["scopes"]["store"]["config"]["command"],
+        "printf"
+    );
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn definition_and_scope_routes_are_explicit_and_isolated() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-explicit-scope-routes");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let add_definition = client
+        .post(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"store": {}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(add_definition.status().is_success());
+
+    let declare_agent = client
+        .put(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+        .json(&json!({"config": {"args": ["agent"]}}))
+        .send()
+        .await
+        .unwrap();
+    assert!(declare_agent.status().is_success());
+
+    let store_instances = client
+        .get(format!("{base_url}/services/list"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let agent_instances = client
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=agent-a"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_ne!(
+        store_instances["data"]["services"][0]["instance_id"],
+        agent_instances["data"]["services"][0]["instance_id"]
+    );
+
+    let remove_agent = client
+        .delete(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+        .send()
+        .await
+        .unwrap();
+    assert!(remove_agent.status().is_success());
+
+    let store_after_remove = client
+        .get(format!("{base_url}/services/list"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let agent_after_remove = client
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=agent-a"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(store_after_remove["data"]["total"], 1);
+    assert_eq!(agent_after_remove["data"]["total"], 0);
+
+    let legacy_route = client
+        .post(format!("{base_url}/for_store/add_service"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy_route.status(), axum::http::StatusCode::NOT_FOUND);
+
+    let remove_definition = client
+        .delete(format!("{base_url}/services/demo"))
+        .send()
+        .await
+        .unwrap();
+    assert!(remove_definition.status().is_success());
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn post_service_attaches_missing_agent_scope_when_definition_exists() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-post-attach-scope");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let create = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"store": {}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(create.status().is_success());
+
+    // Same base config, agent scope only → attach, do not fail as duplicate definition.
+    let attach = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"agents": {"claude": {}}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        attach.status().is_success(),
+        "attach response: {:?}",
+        attach.text().await.unwrap()
+    );
+
+    let agent_list = client
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=claude"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_list["data"]["total"], 1);
+    assert_eq!(agent_list["data"]["services"][0]["service_name"], "demo1");
+
+    // Same scopes again → already declared.
+    let duplicate = client
+        .post(format!("{base_url}/services/demo1"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"agents": {"claude": {}}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(!duplicate.status().is_success());
+    let duplicate_body = duplicate.json::<Value>().await.unwrap();
+    let message = duplicate_body["message"]
+        .as_str()
+        .or_else(|| duplicate_body["errors"][0]["message"].as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("already declared"),
+        "unexpected message: {message}"
+    );
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn scope_registry_routes_expose_root_store_and_agents() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-scope-registry");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // demo is declared in store + agent-a (two distinct instances)
+    client
+        .post(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"store": {}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    client
+        .put(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+        .json(&json!({"config": {"args": ["agent"]}}))
+        .send()
+        .await
+        .unwrap();
+
+    // /scopes/list: root + store + agent-a, each with service_count (no longer derived from /agents/list)
+    let scopes = client
+        .get(format!("{base_url}/scopes/list"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let entries = scopes["data"]["scopes"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    let count_for = |scope_type: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["scope"]["type"] == scope_type)
+            .unwrap()["service_count"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(count_for("all"), 2);
+    assert_eq!(count_for("store"), 1);
+    assert_eq!(count_for("agent"), 1);
+    let agent_entry = entries
+        .iter()
+        .find(|entry| entry["scope"]["type"] == "agent")
+        .unwrap();
+    assert_eq!(agent_entry["scope"]["agent_id"], "agent-a");
+
+    // /services/list?scope=all aggregates both scopes (total=2); store has one (total=1)
+    let root_services = client
+        .get(format!("{base_url}/services/list?scope=all"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(root_services["data"]["total"], 2);
+    let store_services = client
+        .get(format!("{base_url}/services/list?scope=store"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(store_services["data"]["total"], 1);
+
+    // fields=summary strips the heavy per-row fields; include= adds them back one by one.
+    let full_row = &root_services["data"]["services"][0];
+    assert!(full_row.get("tools").is_some());
+    assert!(full_row.get("effective_config").is_some());
+
+    let summary = client
+        .get(format!("{base_url}/services/list?scope=all&fields=summary"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let summary_row = &summary["data"]["services"][0];
+    assert!(summary_row.get("tools").is_none());
+    assert!(summary_row.get("effective_config").is_none());
+    assert!(summary_row["tool_count"].is_u64());
+    assert!(summary_row["state"].is_object());
+    assert!(summary_row["display_name"].is_string());
+
+    let summary_with_tools = client
+        .get(format!(
+            "{base_url}/services/list?scope=all&fields=summary&include=tools"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let tools_row = &summary_with_tools["data"]["services"][0];
+    assert!(tools_row.get("tools").is_some());
+    assert!(tools_row.get("effective_config").is_none());
+
+    let bad_fields = client
+        .get(format!("{base_url}/services/list?scope=all&fields=oops"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_fields.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // scope detail: all / store / agent
+    let root_info = client
+        .get(format!("{base_url}/scopes/all"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(root_info["data"]["scope"]["type"], "all");
+    assert_eq!(root_info["data"]["service_count"], 2);
+    let agent_scope = client
+        .get(format!("{base_url}/scopes/agents/agent-a"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_scope["data"]["scope"]["type"], "agent");
+    assert_eq!(agent_scope["data"]["scope"]["agent_id"], "agent-a");
+
+    // agent detail (find_agent)
+    let agent_info = client
+        .get(format!("{base_url}/agents/agent-a"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_info["data"]["agent_id"], "agent-a");
+    assert_eq!(
+        agent_info["data"]["instance_ids"].as_array().unwrap().len(),
+        1
+    );
+
+    // unknown agent → 404
+    let unknown = client
+        .get(format!("{base_url}/agents/nope"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), axum::http::StatusCode::NOT_FOUND);
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn session_snapshot_routes_export_and_import_rust_core_state() {
+    let source = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&source).await;
+    let (source_addr, source_handle) = spawn_test_api(source).await;
+    let client = reqwest::Client::new();
+    let source_base_url = format!("http://{source_addr}");
+
+    let create = client
+        .post(format!("{source_base_url}/sessions/create"))
+        .json(&json!({
+            "session_id": "snapshot-session",
+            "lease_seconds": 60,
+            "metadata": {"owner": "snapshot-test"},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(create.status().is_success());
+    let create_payload = create.json::<Value>().await.unwrap();
+    let session_key = create_payload["data"]["session"]["session_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let bind = client
+        .post(format!("{source_base_url}/sessions/bind_service"))
+        .json(&json!({"session_key": session_key, "service_name": "demo", "scope": "store"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(bind.status().is_success());
+
+    let set_state = client
+        .post(format!("{source_base_url}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "cursor",
+            "value": {"page": 2},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_state.status().is_success());
+
+    let export = client
+        .get(format!("{source_base_url}/sessions/snapshot"))
+        .send()
+        .await
+        .unwrap();
+    assert!(export.status().is_success());
+    let export_payload = export.json::<Value>().await.unwrap();
+    let snapshot = export_payload["data"]["snapshot"].clone();
+    assert_eq!(
+        snapshot["entities"][session_key.as_str()]["metadata"]["owner"],
+        "snapshot-test"
+    );
+    assert_eq!(
+        snapshot["states"]["session_state"][session_key.as_str()]["values"]["cursor"]["page"],
+        2
+    );
+
+    let target = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&target).await;
+    let (target_addr, target_handle) = spawn_test_api(target).await;
+    let target_base_url = format!("http://{target_addr}");
+
+    let import = client
+        .post(format!("{target_base_url}/sessions/snapshot/import"))
+        .json(&snapshot)
+        .send()
+        .await
+        .unwrap();
+    assert!(import.status().is_success());
+    let import_payload = import.json::<Value>().await.unwrap();
+    assert_eq!(import_payload["data"]["report"]["sessions_imported"], 1);
+    assert_eq!(
+        import_payload["data"]["report"]["session_state_records_imported"],
+        1
+    );
+
+    let imported_state = client
+        .get(format!("{target_base_url}/sessions/state/value"))
+        .query(&[("session_key", session_key.as_str()), ("key", "cursor")])
+        .send()
+        .await
+        .unwrap();
+    assert!(imported_state.status().is_success());
+    let imported_state_payload = imported_state.json::<Value>().await.unwrap();
+    assert_eq!(imported_state_payload["data"]["value"]["page"], 2);
+
+    let import_again = client
+        .post(format!("{target_base_url}/sessions/snapshot/import"))
+        .json(&snapshot)
+        .send()
+        .await
+        .unwrap();
+    assert!(import_again.status().is_success());
+    let import_again_payload = import_again.json::<Value>().await.unwrap();
+    assert_eq!(
+        import_again_payload["data"]["report"]["sessions_unchanged"],
+        1
+    );
+
+    source_handle.abort();
+    target_handle.abort();
+}
+
+#[tokio::test]
+async fn store_routes_filter_tools_and_manage_tool_policy() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&store).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let default_list = client
+        .get(format!("{base_url}/services/demo/tools/list"))
+        .send()
+        .await
+        .unwrap();
+    assert!(default_list.status().is_success());
+    let default_payload = default_list.json::<Value>().await.unwrap();
+    assert_eq!(default_payload["data"]["filter"], "available");
+    assert_eq!(default_payload["data"]["total"], 1);
+
+    let set_policy = client
+        .put(format!("{base_url}/services/demo/tool-policy"))
+        .json(&json!({"available_tools": []}))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_policy.status().is_success());
+    assert_eq!(
+        set_policy.json::<Value>().await.unwrap()["data"]["policy"]["tools"],
+        json!([])
+    );
+
+    let available = client
+        .get(format!(
+            "{base_url}/services/demo/tools/list?filter=available"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(available["data"]["total"], 0);
+
+    let removed = client
+        .get(format!(
+            "{base_url}/services/demo/tools/list?filter=removed"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(removed["data"]["filter"], "removed");
+    assert_eq!(removed["data"]["total"], 1);
+
+    let invalid = client
+        .get(format!("{base_url}/services/demo/tools/list?filter=hidden"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let clear = client
+        .delete(format!("{base_url}/services/demo/tool-policy"))
+        .send()
+        .await
+        .unwrap();
+    assert!(clear.status().is_success());
+
+    let restored = client
+        .get(format!("{base_url}/services/demo/tools/list"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(restored["data"]["total"], 1);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn store_routes_manage_rust_core_tool_routes() {
+    // Override writes write back to route.toml beside the config — point the
+    // store at a temp config so the run never touches the real user file.
+    let dir =
+        std::env::temp_dir().join(format!("mcpstore-api-override-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("mcp.json");
+    std::fs::write(&config_path, b"{\"mcpServers\":{}}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(config_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&store).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let set_override = client
+        .put(format!("{base_url}/services/demo/tool_routes/echo"))
+        .json(&json!({
+            "display_name": "say",
+            "description": "Say text with a stable hidden debug flag.",
+            "arguments": [
+                {
+                    "original_name": "text",
+                    "new_name": "message",
+                    "hidden": false,
+                    "description": "Message to echo."
+                },
+                {
+                    "original_name": "debug",
+                    "hidden": true,
+                    "default_value": false
+                }
+            ],
+            "tags": ["compat"],
+            "enabled": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(set_override.status().is_success());
+    let set_payload = set_override.json::<Value>().await.unwrap();
+    assert_eq!(set_payload["data"]["route"]["display_name"], "say");
+    assert_eq!(set_payload["data"]["route"]["version"], 1);
+
+    let list_tools = client
+        .get(format!("{base_url}/services/demo/tools/list"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_tools.status().is_success());
+    let list_tools_payload = list_tools.json::<Value>().await.unwrap();
+    let tool = &list_tools_payload["data"]["tools"][0];
+    assert_eq!(tool["name"], "say");
+    assert_eq!(
+        tool["input_schema"]["properties"]["message"]["description"],
+        "Message to echo."
+    );
+    assert!(tool["input_schema"]["properties"].get("debug").is_none());
+    assert_eq!(tool["input_schema"]["required"], json!(["message"]));
+
+    let get_override = client
+        .get(format!("{base_url}/services/demo/tool_routes/echo"))
+        .send()
+        .await
+        .unwrap();
+    assert!(get_override.status().is_success());
+    let get_payload = get_override.json::<Value>().await.unwrap();
+    assert_eq!(get_payload["data"]["route"]["tool_name"], "echo");
+
+    let list_transforms = client
+        .get(format!("{base_url}/tool_routes"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_transforms.status().is_success());
+    let list_payload = list_transforms.json::<Value>().await.unwrap();
+    assert_eq!(list_payload["data"]["total"], 1);
+
+    let delete_transform = client
+        .delete(format!("{base_url}/services/demo/tool_routes/echo"))
+        .send()
+        .await
+        .unwrap();
+    assert!(delete_transform.status().is_success());
+
+    let list_tools_after_delete = client
+        .get(format!("{base_url}/services/demo/tools/list"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_tools_after_delete.status().is_success());
+    let list_tools_after_delete_payload = list_tools_after_delete.json::<Value>().await.unwrap();
+    assert_eq!(
+        list_tools_after_delete_payload["data"]["tools"][0]["name"],
+        "echo"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    seed_db_service(&store).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // Query encoding keeps ?, #, spaces, and encoded slashes opaque to routing.
+    let uri = "fixture%3A%2F%2Fdocs%2Fread%3Fx%3Dhello%20world%23fragment%2Fencoded";
+    let resource = client
+        .get(format!(
+            "{base_url}/services/demo/resource_routes?scope=store&uri={uri}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(resource.status().is_success());
+    assert!(resource.json::<Value>().await.unwrap()["data"]["route"].is_null());
+
+    let template = client
+        .get(format!(
+            "{base_url}/services/demo/resource_template_routes?scope=store&uri_template={uri}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(template.status().is_success());
+    assert!(template.json::<Value>().await.unwrap()["data"]["route"].is_null());
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn store_routes_manage_rust_core_openapi_imports() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let spec = json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Inventory", "version": "1.0.0"},
+        "components": {
+            "securitySchemes": {
+                "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "x-api-key"}
+            }
+        },
+        "security": [{"ApiKeyAuth": []}],
+        "paths": {
+            "/items": {
+                "get": {"operationId": "listItems", "responses": {"200": {"description": "ok"}}},
+                "post": {
+                    "operationId": "createItem",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"name": {"type": "string"}},
+                                    "required": ["name"]
+                                }
+                            }
+                        }
+                    },
+                    "responses": {"201": {"description": "created"}}
+                }
+            }
+        }
+    });
+
+    let import_response = client
+        .post(format!("{base_url}/openapi_imports/inventory/import"))
+        .json(&json!({
+            "spec_url": "memory://inventory",
+            "spec": spec,
+            "timeout_millis": 4100,
+            "fetch_timeout_millis": 4200,
+            "auth": {"ApiKeyAuth": "secret"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(import_response.status().is_success());
+    let import_payload = import_response.json::<Value>().await.unwrap();
+    assert_eq!(
+        import_payload["data"]["import"]["service_name"],
+        "inventory"
+    );
+    assert_eq!(import_payload["data"]["import"]["total_endpoints"], 2);
+    assert_eq!(
+        import_payload["data"]["import"]["component_types"]["tools"],
+        1
+    );
+    assert_eq!(
+        import_payload["data"]["import"]["component_types"]["resources"],
+        1
+    );
+    assert_eq!(import_payload["data"]["import"]["runtime_executable"], true);
+    assert_eq!(
+        import_payload["data"]["import"]["security_schemes"]["ApiKeyAuth"]["name"],
+        "x-api-key"
+    );
+
+    let service_response = client
+        .get(format!("{base_url}/services/inventory?scope=store"))
+        .send()
+        .await
+        .unwrap();
+    assert!(service_response.status().is_success());
+    let service_payload = service_response.json::<Value>().await.unwrap();
+    assert_eq!(
+        service_payload["data"]["effective_config"]["openapi_timeout_millis"],
+        4100
+    );
+    assert_eq!(
+        service_payload["data"]["effective_config"]["openapi_fetch_timeout_millis"],
+        4200
+    );
+
+    let get_response = client
+        .get(format!("{base_url}/openapi_imports/inventory"))
+        .send()
+        .await
+        .unwrap();
+    assert!(get_response.status().is_success());
+    let get_payload = get_response.json::<Value>().await.unwrap();
+    assert_eq!(
+        get_payload["data"]["import"]["spec_info"]["title"],
+        "Inventory"
+    );
+
+    let list_response = client
+        .get(format!("{base_url}/openapi_imports"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_response.status().is_success());
+    let list_payload = list_response.json::<Value>().await.unwrap();
+    assert_eq!(list_payload["data"]["total"], 1);
+
+    let invalid_timeout = client
+            .post(format!("{base_url}/openapi_imports/bundle"))
+            .json(&json!({
+                "spec_url": "memory://invalid-timeout",
+                "spec": {"openapi": "3.0.0", "info": {"title": "Invalid", "version": "1.0.0"}, "paths": {}},
+                "fetch_timeout_millis": 0
+            }))
+            .send()
+            .await
+            .unwrap();
+    assert_eq!(
+        invalid_timeout.status(),
+        axum::http::StatusCode::BAD_REQUEST
+    );
+    let invalid_timeout_payload = invalid_timeout.json::<Value>().await.unwrap();
+    assert_eq!(
+        invalid_timeout_payload["errors"][0]["field"],
+        "fetch_timeout_millis"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn store_route_bundles_openapi_without_importing() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let fixture_dir = unique_temp_dir_path("mcpstore-api");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let schemas_path = fixture_dir.join("schemas.json");
+    std::fs::write(
+        &schemas_path,
+        serde_json::to_vec(&json!({
+            "Item": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+                "required": ["id"]
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let bundle_response = client
+        .post(format!("{base_url}/openapi_imports/bundle"))
+        .json(&json!({
+            "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "spec": {
+                "openapi": "3.0.0",
+                "info": {"title": "Inventory", "version": "1.0.0"},
+                "paths": {
+                    "/items": {
+                        "get": {
+                            "operationId": "listItems",
+                            "responses": {
+                                "200": {
+                                    "description": "ok",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "./schemas.json#/Item"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(bundle_response.status().is_success());
+    let bundle_payload = bundle_response.json::<Value>().await.unwrap();
+    assert_eq!(
+        bundle_payload["data"]["bundle"]["paths"]["/items"]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["id"]["type"],
+        "string"
+    );
+
+    let list_response = client
+        .get(format!("{base_url}/openapi_imports"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_response.status().is_success());
+    let list_payload = list_response.json::<Value>().await.unwrap();
+    assert_eq!(list_payload["data"]["total"], 0);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn store_route_bundles_openapi_artifact_without_importing() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle, state) = spawn_test_api_with_state(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let fixture_dir = unique_temp_dir_path("mcpstore-api");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let schemas_path = fixture_dir.join("schemas.json");
+    std::fs::write(
+        &schemas_path,
+        serde_json::to_vec(&json!({
+            "Item": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+                "required": ["id"]
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let artifact_response = client
+        .post(format!("{base_url}/openapi_imports/bundle_artifact"))
+        .json(&json!({
+            "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "ref_cache": {"ttl_seconds": 17},
+            "spec": {
+                "openapi": "3.0.0",
+                "info": {"title": "Inventory", "version": "1.0.0"},
+                "paths": {
+                    "/items": {
+                        "get": {
+                            "operationId": "listItems",
+                            "responses": {
+                                "200": {
+                                    "description": "ok",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "./schemas.json#/Item"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(artifact_response.status().is_success());
+    let artifact_payload = artifact_response.json::<Value>().await.unwrap();
+    let artifact = &artifact_payload["data"]["artifact"];
+    assert_eq!(
+        artifact["bundle"]["paths"]["/items"]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["id"]["type"],
+        "string"
+    );
+    assert_eq!(artifact["documents"].as_array().unwrap().len(), 2);
+    assert_eq!(artifact["dependencies"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        artifact["dependencies"][0]["source_ref"],
+        "./schemas.json#/Item"
+    );
+    assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
+    let states = state
+        .store
+        .kv()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert_eq!(states.len(), 1);
+    let cached = states.values().next().unwrap();
+    assert_eq!(cached["ttl_seconds"], json!(17));
+
+    let list_response = client
+        .get(format!("{base_url}/openapi_imports"))
+        .send()
+        .await
+        .unwrap();
+    assert!(list_response.status().is_success());
+    let list_payload = list_response.json::<Value>().await.unwrap();
+    assert_eq!(list_payload["data"]["total"], 0);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_language_persists_outside_daemon_config() {
+    let fixture_dir = unique_temp_dir_path("panel-language");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(
+        fixture_dir.join("config.toml"),
+        "[ui]\nlanguage = \"zh-cn\"\n",
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["data"]["language"],
+        json!("zh")
+    );
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(payload["data"]["settings"]["language"], json!("zh"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert!(raw.get("ui").is_none());
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("zh"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn diagnostics_settings_round_trip_every_channel_and_report_real_log_path() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-roundtrip");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+    let patch = json!({
+        "diagnostics": {
+            "runtime_log": {
+                "enabled": false,
+                "level": "debug",
+                "max_size_bytes": 12345,
+                "retention_days": null
+            },
+            "requests": {
+                "enabled": false,
+                "capture_tool": false,
+                "capture_management": false,
+                "capture_cli": false,
+                "capture_payload": false,
+                "max_payload_bytes": 2048,
+                "retention_days": 9,
+                "max_records": null
+            },
+            "gateway_calls": {
+                "enabled": false,
+                "persist": false,
+                "memory_capacity": 17,
+                "retention_days": 11,
+                "max_calls": null
+            },
+            "frames": {
+                "enabled": false,
+                "capture_gateway": false,
+                "capture_upstream": false,
+                "capture_payload": false,
+                "max_payload_bytes": 4096,
+                "retention_days": 13,
+                "max_records": 77
+            },
+            "event_history": { "enabled": false, "capacity": 19 },
+            "stdio_stderr": {
+                "enabled": false,
+                "tail_lines": 0,
+                "forward_to_runtime_log": false,
+                "include_in_error": false
+            },
+            "daemon_output": { "enabled": false }
+        }
+    });
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&patch)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let updated = response.json::<Value>().await.unwrap();
+    assert_eq!(updated["data"]["diagnostics"], patch["diagnostics"]);
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert!(meta.status().is_success());
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(
+        payload["data"]["settings"]["diagnostics"],
+        patch["diagnostics"]
+    );
+    assert_eq!(
+        payload["data"]["settings_paths"]["log_file_name"],
+        json!("daemon.log")
+    );
+    assert!(payload["data"]["settings_paths"]["log_file_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("logs/daemon.log"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let loaded = manager.load_app_config_or_default().unwrap();
+    assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
+    assert_eq!(loaded.diagnostics.requests.max_payload_bytes, 2048);
+    assert_eq!(loaded.diagnostics.gateway_calls.memory_capacity, 17);
+    assert_eq!(loaded.diagnostics.frames.max_records, Some(77));
+    assert_eq!(loaded.diagnostics.event_history.capacity, 19);
+    assert_eq!(loaded.diagnostics.stdio_stderr.tail_lines, 0);
+    assert!(!loaded.diagnostics.daemon_output.enabled);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn invalid_diagnostics_settings_do_not_write_config_or_panel_files() {
+    let fixture_dir = unique_temp_dir_path("diagnostics-settings-invalid");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let app_config_path = fixture_dir.join("config.toml");
+    std::fs::write(
+        &app_config_path,
+        "[diagnostics.requests]\ncapture_payload = true\n",
+    )
+    .unwrap();
+    let panel_path = fixture_dir.join("panel/settings.json");
+    std::fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &panel_path,
+        r#"{"language":"en","hosts":{"active":"local"}}"#,
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let config_before = std::fs::read(&app_config_path).unwrap();
+    let panel_before = std::fs::read(&panel_path).unwrap();
+
+    let response = reqwest::Client::new()
+        .put(format!("http://{addr}/v1/settings"))
+        .json(&json!({
+            "language": "zh",
+            "diagnostics": {"requests": {"max_payload_bytes": 0}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(std::fs::read(&app_config_path).unwrap(), config_before);
+    assert_eq!(std::fs::read(&panel_path).unwrap(), panel_before);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_corruption_fails_requests_explicitly() {
+    let fixture_dir = unique_temp_dir_path("panel-corrupt");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(fixture_dir.join("panel-settings.json"), "{ broken").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(meta.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let update = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "en"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(update.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_write_failure_keeps_config_update_reported() {
+    let fixture_dir = unique_temp_dir_path("panel-write-fail");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    let panel_path = fixture_dir.join("panel/settings.json");
+    std::fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    // The hosts key is present, so load_or_migrate performs no migration
+    // write; the failure must come from the settings PUT's own panel save.
+    std::fs::write(
+        &panel_path,
+        r#"{ "language": "en", "hosts": { "active": "local" } }"#,
+    )
+    .unwrap();
+    // A directory at the temp path makes the second (panel) write fail while
+    // the first (daemon config) write already landed.
+    std::fs::create_dir_all(fixture_dir.join("panel/settings.json.tmp")).unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh", "api": {"port": 19999}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let payload = response.json::<Value>().await.unwrap();
+    assert_eq!(payload["success"], json!(false));
+
+    // No cross-file transaction: the config write stands, the panel write did not.
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["api"]["port"], json!(19999));
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("en"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn cross_resource_import_writes_definitions_without_local_paths() {
+    mcpstore::agents::registry::install_for_tests();
+    use axum::{extract::Path as AxPath, response::IntoResponse, Json as AxJson};
+    use std::sync::Mutex as StdMutex;
+
+    // Fixture client config on this (panel) host.
+    let path = unique_temp_dir_path("cross-import-config").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {
+                "good": {"command": "echo", "args": ["x"]},
+                "bad": {"command": "explode", "args": ["y"]}
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Fake selected daemon: GET /services/:name answers 404, POST records and
+    // fails for "bad" — enough to exercise pre-flight and partial failure.
+    #[derive(Clone, Default)]
+    struct UpstreamLog {
+        posts: Arc<StdMutex<Vec<(String, Value)>>>,
+    }
+    async fn service_probe(AxPath(_name): AxPath<String>) -> impl IntoResponse {
+        axum::http::StatusCode::NOT_FOUND
+    }
+    async fn service_add(
+        State(log): State<UpstreamLog>,
+        AxPath(name): AxPath<String>,
+        AxJson(body): AxJson<Value>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push((name, body.clone()));
+        if body.get("command") == Some(&json!("explode")) {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        } else {
+            axum::http::StatusCode::OK
+        }
+    }
+    let log = UpstreamLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route(
+                "/services/:name",
+                get(service_probe).post(service_add).with_state(log.clone()),
+            )
+            .fallback(get(|| async { axum::http::StatusCode::NOT_FOUND }));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    // Store whose hosts table registers the upstream as remote-u. The store
+    // file lives in a dedicated dir so its sibling config.toml is test-local.
+    let store_dir = unique_temp_dir_path("cross-import-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
+    std::fs::write(
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle, state) = spawn_test_api_with_state(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // Unknown host never reaches anywhere.
+    let unknown = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "ghost")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // agent scope is a panel-host concept; cross-resource import rejects it.
+    let agent_scope = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"], "scope": "agent"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(agent_scope.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // The actual import: partial failure is reported per service.
+    let import = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good", "bad"]}))
+        .send()
+        .await
+        .unwrap();
+    assert!(import.status().is_success());
+    let payload = import.json::<Value>().await.unwrap();
+    let data = &payload["data"];
+    assert_eq!(data["target"], json!("remote-u"));
+    assert_eq!(data["scope"], json!("store"));
+    assert_eq!(
+        data["imported"],
+        json!([{"name": "good", "transport": "stdio"}])
+    );
+    assert_eq!(data["failed"].as_array().unwrap().len(), 1);
+    assert_eq!(data["failed"][0]["name"], json!("bad"));
+
+    // Local paths never travel; only parsed definitions do.
+    let posts = log.posts.lock().unwrap();
+    assert_eq!(posts.len(), 2);
+    assert!(posts.iter().any(|(name, body)| name == "good"
+        && body.get("path").is_none()
+        && body.get("client").is_none()));
+    drop(posts);
+
+    // Nothing landed in the local store.
+    assert!(state
+        .store
+        .get_definition_config("good")
+        .await
+        .unwrap()
+        .is_none());
+    drop(handle);
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
+    use axum::{extract::Path as AxPath, response::IntoResponse};
+    use std::sync::Mutex as StdMutex;
+
+    let path = unique_temp_dir_path("cross-import-conflict").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {"existing": {"command": "echo"}}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    #[derive(Clone, Default)]
+    struct PostLog {
+        posts: Arc<StdMutex<Vec<String>>>,
+    }
+    async fn existing() -> impl IntoResponse {
+        axum::http::StatusCode::OK
+    }
+    async fn record_post(
+        AxPath(name): AxPath<String>,
+        State(log): State<PostLog>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push(name);
+        axum::http::StatusCode::OK
+    }
+    let log = PostLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route("/services/existing", get(existing))
+            .route("/services/:name", post(record_post).with_state(log.clone()));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let store_dir = unique_temp_dir_path("cross-import-conflict-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
+    std::fs::write(
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(format!("http://{addr}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["existing"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["errors"][0]["code"], json!("invalid_input"));
+    // Pre-flight ran before any write: the upstream received zero POSTs.
+    assert!(log.posts.lock().unwrap().is_empty());
+
+    drop(handle);
+    drop(upstream_handle);
+}
+
+// ===== standalone web panel (PanelState, no embedded store) =====
+
+/// Panel process over a fixture dir; writes a panel-settings.json when `hosts`
+/// JSON is given.
+async fn spawn_test_panel(hosts: Option<Value>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let dir = unique_temp_dir_path("panel-state");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut settings = json!({ "language": "en" });
+    if let Some(hosts) = hosts {
+        settings["hosts"] = hosts;
+    }
+    std::fs::write(dir.join("panel-settings.json"), settings.to_string()).unwrap();
+    let config_manager = Arc::new(mcpstore::config::ConfigManager::with_path(
+        dir.join("mcp.json"),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = panel_router(Arc::new(PanelState::new(config_manager)));
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn panel_serves_panel_routes_without_a_store() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let health = client
+        .get(format!("http://{addr}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), axum::http::StatusCode::OK);
+    let body = health.json::<Value>().await.unwrap();
+    assert_eq!(body["data"]["node"]["id"], json!("control"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_unrouted_paths_to_the_local_entry() {
+    // Fake local daemon: an upstream that answers /ping.
+    async fn ping() -> &'static str {
+        "pong"
+    }
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new().route("/ping", axum::routing::get(ping));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [upstream_url] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    // No selector, no matching panel route → the "local" entry.
+    let response = client
+        .get(format!("http://{addr}/ping"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "pong");
+
+    handle.abort();
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn panel_fails_loud_when_no_local_daemon_is_configured() {
+    // urls: [] — the deserializer always seeds a default "local" entry, so a
+    // user unsetting it is modeled as an entry with no usable URL.
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["success"], json!(false));
+    let message = body["message"].as_str().unwrap();
+    assert!(
+        message.contains("no reachable URL"),
+        "unexpected message: {message}"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_dead_local_daemon_as_503() {
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": ["http://127.0.0.1:9"] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("host request failed"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_rejects_selector_on_panel_local_routes() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/v1/meta"))
+        .header(hosts::HOST_HEADER, "remote")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+}
+
+fn management_audit_fixture(
+    requests: mcpstore::config::RequestTelemetryConfig,
+) -> (
+    Arc<ApiState>,
+    Arc<crate::telemetry::TelemetryLog>,
+    std::path::PathBuf,
+) {
+    let root = unique_temp_dir_path("management-audit");
+    std::fs::create_dir_all(&root).unwrap();
+    let store_path = root.join("mcp.json");
+    std::fs::write(&store_path, "{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        diagnostics: None,
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let diagnostics = mcpstore::config::DiagnosticsConfig {
+        requests,
+        ..Default::default()
+    };
+    let log =
+        crate::telemetry::TelemetryLog::open(root.join("telemetry.db"), &diagnostics).unwrap();
+    store.set_telemetry(Some(log.clone()));
+    let state = state_for_store(store);
+    state.set_telemetry(log.clone());
+    (state, log, root)
+}
+
+fn management_audit_router(state: Arc<ApiState>) -> Router {
+    Router::new()
+        .route(
+            "/audit",
+            post(|body: axum::body::Bytes| async move { body }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit_mutations,
+        ))
+        .with_state(state)
+}
+
+async fn post_management_audit(
+    state: Arc<ApiState>,
+    body: &'static str,
+) -> axum::response::Response {
+    use tower::ServiceExt;
+
+    management_audit_router(state)
+        .oneshot(
+            axum::extract::Request::builder()
+                .method(Method::POST)
+                .uri("/audit?query=MANAGEMENT_QUERY_SENTINEL")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn management_audit_capture_and_payload_switches_preserve_the_request() {
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_management = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(
+        log.history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap()
+        .total,
+        0
+    );
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
+
+    let mut requests = mcpstore::config::RequestTelemetryConfig::default();
+    requests.capture_payload = false;
+    let (state, log, root) = management_audit_fixture(requests);
+    let response = post_management_audit(state, "MANAGEMENT_BODY_SENTINEL").await;
+    assert!(response.status().is_success());
+    let echoed = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(echoed.as_ref(), b"MANAGEMENT_BODY_SENTINEL");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let history = log
+        .history(crate::telemetry::HistoryFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.total, 1);
+    let record = &history.requests[0];
+    assert_eq!(record.tool.as_deref(), Some("POST /audit"));
+    assert!(record.success);
+    assert_eq!(record.args_json, None);
+    assert!(!serde_json::to_string(record)
+        .unwrap()
+        .contains("MANAGEMENT_"));
+    drop(log);
+    std::fs::remove_dir_all(root).ok();
+}

@@ -1,0 +1,1311 @@
+use clap::{Parser, Subcommand};
+use mcpstore::ConfigManager;
+
+use crate::error::OutputFormat;
+use crate::{bootstrap, commands, BoxErr};
+
+#[derive(Parser)]
+#[command(
+    name = "mcpstore",
+    about = "MCPStore - unified CLI for managing/starting/configuring MCP services",
+    version = env!("CARGO_PKG_VERSION"),
+)]
+pub struct Cli {
+    /// Cold-start an embedded kernel in this process; never connect to or spawn the daemon
+    #[arg(long, global = true)]
+    pub embedded: bool,
+    /// Remote daemon Kernel RPC endpoint, e.g. 10.0.0.2:1840
+    #[arg(long, global = true)]
+    pub daemon_endpoint: Option<String>,
+    /// Namespace on --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_namespace: Option<String>,
+    /// Shared token for --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_token: Option<String>,
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+impl Cli {
+    fn daemon_endpoint(&self) -> Option<crate::daemon::client::DaemonEndpoint> {
+        crate::daemon::client::DaemonEndpoint::from_args(
+            self.daemon_endpoint.clone(),
+            self.daemon_namespace.clone(),
+            self.daemon_token.clone(),
+        )
+    }
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    Version,
+    Start(commands::daemon_cmd::StartArgs),
+    Stop,
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    Daemon {
+        #[command(subcommand)]
+        action: commands::daemon_cmd::DaemonAction,
+    },
+    Api {
+        #[arg(long)]
+        json: bool,
+    },
+    Auth(commands::auth::AuthArgs),
+    Plugin {
+        #[command(subcommand)]
+        action: commands::plugin::PluginAction,
+    },
+    Config {
+        #[command(subcommand)]
+        action: Option<commands::config::ConfigAction>,
+        #[command(flatten)]
+        edits: commands::config::ConfigEdits,
+        #[arg(long)]
+        json: bool,
+    },
+    Add(commands::mcp::AddArgs),
+    AddJson(commands::mcp::AddJsonArgs),
+    Assign(commands::mcp::AssignArgs),
+    Unassign(commands::mcp::UnassignArgs),
+    List(commands::mcp::ListArgs),
+    Get(commands::mcp::GetArgs),
+    Remove(commands::mcp::RemoveArgs),
+    Connect(commands::mcp::ConnectArgs),
+    Disconnect(commands::mcp::DisconnectArgs),
+    Restart(commands::mcp::RestartArgs),
+    Check(commands::mcp::CheckArgs),
+    Wait(commands::mcp::WaitArgs),
+    Update(commands::mcp::UpdateArgs),
+    Tools(commands::mcp::ToolsArgs),
+    Call(commands::mcp::CallToolArgs),
+    Task(commands::task::TaskArgs),
+    Resource(commands::protocol::ResourceArgs),
+    Prompt(commands::protocol::PromptArgs),
+    Complete(commands::protocol::CompleteArgs),
+    MigrateStore(commands::mcp::MigrateStoreArgs),
+    /// Standalone gateway process: wired per-client mounts + one generic /mcp mount
+    Gateway(commands::gateway_cmd::GatewayArgs),
+    /// Standalone web panel process: frontend + panel API, no embedded store
+    #[command(visible_alias = "ui")]
+    Web {
+        /// Bind address (defaults to config.toml [web].host)
+        #[arg(long)]
+        host: Option<String>,
+        /// Bind port (defaults to config.toml [web].port)
+        #[arg(long)]
+        port: Option<u16>,
+    },
+    Tui(crate::tui::TuiArgs),
+}
+
+impl Commands {
+    fn operation_name(&self) -> &'static str {
+        match self {
+            Self::Version => "version",
+            Self::Start(_) => "start",
+            Self::Stop => "stop",
+            Self::Status { .. } => "status",
+            Self::Daemon { .. } => "daemon",
+            Self::Api { .. } => "api",
+            Self::Auth(_) => "auth",
+            Self::Plugin { .. } => "plugin",
+            Self::Config { .. } => "config",
+            Self::Add(_) => "add",
+            Self::AddJson(_) => "add-json",
+            Self::Assign(_) => "assign",
+            Self::Unassign(_) => "unassign",
+            Self::List(_) => "list",
+            Self::Get(_) => "get",
+            Self::Remove(_) => "remove",
+            Self::Connect(_) => "connect",
+            Self::Disconnect(_) => "disconnect",
+            Self::Restart(_) => "restart",
+            Self::Check(_) => "check",
+            Self::Wait(_) => "wait",
+            Self::Update(_) => "update",
+            Self::Tools(_) => "tools",
+            Self::Call(_) => "call",
+            Self::Task(_) => "task",
+            Self::Resource(_) => "resource",
+            Self::Prompt(_) => "prompt",
+            Self::Complete(_) => "complete",
+            Self::MigrateStore(_) => "migrate-store",
+            Self::Gateway(_) => "gateway",
+            Self::Web { .. } => "web",
+            Self::Tui(_) => "tui",
+        }
+    }
+
+    fn config_path(&self) -> Option<&str> {
+        use commands::auth::AuthAction;
+        use commands::config::ConfigAction;
+
+        match self {
+            Self::Start(args) => args.store.config_path.as_deref(),
+            Self::Auth(args) => match &args.action {
+                AuthAction::Status(args) => args.store.config_path.as_deref(),
+                AuthAction::Login(args) => args.store.config_path.as_deref(),
+                AuthAction::Refresh(args) => args.store.config_path.as_deref(),
+                AuthAction::Logout(args) => args.store.config_path.as_deref(),
+                AuthAction::ScopeUpgrade(args) => args.store.config_path.as_deref(),
+                AuthAction::SetClientSecret(args) => args.store.config_path.as_deref(),
+                AuthAction::SetPrivateKey(args) => args.store.config_path.as_deref(),
+            },
+            Self::Config { action, .. } => match action {
+                Some(
+                    ConfigAction::Show { path }
+                    | ConfigAction::Validate { path }
+                    | ConfigAction::Path { path }
+                    | ConfigAction::AddExamples { path },
+                ) => path.as_deref(),
+                Some(ConfigAction::Init { path, .. }) => path.as_deref(),
+                Some(ConfigAction::ImportClient { store, .. }) => store.config_path.as_deref(),
+                None => None,
+            },
+            Self::Add(args) => args.store.config_path.as_deref(),
+            Self::AddJson(args) => args.store.config_path.as_deref(),
+            Self::Assign(args) => args.store.config_path.as_deref(),
+            Self::Unassign(args) => args.store.config_path.as_deref(),
+            Self::List(args) => args.store.config_path.as_deref(),
+            Self::Get(args) => args.store.config_path.as_deref(),
+            Self::Remove(args) => args.store.config_path.as_deref(),
+            Self::Connect(args) => args.store.config_path.as_deref(),
+            Self::Disconnect(args) => args.store.config_path.as_deref(),
+            Self::Restart(args) => args.store.config_path.as_deref(),
+            Self::Check(args) => args.store.config_path.as_deref(),
+            Self::Wait(args) => args.store.config_path.as_deref(),
+            Self::Update(args) => args.store.config_path.as_deref(),
+            Self::Tools(args) => args.store.config_path.as_deref(),
+            Self::Call(args) => args.store.config_path.as_deref(),
+            Self::Task(args) => match &args.action {
+                commands::task::TaskAction::Run(args) => args.runtime.store.config_path.as_deref(),
+                commands::task::TaskAction::List(args) => args.runtime.store.config_path.as_deref(),
+                commands::task::TaskAction::Status(args)
+                | commands::task::TaskAction::Result(args)
+                | commands::task::TaskAction::Cancel(args) => {
+                    args.runtime.store.config_path.as_deref()
+                }
+            },
+            Self::Resource(args) => match &args.action {
+                commands::protocol::ResourceAction::List(args)
+                | commands::protocol::ResourceAction::Templates(args) => {
+                    args.store.config_path.as_deref()
+                }
+                commands::protocol::ResourceAction::Read(args) => args.store.config_path.as_deref(),
+            },
+            Self::Prompt(args) => match &args.action {
+                commands::protocol::PromptAction::List(args) => args.store.config_path.as_deref(),
+                commands::protocol::PromptAction::Get(args) => args.store.config_path.as_deref(),
+            },
+            Self::Complete(args) => args.store.config_path.as_deref(),
+            Self::MigrateStore(args) => args.store.config_path.as_deref(),
+            Self::Tui(args) => args.store.config_path.as_deref(),
+            Self::Version
+            | Self::Stop
+            | Self::Status { .. }
+            | Self::Daemon { .. }
+            | Self::Api { .. }
+            | Self::Plugin { .. }
+            | Self::Gateway(_)
+            | Self::Web { .. } => None,
+        }
+    }
+}
+
+pub fn run() -> Result<(), BoxErr> {
+    let started = std::time::Instant::now();
+    let cli = Cli::parse();
+    let config_manager = match cli.command.config_path() {
+        Some(path) => ConfigManager::with_path(path),
+        None => ConfigManager::new(),
+    };
+    let app_config = config_manager.load_app_config_or_default();
+    let operation = cli.command.operation_name();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let result = run_inner(cli, &app_config, &config_manager);
+    audit_cli_command(
+        started,
+        &result,
+        operation,
+        &config_manager,
+        &app_config,
+        &argv,
+    );
+    result
+}
+
+/// Audit every CLI command into request telemetry (kind=management). Best-effort:
+/// a broken telemetry file must not take down the command itself.
+fn audit_cli_command(
+    started: std::time::Instant,
+    result: &Result<(), BoxErr>,
+    operation: &str,
+    config_manager: &ConfigManager,
+    app_config: &Result<mcpstore::AppConfig, mcpstore::config::ConfigError>,
+    args: &[String],
+) {
+    let config = match app_config {
+        Ok(config) => &config.diagnostics.requests,
+        Err(error) => {
+            tracing::warn!(%error, "cli command audit skipped: invalid config");
+            return;
+        }
+    };
+    if !config.enabled || !config.capture_cli {
+        return;
+    }
+    let operation = if config.capture_payload {
+        format!("cli {}", args.join(" "))
+    } else {
+        format!("cli {operation}")
+    };
+    let mut record = mcpstore::telemetry::RequestRecord::new("management", operation);
+    let tool = record.tool.take().unwrap_or_default();
+    record.tool = Some(tool.chars().take(200).collect());
+    record.duration_ms = started.elapsed().as_millis() as i64;
+    record.success = result.is_ok();
+    if let Some(error) = result.as_ref().err() {
+        record.error_summary = Some(error.to_string());
+    }
+    if config.capture_payload {
+        record.args_json = Some(serde_json::json!({ "argv": args }).to_string());
+    }
+    if let Err(error) =
+        crate::telemetry::record_once(&crate::telemetry::db_path(config_manager), record, config)
+    {
+        tracing::warn!(%error, "cli command audit failed");
+    }
+}
+
+fn run_inner(
+    cli: Cli,
+    app_config: &Result<mcpstore::AppConfig, mcpstore::config::ConfigError>,
+    config_manager: &ConfigManager,
+) -> Result<(), BoxErr> {
+    // TUI runs its own blocking event loop and creates its own runtime,
+    // so it must be handled outside the async block to avoid nested runtimes.
+    if let Commands::Tui(mut args) = cli.command {
+        args.embedded = args.embedded || cli.embedded;
+        return crate::tui::run_from_args(&args);
+    }
+
+    let output_format = output_format(&cli.command);
+    if output_format.is_machine() {
+        bootstrap::init_tracing_silent("mcpstore=info");
+    } else if let Ok(config) = app_config {
+        let log_path = config_manager
+            .mcp_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("logs")
+            .join("daemon.log");
+        bootstrap::init_tracing_from_config_with_path(Some(config), log_path);
+    } else {
+        // Invalid configuration must not create a default log before the command fails.
+        bootstrap::init_tracing("mcpstore=info");
+    }
+
+    let endpoint = cli.daemon_endpoint();
+    let embedded = cli.embedded;
+    let rt = bootstrap::build_runtime()?;
+
+    let result = rt.block_on(async move {
+        match cli.command {
+            Commands::Version => {
+                print_banner();
+                Ok(())
+            }
+            Commands::Start(args) => commands::daemon_cmd::start(args).await,
+            Commands::Stop => commands::daemon_cmd::stop().await,
+            Commands::Status { json } => commands::daemon_cmd::status(json).await,
+            Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
+            Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
+            Commands::Auth(args) => commands::auth::run(args, embedded, endpoint.clone()).await,
+            Commands::Plugin { action } => commands::plugin::run(action).await,
+            Commands::Config {
+                action,
+                edits,
+                json,
+            } => commands::config::run(action, edits, json).await,
+            Commands::Add(args) => commands::mcp::add(args, embedded, endpoint.clone()).await,
+            Commands::AddJson(args) => {
+                commands::mcp::add_json(args, embedded, endpoint.clone()).await
+            }
+            Commands::Assign(args) => commands::mcp::assign(args, embedded, endpoint.clone()).await,
+            Commands::Unassign(args) => {
+                commands::mcp::unassign(args, embedded, endpoint.clone()).await
+            }
+            Commands::List(args) => commands::mcp::list(args, embedded, endpoint.clone()).await,
+            Commands::Get(args) => commands::mcp::get(args, embedded, endpoint.clone()).await,
+            Commands::Remove(args) => commands::mcp::remove(args, embedded, endpoint.clone()).await,
+            Commands::Connect(args) => {
+                commands::mcp::connect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Disconnect(args) => {
+                commands::mcp::disconnect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Restart(args) => {
+                commands::mcp::restart(args, embedded, endpoint.clone()).await
+            }
+            Commands::Check(args) => commands::mcp::check(args, embedded, endpoint.clone()).await,
+            Commands::Wait(args) => commands::mcp::wait(args, embedded, endpoint.clone()).await,
+            Commands::Update(args) => commands::mcp::update(args, embedded, endpoint.clone()).await,
+            Commands::Tools(args) => commands::mcp::tools(args, embedded, endpoint.clone()).await,
+            Commands::Call(ref args) => {
+                commands::mcp::call_tool(args.clone(), embedded, endpoint.clone()).await
+            }
+            Commands::Task(args) => commands::task::run(args, embedded, endpoint.clone()).await,
+            Commands::Resource(args) => {
+                commands::protocol::run_resource(args, embedded, endpoint.clone()).await
+            }
+            Commands::Prompt(args) => {
+                commands::protocol::run_prompt(args, embedded, endpoint.clone()).await
+            }
+            Commands::Complete(ref args) => {
+                commands::protocol::complete(args.clone(), embedded, endpoint.clone()).await
+            }
+            Commands::MigrateStore(args) => {
+                commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
+            }
+            Commands::Gateway(args) => commands::gateway_cmd::run(args).await,
+            Commands::Web { host, port } => commands::web_panel::run(host, port).await,
+            Commands::Tui(_) => unreachable!("Tui command handled before async block"),
+        }
+    });
+
+    if let Err(error) = &result {
+        if let Some(error) = error.downcast_ref::<mcpstore::Error>() {
+            eprintln!("{}", crate::error::render(error, output_format));
+            std::process::exit(crate::error::exit_code(error.code()));
+        }
+    }
+    result
+}
+
+fn output_format(command: &Commands) -> crate::error::OutputFormat {
+    match command {
+        Commands::Call(args) => args.output,
+        Commands::Task(args) => match &args.action {
+            commands::task::TaskAction::Run(args) => args.runtime.output,
+            commands::task::TaskAction::List(args) => args.runtime.output,
+            commands::task::TaskAction::Status(args)
+            | commands::task::TaskAction::Result(args)
+            | commands::task::TaskAction::Cancel(args) => args.runtime.output,
+        },
+        Commands::Resource(args) => match &args.action {
+            commands::protocol::ResourceAction::List(args) => args.output.output,
+            commands::protocol::ResourceAction::Templates(args) => args.output.output,
+            commands::protocol::ResourceAction::Read(args) => args.output.output,
+        },
+        Commands::Prompt(args) => match &args.action {
+            commands::protocol::PromptAction::List(args) => args.output.output,
+            commands::protocol::PromptAction::Get(args) => args.output.output,
+        },
+        Commands::Complete(args) => args.output.output,
+        Commands::List(args) => args.output,
+        Commands::Tools(args) => args.output,
+        Commands::Get(args) => args.output,
+        Commands::Connect(args) => args.output,
+        Commands::Disconnect(args) => args.output,
+        Commands::Restart(args) => args.output,
+        Commands::Check(args) => args.output,
+        Commands::Wait(args) => args.output,
+        _ => OutputFormat::Human,
+    }
+}
+
+pub fn print_banner() {
+    println!(
+        r#"
+    ███    ███  ██████  ███████  ██████  ████████  ██████  ██████  ███████
+    ████  ████ ██      ██    ██ ██          ██    ██    ██ ██   ██ ██
+    ██ ████ ██ ██      ███████  ██████      ██    ██    ██ ██████  █████
+    ██  ██  ██ ██      ██           ██      ██    ██    ██ ██  ██  ██
+    ██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████
+    "#
+    );
+    println!("MCPStore version: {} (Rust)", env!("CARGO_PKG_VERSION"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_auth_status_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "status",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Status(args),
+            }) => {
+                assert_eq!(args.output.output, commands::auth::OutputFormat::Json);
+            }
+            _ => panic!("Expected auth status command"),
+        }
+    }
+
+    #[test]
+    fn parses_auth_login_non_interactive_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "login",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--non-interactive",
+            "--output",
+            "json",
+            "--timeout",
+            "17",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Login(args),
+            }) => {
+                assert!(args.flow_output.non_interactive);
+                assert_eq!(
+                    args.flow_output.output.output,
+                    commands::auth::OutputFormat::Json
+                );
+                assert_eq!(args.timeout, 17);
+            }
+            _ => panic!("Expected auth login command"),
+        }
+    }
+
+    #[test]
+    fn parses_add_with_agent_scope_and_header() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "add",
+            "github",
+            "https://api.example.com/mcp",
+            "--transport",
+            "http",
+            "--scope",
+            "agent",
+            "--agent",
+            "agent1",
+            "--header",
+            "Authorization=Bearer token",
+            "--env",
+            "LOCAL_TOKEN=abc",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Add(args) => {
+                assert_eq!(args.name, "github");
+                assert_eq!(
+                    args.command_or_url.as_deref(),
+                    Some("https://api.example.com/mcp")
+                );
+                assert_eq!(args.scope, commands::mcp::Scope::Agent);
+                assert_eq!(args.agent.as_deref(), Some("agent1"));
+                assert_eq!(args.header, vec!["Authorization=Bearer token"]);
+                assert_eq!(args.env, vec!["LOCAL_TOKEN=abc"]);
+            }
+            _ => panic!("Expected to parse as add command"),
+        }
+    }
+
+    #[test]
+    fn daemon_node_flag_is_rejected() {
+        let err =
+            Cli::try_parse_from(["mcpstore", "call", "svc", "noop", "--daemon-node", "remote"])
+                .err()
+                .expect("--daemon-node must be rejected");
+        assert!(
+            err.to_string().contains("unexpected argument"),
+            "expected --daemon-node to be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn parses_stdio_command_after_separator() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "add",
+            "filesystem",
+            "--transport",
+            "stdio",
+            "--",
+            "npx",
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            ".",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Add(args) => {
+                assert_eq!(args.name, "filesystem");
+                assert_eq!(args.command_or_url.as_deref(), Some("npx"));
+                assert_eq!(
+                    args.args,
+                    vec!["-y", "@modelcontextprotocol/server-filesystem", "."]
+                );
+            }
+            _ => panic!("Expected to parse as add command"),
+        }
+    }
+
+    #[test]
+    fn parses_top_level_assign() {
+        let cli =
+            Cli::try_parse_from(["mcpstore", "assign", "github", "--agent", "agent1"]).unwrap();
+
+        match cli.command {
+            Commands::Assign(args) => {
+                assert_eq!(args.service_name, "github");
+                assert_eq!(args.agent, "agent1");
+            }
+            _ => panic!("Expected to parse as assign command"),
+        }
+    }
+
+    #[test]
+    fn parses_get_with_instance_id() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from(["mcpstore", "get", instance_id]).unwrap();
+
+        match cli.command {
+            Commands::Get(args) => {
+                assert_eq!(args.target, instance_id);
+            }
+            _ => panic!("Expected to parse as get command"),
+        }
+    }
+
+    #[test]
+    fn parses_check_with_instance_id() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from(["mcpstore", "check", instance_id]).unwrap();
+
+        match cli.command {
+            Commands::Check(args) => assert_eq!(args.target, instance_id),
+            _ => panic!("Expected to parse as check command"),
+        }
+    }
+
+    #[test]
+    fn rejects_check_without_instance_id() {
+        assert!(Cli::try_parse_from(["mcpstore", "check"]).is_err());
+    }
+
+    #[test]
+    fn parses_call_command() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "get_repo_status",
+            "--arguments",
+            "{}",
+            "--output",
+            "jsonl",
+            "--timeout",
+            "15",
+            "--max-total-timeout",
+            "60",
+            "--non-interactive",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Call(ref args) => {
+                assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
+                assert_eq!(args.tool_name, "get_repo_status");
+                assert_eq!(args.arguments, "{}");
+                assert_eq!(args.output, crate::error::OutputFormat::Jsonl);
+                assert_eq!(args.timeout, Some(15));
+                assert_eq!(args.max_total_timeout, Some(60));
+                assert!(args.non_interactive);
+            }
+            _ => panic!("Expected to parse as call command"),
+        }
+    }
+
+    #[test]
+    fn parses_add_keep_alive_flag() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "add",
+            "browser",
+            "--transport",
+            "stdio",
+            "--keep-alive",
+            "--",
+            "npx",
+            "server",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Add(args) => assert!(args.keep_alive),
+            _ => panic!("Expected to parse as add command"),
+        }
+    }
+
+    #[test]
+    fn parses_call_runtime_values() {
+        for (value, expected) in [
+            ("local", commands::mcp::RuntimeArg::Local),
+            ("daemon", commands::mcp::RuntimeArg::Daemon),
+        ] {
+            let cli =
+                Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--runtime", value])
+                    .unwrap();
+            match cli.command {
+                Commands::Call(args) => assert_eq!(args.execution.runtime, Some(expected)),
+                _ => panic!("Expected to parse as call command"),
+            }
+        }
+    }
+
+    #[test]
+    fn parses_call_with_service_name_and_tool_args() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "--scope",
+            "agent",
+            "--agent",
+            "bot",
+            "github",
+            "get_repo",
+            "owner:ip2a",
+            "repo:mcp/store",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Call(ref args) => {
+                assert_eq!(args.target, "github");
+                assert_eq!(args.tool_name, "get_repo");
+                assert_eq!(args.args, vec!["owner:ip2a", "repo:mcp/store"]);
+                assert_eq!(args.scope, commands::mcp::Scope::Agent);
+                assert_eq!(args.agent.as_deref(), Some("bot"));
+            }
+            _ => panic!("Expected to parse as call command"),
+        }
+    }
+
+    #[test]
+    fn machine_output_commands_use_silent_tracing() {
+        let call = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "get_repo_status",
+            "--output",
+            "jsonl",
+        ])
+        .unwrap();
+        assert!(output_format(&call.command).is_machine());
+
+        let task = Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "list",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        assert!(output_format(&task.command).is_machine());
+
+        let list_json = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
+        assert!(output_format(&list_json.command).is_machine());
+
+        let tools_json = Cli::try_parse_from([
+            "mcpstore",
+            "tools",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        assert!(output_format(&tools_json.command).is_machine());
+
+        let list_human = Cli::try_parse_from(["mcpstore", "list"]).unwrap();
+        assert!(!output_format(&list_human.command).is_machine());
+
+        let human = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "get_repo_status",
+        ])
+        .unwrap();
+        assert!(!output_format(&human.command).is_machine());
+    }
+
+    #[test]
+    fn parses_task_run_with_jsonl_output() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "run",
+            instance_id,
+            "long_tool",
+            "--input",
+            r#"{"value":1}"#,
+            "--timeout",
+            "20",
+            "--max-total-timeout",
+            "90",
+            "--output",
+            "jsonl",
+            "--non-interactive",
+            "--runtime",
+            "daemon",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Task(commands::task::TaskArgs {
+                action: commands::task::TaskAction::Run(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.tool_name, "long_tool");
+                assert_eq!(args.input, r#"{"value":1}"#);
+                assert_eq!(args.timeout, Some(20));
+                assert_eq!(args.max_total_timeout, Some(90));
+                assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
+                assert!(args.runtime.non_interactive);
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Daemon)
+                );
+            }
+            _ => panic!("Expected to parse as task run command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_list_with_json_output() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli =
+            Cli::try_parse_from(["mcpstore", "task", "list", instance_id, "--output", "json"])
+                .unwrap();
+
+        match cli.command {
+            Commands::Task(commands::task::TaskArgs {
+                action: commands::task::TaskAction::List(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.runtime.output, crate::error::OutputFormat::Json);
+            }
+            _ => panic!("Expected to parse as task list command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_status_result_and_cancel_targets() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        for action in ["status", "result", "cancel"] {
+            let cli = Cli::try_parse_from([
+                "mcpstore",
+                "task",
+                action,
+                instance_id,
+                "task-1",
+                "--output",
+                "jsonl",
+            ])
+            .unwrap();
+
+            let target = match cli.command {
+                Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Status(args),
+                })
+                | Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Result(args),
+                })
+                | Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Cancel(args),
+                }) => args,
+                _ => panic!("Expected to parse as task target command"),
+            };
+            assert_eq!(target.instance_id.to_string(), instance_id);
+            assert_eq!(target.task_id, "task-1");
+            assert_eq!(target.runtime.output, crate::error::OutputFormat::Jsonl);
+        }
+    }
+
+    #[test]
+    fn rejects_task_commands_missing_required_targets() {
+        assert!(Cli::try_parse_from(["mcpstore", "task", "run"]).is_err());
+        assert!(Cli::try_parse_from(["mcpstore", "task", "status"]).is_err());
+        assert!(Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "result",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_legacy_call_tool_command() {
+        match Cli::try_parse_from(["mcpstore", "call-tool", "gitodo", "get_repo_status"]) {
+            Ok(_) => panic!("Legacy call-tool command should no longer be accepted"),
+            Err(err) => assert!(err.to_string().contains("unrecognized subcommand")),
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_agent_command() {
+        match Cli::try_parse_from(["mcpstore", "agent", "assign", "agent1", "github"]) {
+            Ok(_) => panic!("Legacy agent command should no longer be accepted"),
+            Err(err) => assert!(err.to_string().contains("unrecognized subcommand")),
+        }
+    }
+
+    #[test]
+    fn parses_db_redis_source_flags() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "list",
+            "--source",
+            "db",
+            "--store",
+            "redis",
+            "--store-config",
+            r#"{"url":"redis://127.0.0.1:6379/0"}"#,
+            "--namespace",
+            "demo",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::List(args) => {
+                assert_eq!(args.store.source, crate::store_args::SourceArg::Db);
+                assert_eq!(args.store.store.as_deref(), Some("redis"));
+                assert_eq!(
+                    args.store.store_config.as_deref(),
+                    Some(r#"{"url":"redis://127.0.0.1:6379/0"}"#)
+                );
+                assert_eq!(args.store.namespace.as_deref(), Some("demo"));
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
+    fn parses_explicit_data_panel_flag() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "list",
+            "--source",
+            "db",
+            "--store",
+            "redis",
+            "--data-panel",
+            "--panel-id",
+            "edge-01",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::List(args) => {
+                assert!(args.store.data_panel);
+                assert!(!args.store.control_panel);
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if panel_id == "edge-01"
+                ));
+                assert!(args.store.is_explicit());
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+
+        // --plane was removed with NodeMode; parsing must fail
+        assert!(Cli::try_parse_from([
+            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data"
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn request_command_is_removed() {
+        // the control request queue is gone; the request command must fail to parse
+        assert!(Cli::try_parse_from(["mcpstore", "request", "list"]).is_err());
+    }
+
+    #[test]
+    fn data_panel_without_panel_id_defaults_to_hostname() {
+        let cli = Cli::try_parse_from(["mcpstore", "list", "--data-panel"]).unwrap();
+        match cli.command {
+            Commands::List(args) => {
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if !panel_id.is_empty()
+                ));
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
+    fn parses_migrate_store_command() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "migrate-store",
+            "--source",
+            "local",
+            "--target-store",
+            "redis",
+            "--target-config",
+            "redis://127.0.0.1:6379/0",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::MigrateStore(args) => {
+                assert_eq!(args.store.source, crate::store_args::SourceArg::Local);
+                assert_eq!(args.target_store, "redis");
+                assert_eq!(
+                    args.target_config.as_deref(),
+                    Some("redis://127.0.0.1:6379/0")
+                );
+            }
+            _ => panic!("Expected to parse as migrate-store command"),
+        }
+    }
+
+    #[test]
+    fn parses_web_command() {
+        let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9000"]).unwrap();
+        match cli.command {
+            Commands::Web { host, port } => {
+                assert!(host.is_none());
+                assert_eq!(port, Some(9000));
+            }
+            _ => panic!("Expected to parse as web panel command"),
+        }
+    }
+
+    #[test]
+    fn parses_auth_login_with_local_callback_timeout() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli =
+            Cli::try_parse_from(["mcpstore", "auth", "login", instance_id, "--timeout", "120"])
+                .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Login(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.timeout, 120);
+            }
+            _ => panic!("Expected to parse as auth login command"),
+        }
+    }
+
+    #[test]
+    fn auth_client_secret_is_read_from_stdin_not_command_line() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        assert!(Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "set-client-secret",
+            instance_id,
+            "secret-value",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn parses_api_command() {
+        let cli = Cli::try_parse_from(["mcpstore", "api", "--json"]).unwrap();
+        match cli.command {
+            Commands::Api { json } => assert!(json),
+            _ => panic!("Expected to parse as api view command"),
+        }
+        // startup semantics removed: the old flag must fail to parse
+        assert!(
+            Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn parses_config_edit_flags() {
+        let cli =
+            Cli::try_parse_from(["mcpstore", "config", "--web-port", "1829", "--core", "off"])
+                .unwrap();
+        match cli.command {
+            Commands::Config { action, edits, .. } => {
+                assert!(action.is_none());
+                assert_eq!(edits.web_port, Some(1829));
+                assert_eq!(edits.core.as_deref(), Some("off"));
+            }
+            _ => panic!("Expected to parse as config edit command"),
+        }
+    }
+
+    #[test]
+    fn parses_daemon_restart() {
+        let cli = Cli::try_parse_from(["mcpstore", "daemon", "restart"]).unwrap();
+        match cli.command {
+            Commands::Daemon { action } => {
+                assert!(matches!(
+                    action,
+                    commands::daemon_cmd::DaemonAction::Restart
+                ));
+            }
+            _ => panic!("Expected to parse as daemon restart"),
+        }
+    }
+    #[test]
+    fn parses_resource_read_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "resource",
+            "read",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "repo://mcp/store",
+            "--runtime",
+            "local",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Resource(commands::protocol::ResourceArgs {
+                action: commands::protocol::ResourceAction::Read(args),
+            }) => {
+                assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
+                assert_eq!(args.uri, "repo://mcp/store");
+                assert_eq!(args.output.output, crate::error::OutputFormat::Json);
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Local)
+                );
+            }
+            _ => panic!("Expected resource read command"),
+        }
+    }
+
+    #[test]
+    fn parses_prompt_get_with_arguments() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "prompt",
+            "get",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "review",
+            "--arguments",
+            r#"{"style":"brief"}"#,
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Prompt(commands::protocol::PromptArgs {
+                action: commands::protocol::PromptAction::Get(args),
+            }) => {
+                assert_eq!(args.prompt_name, "review");
+                assert_eq!(args.arguments, r#"{"style":"brief"}"#);
+            }
+            _ => panic!("Expected prompt get command"),
+        }
+    }
+
+    #[test]
+    fn parses_complete_command() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "complete",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--reference-kind",
+            "resource",
+            "--reference",
+            "repo://mcp/{name}",
+            "--argument-name",
+            "name",
+            "--value",
+            "re",
+            "--context",
+            r#"{"other":"x"}"#,
+            "--output",
+            "jsonl",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Complete(ref args) => {
+                assert_eq!(
+                    args.reference_kind,
+                    commands::protocol::CompletionReferenceKind::Resource
+                );
+                assert_eq!(args.reference, "repo://mcp/{name}");
+                assert_eq!(args.output.output, crate::error::OutputFormat::Jsonl);
+            }
+            _ => panic!("Expected complete command"),
+        }
+    }
+
+    #[test]
+    fn parses_list_and_tools_machine_output_flags() {
+        let list_cli = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
+        match list_cli.command {
+            Commands::List(args) => {
+                assert_eq!(args.output, crate::error::OutputFormat::Json);
+            }
+            _ => panic!("Expected list command"),
+        }
+
+        let tools_cli = Cli::try_parse_from([
+            "mcpstore",
+            "tools",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--output",
+            "jsonl",
+            "--schema",
+        ])
+        .unwrap();
+        match tools_cli.command {
+            Commands::Tools(args) => {
+                assert_eq!(args.output, crate::error::OutputFormat::Jsonl);
+                assert!(args.schema);
+            }
+            _ => panic!("Expected tools command"),
+        }
+    }
+
+    #[test]
+    fn parses_check_exit_code_flags() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "check",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--exit-code",
+            "--quiet",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Check(args) => {
+                assert!(args.exit_code);
+                assert!(args.quiet);
+            }
+            _ => panic!("Expected check command"),
+        }
+    }
+
+    fn cli_audit_fixture(tag: &str) -> (std::path::PathBuf, ConfigManager) {
+        let root =
+            std::env::temp_dir().join(format!("mcpstore-cli-audit-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let manager = ConfigManager::with_path(root.join("mcp.json"));
+        (root, manager)
+    }
+
+    fn record_cli_audit(manager: &ConfigManager, operation: &str, argv: &[&str]) {
+        let app_config = manager.load_app_config_or_default();
+        let argv = argv.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+        audit_cli_command(
+            std::time::Instant::now(),
+            &Ok(()),
+            operation,
+            manager,
+            &app_config,
+            &argv,
+        );
+    }
+
+    fn cli_audit_row(root: &std::path::Path) -> (String, Option<String>) {
+        rusqlite::Connection::open(root.join("telemetry.db"))
+            .unwrap()
+            .query_row("SELECT tool, args_json FROM requests", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn cli_audit_payload_switch_removes_argv_without_losing_operation() {
+        let (default_root, default_manager) = cli_audit_fixture("default-payload");
+        record_cli_audit(
+            &default_manager,
+            "list",
+            &["list", "--namespace", "CLI_DEFAULT_SENTINEL"],
+        );
+        let (tool, args) = cli_audit_row(&default_root);
+        assert_eq!(tool, "cli list --namespace CLI_DEFAULT_SENTINEL");
+        assert!(args.unwrap().contains("CLI_DEFAULT_SENTINEL"));
+        std::fs::remove_dir_all(default_root).ok();
+
+        let (root, manager) = cli_audit_fixture("no-payload");
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "list",
+            "--config-path",
+            manager.mcp_path().to_str().unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(cli.command.operation_name(), "list");
+        assert_eq!(cli.command.config_path(), manager.mcp_path().to_str());
+        let selected = ConfigManager::with_path(cli.command.config_path().unwrap());
+        let mut config = selected.load_app_config_or_default().unwrap();
+        config.diagnostics.requests.capture_payload = false;
+        selected.save_app_config(&config).unwrap();
+        record_cli_audit(
+            &selected,
+            cli.command.operation_name(),
+            &["list", "--namespace", "CLI_PRIVATE_SENTINEL"],
+        );
+        let (tool, args) = cli_audit_row(&root);
+        assert_eq!(tool, "cli list");
+        assert_eq!(args, None);
+        assert!(!std::fs::read_to_string(manager.app_config_path())
+            .unwrap()
+            .contains("CLI_PRIVATE_SENTINEL"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cli_audit_disabled_or_invalid_config_never_opens_the_db() {
+        for (tag, configure) in [("source-disabled", 0), ("globally-disabled", 1)] {
+            let (root, manager) = cli_audit_fixture(tag);
+            let mut config = manager.load_app_config_or_default().unwrap();
+            if configure == 0 {
+                config.diagnostics.requests.capture_cli = false;
+            } else {
+                config.diagnostics.requests.enabled = false;
+            }
+            manager.save_app_config(&config).unwrap();
+            record_cli_audit(&manager, "list", &["list"]);
+            assert!(!crate::telemetry::db_path(&manager).exists());
+            std::fs::remove_dir_all(root).ok();
+        }
+
+        let (root, manager) = cli_audit_fixture("invalid");
+        std::fs::write(
+            manager.app_config_path(),
+            "[diagnostics.requests]\nmax_payload_bytes = 0\n",
+        )
+        .unwrap();
+        record_cli_audit(&manager, "list", &["list", "CLI_INVALID_SENTINEL"]);
+        assert!(!crate::telemetry::db_path(&manager).exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+}

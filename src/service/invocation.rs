@@ -1,0 +1,757 @@
+use std::time::Instant;
+
+use crate::error::{Error, ErrorContext, FailureCode};
+use crate::store::prelude::*;
+use crate::store::ExecutionEngine;
+use crate::transport::{
+    McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecution,
+    McpToolExecutionHandle, ToolCallResult,
+};
+
+#[derive(Debug)]
+pub enum McpStoreExecutionUpdate {
+    Progress(McpExecutionProgress),
+    Finished(Result<McpToolExecution>),
+}
+
+enum McpStoreExecutionInner {
+    Transport(McpToolExecutionHandle),
+    Ready(Option<Result<McpToolExecution>>),
+}
+
+pub(crate) enum ToolExecutionMode {
+    Immediate,
+    Task,
+}
+
+struct ToolExecutionContext {
+    instance_id: InstanceId,
+    service_name: String,
+    scope: ScopeRef,
+    tool_name: String,
+    arguments: serde_json::Value,
+    task_tool_name: Option<String>,
+    is_openapi_virtual: bool,
+    started_at: Instant,
+    caller: Option<String>,
+    session_key: Option<String>,
+    call_trace: Option<std::sync::Arc<crate::telemetry::CallTrace>>,
+}
+
+pub struct McpStoreToolExecutionHandle<'a> {
+    store: &'a MCPStore,
+    instance_id: InstanceId,
+    inner: McpStoreExecutionInner,
+    context: Option<ToolExecutionContext>,
+}
+
+impl std::fmt::Debug for McpStoreToolExecutionHandle<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("McpStoreToolExecutionHandle");
+        debug.field("instance_id", &self.instance_id);
+        match &self.inner {
+            McpStoreExecutionInner::Transport(handle) => {
+                debug
+                    .field("request_id", &handle.request_id())
+                    .field("progress_token", &handle.progress_token())
+                    .field("supports_cancellation", &true);
+            }
+            McpStoreExecutionInner::Ready(_) => {
+                debug.field("supports_cancellation", &false);
+            }
+        }
+        debug.finish_non_exhaustive()
+    }
+}
+
+impl<'a> McpStoreToolExecutionHandle<'a> {
+    fn transport(
+        store: &'a MCPStore,
+        handle: McpToolExecutionHandle,
+        context: ToolExecutionContext,
+    ) -> Self {
+        Self {
+            store,
+            instance_id: context.instance_id,
+            inner: McpStoreExecutionInner::Transport(handle),
+            context: Some(context),
+        }
+    }
+
+    fn ready(
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        result: Result<McpToolExecution>,
+    ) -> Self {
+        Self {
+            store,
+            instance_id,
+            inner: McpStoreExecutionInner::Ready(Some(result)),
+            context: None,
+        }
+    }
+
+    pub fn instance_id(&self) -> InstanceId {
+        self.instance_id
+    }
+
+    pub fn request_id(&self) -> Option<&serde_json::Value> {
+        match &self.inner {
+            McpStoreExecutionInner::Transport(handle) => Some(handle.request_id()),
+            McpStoreExecutionInner::Ready(_) => None,
+        }
+    }
+
+    pub fn progress_token(&self) -> Option<&serde_json::Value> {
+        match &self.inner {
+            McpStoreExecutionInner::Transport(handle) => Some(handle.progress_token()),
+            McpStoreExecutionInner::Ready(_) => None,
+        }
+    }
+
+    pub fn supports_cancellation(&self) -> bool {
+        matches!(self.inner, McpStoreExecutionInner::Transport(_))
+    }
+
+    pub fn cancel(&mut self, reason: impl Into<String>) -> bool {
+        match &mut self.inner {
+            McpStoreExecutionInner::Transport(handle) => handle.cancel(reason),
+            McpStoreExecutionInner::Ready(_) => false,
+        }
+    }
+
+    pub async fn next_update(&mut self) -> Option<McpStoreExecutionUpdate> {
+        let update = match &mut self.inner {
+            McpStoreExecutionInner::Transport(handle) => handle.next_update().await,
+            McpStoreExecutionInner::Ready(result) => {
+                return result.take().map(McpStoreExecutionUpdate::Finished);
+            }
+        };
+
+        match update {
+            Some(McpExecutionUpdate::Progress(progress)) => {
+                Some(McpStoreExecutionUpdate::Progress(progress))
+            }
+            Some(McpExecutionUpdate::Finished(result)) => {
+                let context = self
+                    .context
+                    .take()
+                    .expect("transport execution context must exist until completion");
+                Some(McpStoreExecutionUpdate::Finished(
+                    self.store
+                        .kernel
+                        .execution
+                        .finish_tool_execution(self.store, context, result)
+                        .await,
+                ))
+            }
+            None => {
+                let context = self.context.take()?;
+                let error = Error::new(
+                    FailureCode::ToolFailed,
+                    "tool execution ended without a result",
+                );
+                Some(McpStoreExecutionUpdate::Finished(
+                    self.store
+                        .kernel
+                        .execution
+                        .finish_tool_execution(self.store, context, Err(error))
+                        .await,
+                ))
+            }
+        }
+    }
+
+    pub async fn wait(mut self) -> Result<McpToolExecution> {
+        while let Some(update) = self.next_update().await {
+            if let McpStoreExecutionUpdate::Finished(result) = update {
+                return result;
+            }
+        }
+        Err(Error::new(
+            FailureCode::ToolFailed,
+            "tool execution ended without a result",
+        ))
+    }
+}
+
+impl MCPStore {
+    pub async fn start_tool_execution(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'_>> {
+        self.kernel
+            .execution
+            .start_tool_execution(self, instance_id, tool_name, args, meta, options)
+            .await
+    }
+
+    pub(crate) async fn start_task_tool_execution(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'_>> {
+        self.kernel
+            .execution
+            .start_task_tool_execution(self, instance_id, tool_name, args, meta, options)
+            .await
+    }
+
+    pub async fn call_tool(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult> {
+        // Routing (local vs delegated remote proxy) lives inside the execution
+        // funnel, so every caller — this immediate form and the streaming form
+        // alike — takes the same path.
+        self.kernel
+            .execution
+            .call_tool(self, instance_id, tool_name, args)
+            .await
+    }
+}
+
+impl ExecutionEngine {
+    pub async fn start_tool_execution<'a>(
+        &self,
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
+        self.start_tool_execution_inner(
+            store,
+            instance_id,
+            tool_name,
+            args,
+            meta,
+            ToolExecutionMode::Immediate,
+            options,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_task_tool_execution<'a>(
+        &self,
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
+        self.start_tool_execution_inner(
+            store,
+            instance_id,
+            tool_name,
+            args,
+            meta,
+            ToolExecutionMode::Task,
+            options,
+        )
+        .await
+    }
+
+    async fn start_tool_execution_inner<'a>(
+        &self,
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        mode: ToolExecutionMode,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
+        // No registry refresh here: every read below is either a direct KV read
+        // (placement, tool projection, routes, visibility policy) or
+        // fill-if-missing hydration (ensure_instance_connected / require_instance).
+        // A full-table reload per execution is redundant on private stores and a
+        // decode storm on shared ones.
+
+        // A delegated data panel executes nothing locally: proxy the call
+        // through the shared store — the control panel claims it (exactly one
+        // winner per request) and answers within this call's absolute
+        // deadline. Resolution, validation and execution evidence (tool sync,
+        // health observations, telemetry) all belong to the owning panel; no
+        // connect attempt is made here — connecting a delegated instance is
+        // this panel's job for no surface.
+        if matches!(
+            &store.kernel.runtime.panel_role,
+            crate::store::PanelRole::DataPanel { .. }
+        ) && !store.panel_executes_locally(instance_id).await?
+        {
+            if matches!(mode, ToolExecutionMode::Task) {
+                return Err(Error::new(
+                    FailureCode::CapabilityUnsupported,
+                    "delegated instances do not support task execution; only completed tool calls proxy through the shared store",
+                ));
+            }
+            let result = store
+                .call_tool_remote(instance_id, tool_name, args)
+                .await
+                .map(|result| McpToolExecution::Immediate { result });
+            return Ok(McpStoreToolExecutionHandle::ready(
+                store,
+                instance_id,
+                result,
+            ));
+        }
+
+        // Resolution reads the synced tool projection. An instance whose
+        // projection is already populated resolves without a transport
+        // connection (listings and policy checks are projection reads); an
+        // instance with no projection yet connects once so tool sync fills it.
+        store.ensure_instance_resolvable(instance_id).await?;
+        let (instance_id, tool_name, args) = store
+            .resolve_routed_tool_call(instance_id, tool_name, args)
+            .await?;
+        store
+            .ensure_context_tool_allowed(instance_id, &tool_name)
+            .await?;
+        store.ensure_instance_connected(instance_id).await?;
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let is_openapi_virtual = store.is_openapi_virtual_instance(instance_id).await?;
+        if matches!(mode, ToolExecutionMode::Task) && is_openapi_virtual {
+            return Err(Error::new(
+                FailureCode::CapabilityUnsupported,
+                format!("MCP service instance {instance_id} does not support capability tasks"),
+            )
+            .with_context(ErrorContext::Service {
+                instance_id,
+                service_name: String::new(),
+            }));
+        }
+        let context = ToolExecutionContext {
+            instance_id,
+            service_name: instance.service_name,
+            scope: instance.scope,
+            tool_name: tool_name.clone(),
+            arguments: args.clone(),
+            task_tool_name: matches!(mode, ToolExecutionMode::Task).then(|| tool_name.clone()),
+            is_openapi_virtual,
+            started_at: Instant::now(),
+            caller: options.caller.clone(),
+            session_key: options.session_key.clone(),
+            call_trace: options.call_trace.clone(),
+        };
+
+        if is_openapi_virtual {
+            let result = self
+                .call_openapi_virtual_tool(store, instance_id, &tool_name, args)
+                .await
+                .map(|result| McpToolExecution::Immediate { result });
+            let result = self.finish_tool_execution(store, context, result).await;
+            return Ok(McpStoreToolExecutionHandle::ready(
+                store,
+                instance_id,
+                result,
+            ));
+        }
+
+        let started = match mode {
+            ToolExecutionMode::Task => {
+                self.pool
+                    .start_task_tool_execution(instance_id, &tool_name, args, meta, options)
+                    .await
+            }
+            ToolExecutionMode::Immediate => {
+                self.pool
+                    .start_tool_execution(instance_id, &tool_name, args, meta, options)
+                    .await
+            }
+        };
+        match started {
+            Ok(handle) => Ok(McpStoreToolExecutionHandle::transport(
+                store, handle, context,
+            )),
+            Err(error) => {
+                let result = self.finish_tool_execution(store, context, Err(error)).await;
+                Ok(McpStoreToolExecutionHandle::ready(
+                    store,
+                    instance_id,
+                    result,
+                ))
+            }
+        }
+    }
+
+    pub async fn call_tool(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult> {
+        match self
+            .start_tool_execution(
+                store,
+                instance_id,
+                tool_name,
+                args,
+                None,
+                McpExecutionOptions::default(),
+            )
+            .await?
+            .wait()
+            .await?
+        {
+            McpToolExecution::Immediate { result } => Ok(result),
+            McpToolExecution::Task { .. } => Err(Error::new(
+                FailureCode::ToolFailed,
+                "tool call unexpectedly returned a task",
+            )),
+        }
+    }
+
+    async fn finish_tool_execution(
+        &self,
+        store: &MCPStore,
+        context: ToolExecutionContext,
+        result: Result<McpToolExecution>,
+    ) -> Result<McpToolExecution> {
+        let latency_ms = context.started_at.elapsed().as_secs_f64() * 1000.0;
+        match result {
+            Ok(execution) => {
+                if let McpToolExecution::Task { task } = &execution {
+                    self.pool
+                        .observe_tool_task(
+                            context.instance_id,
+                            task.clone(),
+                            context.task_tool_name.as_deref(),
+                        )
+                        .await?;
+                }
+                if context.is_openapi_virtual {
+                    store
+                        .record_openapi_availability(
+                            context.instance_id,
+                            true,
+                            Some(latency_ms),
+                            None,
+                        )
+                        .await?;
+                } else {
+                    store
+                        .record_tool_observation(context.instance_id, true, Some(latency_ms), None)
+                        .await?;
+                }
+                let (is_error, status, task_id) = match &execution {
+                    McpToolExecution::Immediate { result } => (
+                        result.is_error,
+                        if result.is_error { "error" } else { "success" },
+                        None,
+                    ),
+                    McpToolExecution::Task { task } => {
+                        (false, "task_created", Some(task.task_id.as_str()))
+                    }
+                };
+                let result_json = match &execution {
+                    McpToolExecution::Immediate { result } => serde_json::to_string(result).ok(),
+                    McpToolExecution::Task { task } => Some(
+                        serde_json::json!({"status": status, "task_id": task.task_id}).to_string(),
+                    ),
+                };
+                record_tool_telemetry(
+                    store,
+                    &context,
+                    latency_ms,
+                    !is_error,
+                    None,
+                    None,
+                    result_json,
+                );
+                self.event_bus
+                    .publish(
+                        Event::new(
+                            "TOOL_CALL_COMPLETED",
+                            serde_json::json!({
+                                "instance_id": context.instance_id,
+                                "service_name": context.service_name,
+                                "scope": context.scope,
+                                "tool_name": context.tool_name,
+                                "arguments": context.arguments,
+                                "latency_ms": latency_ms,
+                                "is_error": is_error,
+                                "status": status,
+                                "task_id": task_id,
+                            }),
+                        ),
+                        true,
+                    )
+                    .await;
+                Ok(execution)
+            }
+            Err(error) => {
+                let status = if context.is_openapi_virtual {
+                    store
+                        .record_openapi_availability(
+                            context.instance_id,
+                            false,
+                            Some(latency_ms),
+                            Some(format!("OpenAPI tool call failed: {error}")),
+                        )
+                        .await?;
+                    "error"
+                } else {
+                    if execution_failure_impairs_connection(&error) {
+                        self.pool.disconnect(context.instance_id).await.ok();
+                        store.record_failure(context.instance_id, &error).await?;
+                    }
+                    error.code().as_str()
+                };
+                self.event_bus
+                    .publish(
+                        Event::new(
+                            "TOOL_CALL_FAILED",
+                            serde_json::json!({
+                                "instance_id": context.instance_id,
+                                "service_name": context.service_name,
+                                "scope": context.scope,
+                                "tool_name": context.tool_name,
+                                "arguments": context.arguments,
+                                "latency_ms": latency_ms,
+                                "is_error": true,
+                                "status": status,
+                                "error": error.to_string(),
+                            }),
+                        ),
+                        true,
+                    )
+                    .await;
+                record_tool_telemetry(
+                    store,
+                    &context,
+                    latency_ms,
+                    false,
+                    Some(error.code().as_str().to_string()),
+                    Some(error.to_string()),
+                    None,
+                );
+                Err(error)
+            }
+        }
+    }
+
+    async fn call_openapi_virtual_tool(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult> {
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let import = store
+            .get_openapi_import(&instance.service_name)
+            .await?
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI import not found for instance {instance_id}"),
+                )
+            })?;
+        let options = store
+            .openapi_runtime_options_for_instance(instance_id)
+            .await?;
+        crate::openapi_runtime::call_openapi_tool(&import, tool_name, args, &options).await
+    }
+}
+
+/// Append one completed execution to request telemetry. No-op when telemetry is
+/// not attached; the record is queued and never blocks or fails the call itself.
+fn record_tool_telemetry(
+    store: &MCPStore,
+    context: &ToolExecutionContext,
+    latency_ms: f64,
+    success: bool,
+    error_code: Option<String>,
+    error_summary: Option<String>,
+    result_json: Option<String>,
+) {
+    let capture = &store.kernel.runtime.runtime_config.diagnostics.requests;
+    if !capture.capture_tool {
+        return;
+    }
+    let Some(telemetry) = store.telemetry() else {
+        return;
+    };
+    let mut record = crate::telemetry::RequestRecord::new("tool", &context.tool_name);
+    if let Some(trace) = &context.call_trace {
+        record.request_id = trace.call_id().to_string();
+        record.started_at_unix_ms = trace.started_at_unix_ms();
+        record.timing = Some(trace.timing());
+    }
+    record.duration_ms = latency_ms as i64;
+    record.caller = context.caller.clone();
+    record.scope = Some(match &context.scope {
+        ScopeRef::Store => "store".to_string(),
+        ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
+    });
+    record.session_key = context.session_key.clone();
+    record.instance_id = Some(context.instance_id.to_string());
+    record.service_name = Some(context.service_name.clone());
+    record.success = success;
+    record.error_code = error_code;
+    record.error_summary = error_summary;
+    if capture.capture_payload {
+        record.args_json = Some(context.arguments.to_string());
+        record.result_json = result_json;
+    }
+    telemetry.record(record);
+}
+
+fn execution_failure_impairs_connection(error: &Error) -> bool {
+    !matches!(
+        error.code(),
+        FailureCode::CapabilityUnsupported
+            | FailureCode::CallCancelled
+            | FailureCode::CallTimedOut
+            | FailureCode::TaskNotFound
+            | FailureCode::TaskStateFailed
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_failures_that_impair_connection() {
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallCancelled,
+            "MCP request cancelled",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallTimedOut,
+            "MCP request timed out after 30s",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CapabilityUnsupported,
+            "capability tasks",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::TaskNotFound,
+            "task not found: t1",
+        )));
+        assert!(execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallDisconnected,
+            "MCP request disconnected",
+        )));
+    }
+
+    #[derive(Default)]
+    struct RecordingTelemetry(std::sync::Mutex<Vec<crate::telemetry::RequestRecord>>);
+
+    impl crate::telemetry::RequestTelemetry for RecordingTelemetry {
+        fn record(&self, record: crate::telemetry::RequestRecord) {
+            self.0.lock().unwrap().push(record);
+        }
+    }
+
+    fn capture_store(
+        capture_tool: bool,
+        capture_payload: bool,
+    ) -> (
+        std::sync::Arc<MCPStore>,
+        std::sync::Arc<RecordingTelemetry>,
+        std::path::PathBuf,
+    ) {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-request-capture-test-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&path, "{}").unwrap();
+        let mut diagnostics = crate::store::CoreDiagnosticsOptions::default();
+        diagnostics.requests.capture_tool = capture_tool;
+        diagnostics.requests.capture_payload = capture_payload;
+        let store = MCPStore::setup_with_options(crate::store::StoreOptions {
+            config_path: Some(path.to_string_lossy().into_owned()),
+            store: Some(crate::store::JsonStoreConfig::memory()),
+            diagnostics: Some(diagnostics),
+            ..crate::store::StoreOptions::default()
+        })
+        .unwrap();
+        let telemetry = std::sync::Arc::new(RecordingTelemetry::default());
+        store.set_telemetry(Some(telemetry.clone()));
+        (store, telemetry, path)
+    }
+
+    fn capture_context() -> ToolExecutionContext {
+        ToolExecutionContext {
+            instance_id: "c81af510-755b-55c7-8487-5668ab36e06e".parse().unwrap(),
+            service_name: "demo".to_string(),
+            scope: ScopeRef::Store,
+            tool_name: "search".to_string(),
+            arguments: serde_json::json!({"secret": "REQUEST_SENTINEL"}),
+            task_tool_name: None,
+            is_openapi_virtual: false,
+            started_at: Instant::now(),
+            caller: Some("caller".to_string()),
+            session_key: Some("session".to_string()),
+            call_trace: None,
+        }
+    }
+
+    #[test]
+    fn request_capture_tool_and_payload_switches_are_independent() {
+        let (store, telemetry, path) = capture_store(false, true);
+        record_tool_telemetry(
+            &store,
+            &capture_context(),
+            1.0,
+            true,
+            None,
+            None,
+            Some("REQUEST_SENTINEL".to_string()),
+        );
+        assert!(telemetry.0.lock().unwrap().is_empty());
+        drop(store);
+        std::fs::remove_file(path).ok();
+
+        let (store, telemetry, path) = capture_store(true, false);
+        record_tool_telemetry(
+            &store,
+            &capture_context(),
+            2.0,
+            true,
+            None,
+            None,
+            Some("REQUEST_SENTINEL".to_string()),
+        );
+        let records = telemetry.0.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.tool.as_deref(), Some("search"));
+        assert_eq!(record.service_name.as_deref(), Some("demo"));
+        assert_eq!(record.duration_ms, 2);
+        assert_eq!(record.args_json, None);
+        assert_eq!(record.result_json, None);
+        assert!(!record.args_truncated);
+        assert!(!record.result_truncated);
+        drop(records);
+        drop(store);
+        std::fs::remove_file(path).ok();
+    }
+}

@@ -1,0 +1,52 @@
+import { useQuery } from "@tanstack/react-query"
+
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import { KvPanel } from "@/features/kv/kv-view"
+import { HistoryPanel } from "@/features/history/history-view"
+import {
+  FrameStreamCard,
+  normalizeFrameView,
+  type FrameViewMode,
+} from "@/features/traces/frame-stream-card"
+import { ProjectionPanel } from "@/features/traces/projection-panel"
+import { RoutedCallsPanel } from "@/features/traces/routed-calls-panel"
+import { useI18n } from "@/lib/i18n-context"
+import { queryKeys } from "@/lib/query-keys"
+import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
+
+export type TracesTab = FrameViewMode | "table" | "inbound" | "outbound"
+
+/** Insights → Traces: inbound/outbound MCP frames + request history + routed calls + KV. */
+export function TracesView({
+  initialTab,
+  onOpenSession,
+}: {
+  initialTab?: TracesTab
+  onOpenSession?: (session: FrameSessionSummary) => void
+} = {}) {
+  const { t } = useI18n()
+  const sessions = useQuery({
+    queryKey: queryKeys.gatewayFrameSessionsPage("all", 1, 0),
+    queryFn: () => getFrameSessions({ hours: 24, limit: 1, offset: 0 }),
+  })
+
+  return (
+    <>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("tracesWorkspaceTitle")}</h1>}
+        subtitle={t("tracesWorkspaceDescription", {
+          count: sessions.data?.total ?? 0,
+        })}
+      />
+      <FrameStreamCard
+        fill
+        kvSlot={(search) => <KvPanel search={search} />}
+        callsSlot={<RoutedCallsPanel />}
+        historySlot={<HistoryPanel />}
+        projectionSlot={<ProjectionPanel />}
+        initialView={normalizeFrameView(initialTab) ?? "sessions"}
+        onOpenSession={onOpenSession}
+      />
+    </>
+  )
+}

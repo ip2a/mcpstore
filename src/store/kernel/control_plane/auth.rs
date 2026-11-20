@@ -1,0 +1,526 @@
+use crate::config::ServerConfig;
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
+use crate::identity::InstanceId;
+use crate::state::ServiceStateEvent;
+use crate::store::{ControlPlane, MCPStore};
+
+use crate::auth::{
+    AuthRequired, AuthStatus, AuthStatusView, AuthorizationStart, ClientSecret, PrivateKey,
+};
+
+impl ControlPlane {
+    pub async fn auth_status(&self, store: &MCPStore, instance_id: InstanceId) -> AuthStatus {
+        store.kernel.control.auth.status(instance_id).await
+    }
+
+    pub async fn auth_status_view(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<AuthStatusView> {
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        store
+            .kernel
+            .control
+            .auth
+            .initialize_status(instance_id, &config.auth)
+            .await;
+        Ok(store
+            .kernel
+            .control
+            .auth
+            .status_view(instance_id, &config.auth)
+            .await)
+    }
+
+    pub async fn begin_authorization(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<AuthorizationStart> {
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .control
+            .auth
+            .begin_authorization(instance_id, base_url, &config.auth)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn authorization_callback_uri(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<Option<String>> {
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        match config.auth {
+            crate::auth::AuthConfig::OAuthAuthorizationCode(config) => {
+                Ok(Some(config.redirect_uri))
+            }
+            crate::auth::AuthConfig::OAuthClientCredentials(_) | crate::auth::AuthConfig::None => {
+                Ok(None)
+            }
+        }
+    }
+
+    pub async fn complete_authorization(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        callback_url: &str,
+    ) -> Result<()> {
+        self.ensure_instance_exists(store, instance_id).await?;
+        store
+            .kernel
+            .control
+            .auth
+            .complete_authorization(instance_id, callback_url)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn complete_authorization_callback(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        code: &str,
+        state: &str,
+        issuer: Option<&str>,
+    ) -> Result<()> {
+        self.ensure_instance_exists(store, instance_id).await?;
+        store
+            .kernel
+            .control
+            .auth
+            .complete_authorization_callback(instance_id, code, state, issuer)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn refresh_authorization(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .control
+            .auth
+            .refresh(instance_id, base_url, &config.auth)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn begin_scope_upgrade(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        required_scope: &str,
+    ) -> Result<AuthorizationStart> {
+        if required_scope.trim().is_empty() {
+            return Err(Error::from(crate::auth::AuthError::InvalidConfig(
+                "required_scope must not be empty".to_string(),
+            )));
+        }
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .control
+            .auth
+            .begin_scope_upgrade(instance_id, base_url, &config.auth, required_scope)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn save_oauth_client_secret(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        secret: String,
+    ) -> Result<()> {
+        if secret.is_empty() {
+            return Err(Error::from(crate::auth::AuthError::InvalidConfig(
+                "client secret must not be empty".to_string(),
+            )));
+        }
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .control
+            .auth
+            .save_client_secret(
+                instance_id,
+                base_url,
+                &config.auth,
+                ClientSecret::new(secret),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn save_oauth_private_key(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        private_key: Vec<u8>,
+    ) -> Result<()> {
+        if private_key.is_empty() {
+            return Err(Error::from(crate::auth::AuthError::InvalidConfig(
+                "private key must not be empty".to_string(),
+            )));
+        }
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .control
+            .auth
+            .save_private_key(
+                instance_id,
+                base_url,
+                &config.auth,
+                PrivateKey::new(private_key),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn logout_authorization(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        let config = self
+            .instance_auth_transport_config(store, instance_id)
+            .await?;
+        let base_url = required_auth_base_url(instance_id, &config)?;
+        store
+            .kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        store
+            .kernel
+            .control
+            .auth
+            .logout(instance_id, base_url, &config.auth)
+            .await?;
+        store
+            .kernel
+            .control
+            .state
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                MCPStore::now_timestamp(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn ensure_instance_exists(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        if store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn instance_auth_transport_config(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<ServerConfig> {
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        serde_json::from_value(serde_json::Value::Object(instance.effective_config)).map_err(|_| {
+            Error::from(crate::auth::AuthError::InvalidConfig(
+                "effective service authentication config cannot be decoded".to_string(),
+            ))
+        })
+    }
+
+    pub(crate) async fn record_failure(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        error: &Error,
+    ) -> Result<()> {
+        match error.code() {
+            FailureCode::ConnectionAuthRequired => {
+                if let crate::error::ErrorContext::Auth { required } = error.context() {
+                    return self
+                        .mark_instance_auth_required(store, instance_id, &required.clone())
+                        .await;
+                }
+            }
+            FailureCode::ConnectionScope => {
+                let required_scope = match error.context() {
+                    crate::error::ErrorContext::Scope { required_scope, .. } => {
+                        required_scope.clone()
+                    }
+                    _ => None,
+                };
+                return self
+                    .mark_instance_scope_upgrade_required(
+                        store,
+                        instance_id,
+                        instance_id,
+                        required_scope.as_deref(),
+                    )
+                    .await;
+            }
+            _ => {}
+        }
+
+        store.record_instance_failure(instance_id, error).await?;
+        Ok(())
+    }
+
+    async fn mark_instance_scope_upgrade_required(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        error_instance_id: InstanceId,
+        required_scope: Option<&str>,
+    ) -> Result<()> {
+        if error_instance_id != instance_id {
+            return Err(Error::new(FailureCode::Internal, format!(
+                "Scope requirement instance mismatch: expected {instance_id}, received {error_instance_id}"
+            )));
+        }
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+
+        store
+            .kernel
+            .control
+            .auth
+            .mark_scope_upgrade_required(instance_id, required_scope)
+            .await;
+        store
+            .kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        store
+            .kernel
+            .control
+            .state
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                MCPStore::now_timestamp(),
+            )
+            .await?;
+
+        store
+            .kernel
+            .execution
+            .event_bus
+            .publish(
+                crate::events::Event::new(
+                    "AUTH_SCOPE_UPGRADE_REQUIRED",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "service_name": instance.service_name,
+                        "scope": instance.scope,
+                        "required_scope": required_scope,
+                    }),
+                ),
+                true,
+            )
+            .await;
+        Ok(())
+    }
+
+    async fn mark_instance_auth_required(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+        required: &AuthRequired,
+    ) -> Result<()> {
+        if required.instance_id != instance_id {
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                "Authentication requirement instance mismatch: expected {instance_id}, received {}",
+                required.instance_id
+            ),
+            ));
+        }
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+
+        store
+            .kernel
+            .control
+            .auth
+            .set_status(instance_id, AuthStatus::Unauthenticated)
+            .await;
+        store
+            .kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        store
+            .kernel
+            .control
+            .state
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                MCPStore::now_timestamp(),
+            )
+            .await?;
+
+        store
+            .kernel
+            .execution
+            .event_bus
+            .publish(
+                crate::events::Event::new(
+                    "AUTH_REQUIRED",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "service_name": instance.service_name,
+                        "scope": instance.scope,
+                        "flow": required.flow,
+                        "scopes": required.scopes,
+                    }),
+                ),
+                true,
+            )
+            .await;
+        Ok(())
+    }
+}
+
+fn required_auth_base_url(instance_id: InstanceId, config: &ServerConfig) -> Result<&str> {
+    config.url.as_deref().ok_or_else(|| {
+        Error::from(crate::auth::AuthError::InvalidConfig(format!(
+            "OAuth service instance {instance_id} requires a URL"
+        )))
+    })
+}
+
+impl ControlPlane {
+    pub(crate) async fn ensure_http_oauth_config(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        let instance = store
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+
+        let server_config: ServerConfig =
+            serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
+                .map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!(
+                        "Effective config for instance {instance_id} cannot be decoded: {error}"
+                    ),
+                    )
+                })?;
+
+        if !server_config.auth.is_none() {
+            return Ok(());
+        }
+
+        let transport = server_config.infer_transport();
+        if transport != "streamable-http" && transport != "http" {
+            return Ok(());
+        }
+
+        let Some(url) = server_config
+            .url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+
+        if !crate::auth::discovery::http_endpoint_requires_oauth(url, &server_config.headers).await
+        {
+            return Ok(());
+        }
+
+        // No auth context: nothing is configured yet, so the connect path must
+        // record this as a plain retryable failure (auth stays NotRequired) —
+        // a login flow cannot start until the user configures OAuth credentials.
+        tracing::warn!(
+            target: "mcpstore::control_plane::auth",
+            service = %instance.service_name,
+            instance_id = %instance_id,
+            url,
+            "http endpoint requires OAuth; failing connect until auth is configured"
+        );
+        Err(Error::new(
+            FailureCode::ConnectionAuthRequired,
+            "endpoint returned 401 Unauthorized with a Bearer challenge (including any configured headers); configure auth.client_id or auth.client_metadata_url, or fix the service credentials"
+                .to_string(),
+        ))
+    }
+}
