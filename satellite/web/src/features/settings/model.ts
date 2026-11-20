@@ -7,12 +7,7 @@ import {
 } from "@/features/mcp-registry/service-tabs-prefs"
 import type { I18nKey } from "@/lib/i18n-core"
 
-export type SectionId =
-  | "general"
-  | "connection"
-  | "diagnostics"
-  | "advanced"
-  | "about"
+export type SectionId = "general" | "connection" | "diagnostics" | "advanced" | "about"
 
 export type HostDraft = {
   name: string

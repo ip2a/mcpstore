@@ -23,7 +23,8 @@ export function McpstoreAsciiBanner({ className }: { className?: string }) {
               key={letter}
               className="m-0 whitespace-pre text-[var(--ascii-banner-color)]"
               style={{
-                textShadow: "0 0 14px color-mix(in srgb, var(--ascii-banner-color) 28%, transparent)",
+                textShadow:
+                  "0 0 14px color-mix(in srgb, var(--ascii-banner-color) 28%, transparent)",
                 marginInlineStart: kern.start ? `${kern.start}em` : undefined,
                 marginInlineEnd: kern.end ? `${kern.end}em` : undefined,
               }}
