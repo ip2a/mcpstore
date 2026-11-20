@@ -368,7 +368,7 @@ impl GatewayCallLog {
             record.call_id = call_id.to_string();
         }
         let trace = mcpstore::telemetry::CallTrace::register(record.call_id.clone());
-        let mut pending = PendingGatewayCall {
+        let pending = PendingGatewayCall {
             log: Arc::clone(self),
             record,
             trace,
@@ -541,7 +541,11 @@ const SERVICE_WAIT_TOOL: &str = "mcpstore_instance_wait";
 const KV_HEALTH_TOOL: &str = "mcpstore_kv_health";
 const KV_INSPECT_TOOL: &str = "mcpstore_kv_inspect";
 const KV_SWITCH_TOOL: &str = "mcpstore_kv_switch";
-const SEARCH_TOOL: &str = "mcpstore_search_tools";
+
+use search::{
+    active_helper_names, entries_from_tools, DiscoveryRows, Entry, EntryKind,
+    SEARCH_PROMPT_HELPER, SEARCH_RESOURCE_HELPER, SEARCH_TOOLS_HELPER,
+};
 
 /// One upstream route behind an exposed gateway tool name.
 #[derive(Clone)]
@@ -610,6 +614,43 @@ mod tool_binding_tests {
             assert_eq!(picked.weight, 5);
             assert!(picked.tool_name == "b" || picked.tool_name == "c");
         }
+    }
+
+    #[test]
+    fn merged_tools_suppresses_the_colliding_helper_with_an_issue() {
+        // A business tool owns "search_tools": that helper drops out of the
+        // surface with a recorded issue; the business tool keeps its name.
+        let search_helper = Tool::new_with_raw(
+            SEARCH_TOOLS_HELPER,
+            Some("find tools".into()),
+            Arc::new(Map::new()),
+        );
+        let prompt_helper = Tool::new_with_raw(
+            SEARCH_PROMPT_HELPER,
+            Some("find prompts".into()),
+            Arc::new(Map::new()),
+        );
+        let binding = ToolBinding {
+            tool: Tool::new_with_raw(
+                SEARCH_TOOLS_HELPER,
+                Some("real upstream search".into()),
+                Arc::new(Map::new()),
+            ),
+            candidates: vec![candidate("search_tools", 0)],
+        };
+        let mut bindings = HashMap::new();
+        bindings.insert(SEARCH_TOOLS_HELPER.to_string(), binding);
+        let management = GatewayManagementTools::default();
+        let (tools, kept, issues) =
+            merged_tools(&bindings, &management, &[search_helper, prompt_helper])
+                .expect("no management families involved");
+        assert_eq!(issues.len(), 1);
+        assert!(matches!(
+            &issues[0],
+            ProjectionIssue::SearchHelperSuppressed { helper } if helper == SEARCH_TOOLS_HELPER
+        ));
+        assert_eq!(kept.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>(), [SEARCH_PROMPT_HELPER]);
+        assert!(tools.iter().any(|tool| tool.name.as_ref() == SEARCH_TOOLS_HELPER));
     }
 }
 
@@ -684,10 +725,63 @@ impl EventHandler for CatalogInvalidator {
                 }
             }
         }
+        // A service set change (mount build, add/remove) invalidates
+        // membership: the discovery columns are stale now, not at the next
+        // search. Tool-level changes only dirty the snapshot.
+        if event.payload.get("reason").and_then(Value::as_str) == Some("route_changed")
+            && event.payload.get("kind").and_then(Value::as_str) == Some("service")
+        {
+            catalog.clear_discovery_columns(&[
+                EntryKind::Prompt,
+                EntryKind::Resource,
+                EntryKind::ResourceTemplate,
+            ]);
+        }
         catalog.invalidate();
         tokio::spawn(async move {
             let _ = catalog.ensure().await;
         });
+    }
+
+    fn is_alive(&self) -> bool {
+        self.catalog.strong_count() > 0
+    }
+}
+
+/// Upstream prompt/resource catalog events clear the affected discovery
+/// columns immediately. (The read-time fingerprint check would catch these
+/// changes too; a local event just clears without waiting for a search.)
+/// Same weak-catalog lifetime as CatalogInvalidator.
+#[derive(Debug)]
+struct DiscoveryInvalidator {
+    catalog: std::sync::Weak<GatewayCatalog>,
+    event_kind: &'static str,
+    kinds: &'static [EntryKind],
+}
+
+#[async_trait::async_trait]
+impl EventHandler for DiscoveryInvalidator {
+    async fn handle(&self, event: &Event) {
+        if event.event_type != self.event_kind {
+            return;
+        }
+        let Some(catalog) = self.catalog.upgrade() else {
+            return;
+        };
+        if let Some(instance_id) = catalog.instance_id {
+            // Same broadcast rule as CatalogInvalidator.
+            if let Some(changed_instance) = event
+                .payload
+                .get("instanceId")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<InstanceId>().ok())
+            {
+                if changed_instance != instance_id {
+                    return;
+                }
+            }
+        }
+        catalog.clear_discovery_columns(self.kinds);
     }
 
     fn is_alive(&self) -> bool {
@@ -712,6 +806,8 @@ pub(crate) enum ProjectionIssue {
     /// `input_schema` missing or not an object; exposed with an empty-object
     /// fallback schema.
     DegradedTool { service: String, tool: String },
+    /// A search helper was suppressed because a downstream tool owns the name.
+    SearchHelperSuppressed { helper: String },
 }
 
 #[derive(Clone)]
@@ -731,7 +827,9 @@ pub(crate) struct GatewayServer {
 }
 
 /// Management tool families a mount can expose. Immutable per mount; one Arc
-/// shared by the server dispatch and the catalog merge.
+/// shared by the server dispatch and the catalog merge. Search helpers are
+/// NOT a family: they live in the snapshot and activate per kind by the
+/// catalog-size truth table.
 #[derive(Default)]
 pub(crate) struct GatewayManagementTools {
     session_state_tools: Arc<HashMap<String, Tool>>,
@@ -741,15 +839,63 @@ pub(crate) struct GatewayManagementTools {
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
     kv_tools: Arc<HashMap<String, Tool>>,
-    search_tools: Arc<HashMap<String, Tool>>,
+}
+
+/// Mount-owned discovery rows plus the change channel per-client listen
+/// tasks watch to forward tools list-changed when the published helper set
+/// moves.
+pub(crate) struct SearchState {
+    rows: std::sync::Mutex<DiscoveryRows>,
+    changed: tokio::sync::watch::Sender<u64>,
+    version: AtomicU64,
+}
+
+impl SearchState {
+    fn new() -> Self {
+        let (changed, _) = tokio::sync::watch::channel(0);
+        Self {
+            rows: std::sync::Mutex::new(DiscoveryRows::default()),
+            changed,
+            version: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn rows(&self) -> DiscoveryRows {
+        self.rows.lock().unwrap().clone()
+    }
+
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    fn notify(&self) {
+        let version = self.version.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self.changed.send(version);
+    }
+}
+
+/// Authority snapshot taken before a native catalog list: the catalog
+/// generation plus the deterministic fingerprint of membership and shaping
+/// routes. The list result may only publish when both still match at
+/// publish time.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DiscoveryCapture {
+    generation: u64,
+    fingerprint: u64,
 }
 
 /// One served catalog state: bindings for the call path, merged+sorted tools
-/// for tools/list.
+/// for tools/list, and the currently active search helpers.
 #[derive(Clone)]
 pub(crate) struct CatalogSnapshot {
     bindings: HashMap<String, ToolBinding>,
     tools: Vec<Tool>,
+    /// Active subset of the three search helper definitions, in declaration
+    /// order. Business bindings always win their names (suppressed at merge).
+    search_helpers: Vec<Tool>,
+    /// Search entries derived from the bindings — rebuilt with the snapshot,
+    /// never re-derived per search call.
+    tool_entries: Arc<[Entry]>,
 }
 
 /// The tool catalog of one mount. The snapshot is built at mount build and
@@ -764,6 +910,14 @@ pub(crate) struct GatewayCatalog {
     instance_id: Option<InstanceId>,
     session_key: Option<String>,
     management: Arc<GatewayManagementTools>,
+    /// Whether this mount allows search helpers at all (the expose flag
+    /// interpreted as permission, not residency).
+    search_enabled: bool,
+    /// All three helper definitions when search is allowed; empty otherwise.
+    search_helper_defs: Arc<HashMap<String, Tool>>,
+    /// Discovered prompt/resource/template rows and the helper-set change
+    /// channel.
+    search: SearchState,
     /// Projection report, refreshed on every successful rebuild.
     projection: Arc<std::sync::Mutex<Vec<ProjectionIssue>>>,
     /// Current snapshot.
@@ -784,12 +938,17 @@ pub(crate) struct GatewayCatalog {
 }
 
 /// Merge downstream bindings with the mount's management tool families into
-/// the served tools list. A management tool colliding with a downstream name
-/// cannot build the surface — the same rule at mount build and at rebuild.
+/// the served tools list, then fold in the activated search helpers. A
+/// management tool colliding with a downstream name cannot build the surface
+/// (the same rule at mount build and at rebuild); a search helper colliding
+/// is suppressed instead — the business tool owns the name, recorded as a
+/// projection issue. Returns the merged tools list, the helpers that
+/// survived, and any suppression issues.
 fn merged_tools(
     bindings: &HashMap<String, ToolBinding>,
     management: &GatewayManagementTools,
-) -> Result<Vec<Tool>, String> {
+    search_helpers: &[Tool],
+) -> Result<(Vec<Tool>, Vec<Tool>, Vec<ProjectionIssue>), String> {
     let families = [
         &management.session_state_tools,
         &management.tool_route_tools,
@@ -798,7 +957,6 @@ fn merged_tools(
         &management.openapi_tools,
         &management.service_tools,
         &management.kv_tools,
-        &management.search_tools,
     ];
     for family in &families {
         for tool_name in family.keys() {
@@ -809,6 +967,17 @@ fn merged_tools(
             }
         }
     }
+    let mut issues = Vec::new();
+    let mut helpers = Vec::new();
+    for helper in search_helpers {
+        if bindings.contains_key(helper.name.as_ref()) {
+            issues.push(ProjectionIssue::SearchHelperSuppressed {
+                helper: helper.name.to_string(),
+            });
+        } else {
+            helpers.push(helper.clone());
+        }
+    }
     let mut tools: Vec<Tool> = bindings
         .values()
         .map(|binding| binding.tool.clone())
@@ -816,8 +985,9 @@ fn merged_tools(
     for family in &families {
         tools.extend(family.values().cloned());
     }
+    tools.extend(helpers.iter().cloned());
     tools.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(tools)
+    Ok((tools, helpers, issues))
 }
 
 impl GatewayCatalog {
@@ -828,6 +998,8 @@ impl GatewayCatalog {
         instance_id: Option<InstanceId>,
         session_key: Option<String>,
         management: Arc<GatewayManagementTools>,
+        search_enabled: bool,
+        search_helper_defs: Arc<HashMap<String, Tool>>,
         snapshot: CatalogSnapshot,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -836,6 +1008,9 @@ impl GatewayCatalog {
             instance_id,
             session_key,
             management,
+            search_enabled,
+            search_helper_defs,
+            search: SearchState::new(),
             projection: Arc::new(std::sync::Mutex::new(Vec::new())),
             snapshot: std::sync::RwLock::new(Arc::new(snapshot)),
             dirty: AtomicBool::new(false),
@@ -843,6 +1018,37 @@ impl GatewayCatalog {
             generation: AtomicU64::new(0),
             rebuilds: AtomicU64::new(0),
         })
+    }
+
+    /// Build the served snapshot: merged tools plus the active search
+    /// helpers, computed from the activation truth table over the given
+    /// bindings and discovery rows. Returns the snapshot and any helper
+    /// suppression issues for the projection report.
+    fn build_snapshot(
+        bindings: HashMap<String, ToolBinding>,
+        management: &GatewayManagementTools,
+        search_enabled: bool,
+        search_helper_defs: &HashMap<String, Tool>,
+        rows: &DiscoveryRows,
+    ) -> Result<(CatalogSnapshot, Vec<ProjectionIssue>), String> {
+        let tool_keys: std::collections::BTreeSet<String> = bindings.keys().cloned().collect();
+        let names = active_helper_names(search_enabled, &tool_keys, rows);
+        let activated: Vec<Tool> = names
+            .iter()
+            .map(|name| search_helper_defs[*name].clone())
+            .collect();
+        let (tools, helpers, issues) = merged_tools(&bindings, management, &activated)?;
+        let tool_entries: Arc<[Entry]> =
+            entries_from_tools(bindings.values().map(|binding| &binding.tool)).into();
+        Ok((
+            CatalogSnapshot {
+                bindings,
+                tools,
+                search_helpers: helpers,
+                tool_entries,
+            },
+            issues,
+        ))
     }
 
     /// Blank catalog for tests: nothing downstream, nothing merged.
@@ -859,9 +1065,13 @@ impl GatewayCatalog {
             instance_id,
             session_key,
             Arc::new(GatewayManagementTools::default()),
+            false,
+            Arc::new(HashMap::new()),
             CatalogSnapshot {
                 bindings: HashMap::new(),
                 tools: Vec::new(),
+                search_helpers: Vec::new(),
+                tool_entries: Vec::new().into(),
             },
         )
     }
@@ -870,9 +1080,258 @@ impl GatewayCatalog {
         Arc::clone(&self.snapshot.read().unwrap())
     }
 
+    pub(crate) fn search_allowed(&self) -> bool {
+        self.search_enabled
+    }
+
+    pub(crate) fn search_rows(&self) -> DiscoveryRows {
+        self.search.rows()
+    }
+
+    pub(crate) fn subscribe_search_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.search.subscribe()
+    }
+
     pub(crate) fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::Release);
         self.dirty.store(true, Ordering::Release);
+        // The tools column is unprovable until a valid new snapshot
+        // publishes; prompt/resource rows keep their own validity.
+        self.refresh_helpers(false);
+    }
+
+    /// Authority snapshot to take before a native catalog list: generation
+    /// plus the deterministic fingerprint of membership and shaping routes.
+    async fn discovery_capture(&self) -> Result<DiscoveryCapture, BoxErr> {
+        Ok(DiscoveryCapture {
+            generation: self.generation.load(Ordering::Acquire),
+            fingerprint: self.discovery_fingerprint().await?,
+        })
+    }
+
+    /// Deterministic fingerprint of everything that shapes the prompt/
+    /// resource projection: view identity, authoritative membership, and the
+    /// service/prompt/resource/template route families. Route writes that
+    /// skip events (and cross-process changes) are caught here at read time —
+    /// never by serving stale rows. Tool routes ride the tools event chain
+    /// and don't belong in this fingerprint.
+    async fn discovery_fingerprint(&self) -> Result<u64, BoxErr> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        format!(
+            "scope={:?} instance={:?} session={:?}",
+            self.scope, self.instance_id, self.session_key
+        )
+        .hash(&mut hasher);
+        let members: Vec<(InstanceId, String)> = if let Some(session_key) =
+            self.session_key.as_deref()
+        {
+            self.store
+                .session_instance_ids(session_key)
+                .await?
+                .into_iter()
+                .map(|instance_id| (instance_id, String::new()))
+                .collect()
+        } else if let Some(instance_id) = self.instance_id {
+            vec![(instance_id, String::new())]
+        } else {
+            self.store
+                .list_scope_instances(&self.scope)
+                .await?
+                .into_iter()
+                .map(|instance| (instance.instance_id, instance.service_name))
+                .collect()
+        };
+        members.hash(&mut hasher);
+        // Serialization is the stable projection of each rule set; owned
+        // values never fail it, so an encode error can only mean a poisoned
+        // store — treated as "unknown" via the error return.
+        for rule in self.store.list_service_routes_lenient().await? {
+            serde_json::to_string(&rule)
+                .map_err(|error| -> BoxErr { error.to_string().into() })?
+                .hash(&mut hasher);
+        }
+        for rule in self.store.list_prompt_routes().await? {
+            serde_json::to_string(&rule)
+                .map_err(|error| -> BoxErr { error.to_string().into() })?
+                .hash(&mut hasher);
+        }
+        for rule in self.store.list_resource_routes().await? {
+            serde_json::to_string(&rule)
+                .map_err(|error| -> BoxErr { error.to_string().into() })?
+                .hash(&mut hasher);
+        }
+        for rule in self.store.list_resource_template_routes().await? {
+            serde_json::to_string(&rule)
+                .map_err(|error| -> BoxErr { error.to_string().into() })?
+                .hash(&mut hasher);
+        }
+        Ok(hasher.finish())
+    }
+
+    /// Publish one discovery column captured from a completed native catalog
+    /// list. The capture's generation must still be current and the authority
+    /// fingerprint unchanged — stale captures are dropped, old generations
+    /// never resurrect entries. When the effective helper set moves, the
+    /// snapshot is swapped and listen tasks are poked to forward
+    /// tools list-changed.
+    async fn publish_discovery(
+        &self,
+        capture: DiscoveryCapture,
+        kind: EntryKind,
+        entries: std::sync::Arc<[Entry]>,
+    ) {
+        let fingerprint = match self.discovery_fingerprint().await {
+            Ok(fingerprint) => fingerprint,
+            Err(error) => {
+                tracing::debug!(
+                    kind = kind.as_str(),
+                    %error,
+                    "authority read failed after native catalog list; discovery rows dropped"
+                );
+                return;
+            }
+        };
+        if fingerprint != capture.fingerprint {
+            tracing::debug!(
+                kind = kind.as_str(),
+                "authority changed during the catalog list; discovery rows dropped"
+            );
+            return;
+        }
+        if self.generation.load(Ordering::Acquire) != capture.generation {
+            tracing::debug!(
+                kind = kind.as_str(),
+                "catalog generation moved during the list; discovery rows dropped"
+            );
+            return;
+        }
+        {
+            let mut rows = self.search.rows.lock().unwrap();
+            rows.generation = capture.generation;
+            match kind {
+                EntryKind::Prompt => {
+                    rows.prompts = Some(entries);
+                    rows.prompt_fingerprint = fingerprint;
+                }
+                EntryKind::Resource => {
+                    rows.resources = Some(entries);
+                    rows.resource_fingerprint = fingerprint;
+                }
+                EntryKind::ResourceTemplate => {
+                    rows.templates = Some(entries);
+                    rows.resource_fingerprint = fingerprint;
+                }
+                EntryKind::Tool => {
+                    unreachable!("tool rows come from the snapshot, never discovery sampling")
+                }
+            }
+        }
+        self.refresh_helpers(true);
+    }
+
+    /// Re-verify a column's authority fingerprint at search execution. A
+    /// mismatch (or failed authority read) clears the column — the helper
+    /// reports the kind unknown instead of serving rows it can no longer
+    /// prove. Returns whether the rows are still valid.
+    async fn verify_discovery_rows(&self, kinds: &[EntryKind]) -> bool {
+        let fingerprint = match self.discovery_fingerprint().await {
+            Ok(fingerprint) => fingerprint,
+            Err(_) => {
+                self.clear_discovery_columns(kinds);
+                return false;
+            }
+        };
+        let rows = self.search.rows();
+        let valid = match kinds {
+            [EntryKind::Prompt] => rows.prompt_fingerprint == fingerprint,
+            [EntryKind::Resource] | [EntryKind::ResourceTemplate] | [EntryKind::Resource, EntryKind::ResourceTemplate] => {
+                rows.resource_fingerprint == fingerprint
+            }
+            _ => unreachable!("search execution verifies prompt or resource columns only"),
+        };
+        if valid {
+            true
+        } else {
+            tracing::debug!(
+                kinds = ?kinds,
+                "discovery authority changed since capture; clearing columns"
+            );
+            self.clear_discovery_columns(kinds);
+            false
+        }
+    }
+
+    /// Mark columns unknown and recompute the helper set.
+    fn clear_discovery_columns(&self, kinds: &[EntryKind]) {
+        {
+            let mut rows = self.search.rows.lock().unwrap();
+            for kind in kinds {
+                match kind {
+                    EntryKind::Prompt => rows.prompts = None,
+                    EntryKind::Resource => rows.resources = None,
+                    EntryKind::ResourceTemplate => rows.templates = None,
+                    EntryKind::Tool => {
+                        unreachable!("tool rows come from the snapshot, never discovery sampling")
+                    }
+                }
+            }
+        }
+        self.refresh_helpers(true);
+    }
+
+    /// Recompute the active helper set against the current bindings + rows
+    /// and swap the snapshot when it moved. `tools_provable=false` (the dirty
+    /// window between invalidation and the next valid snapshot) suspends the
+    /// tools helper only. Bindings are frozen since the last successful
+    /// merge, so passing an empty key set cannot miss a collision the build
+    /// didn't already record.
+    fn refresh_helpers(&self, tools_provable: bool) -> bool {
+        let snapshot = self.current();
+        let rows = self.search.rows();
+        let tool_keys: std::collections::BTreeSet<String> = if tools_provable {
+            snapshot.bindings.keys().cloned().collect()
+        } else {
+            std::collections::BTreeSet::new()
+        };
+        let names = active_helper_names(self.search_enabled, &tool_keys, &rows);
+        let helpers: Vec<Tool> = names
+            .iter()
+            .map(|name| self.search_helper_defs[*name].clone())
+            .collect();
+        let (tools, helpers, issues) = merged_tools(&snapshot.bindings, &self.management, &helpers)
+            .expect("management families validated at the last build; bindings are unchanged");
+        // The suppression set rides the projection report: a helper that a
+        // business tool renamed out of the surface stays visible as a defect,
+        // even when the kept helper set itself is unchanged.
+        if !issues.is_empty() {
+            if let Ok(mut report) = self.projection.lock() {
+                report.retain(|issue| {
+                    !matches!(issue, ProjectionIssue::SearchHelperSuppressed { .. })
+                });
+                report.extend(issues);
+            }
+        }
+        let kept: Vec<&str> = helpers
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect();
+        let current: Vec<&str> = snapshot
+            .search_helpers
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect();
+        if current == kept {
+            return false;
+        }
+        *self.snapshot.write().unwrap() = Arc::new(CatalogSnapshot {
+            bindings: snapshot.bindings.clone(),
+            tools,
+            search_helpers: helpers,
+            tool_entries: snapshot.tool_entries.clone(),
+        });
+        self.search.notify();
+        true
     }
 
     pub(crate) fn rebuild_count(&self) -> u64 {
@@ -915,19 +1374,30 @@ impl GatewayCatalog {
     }
 
     /// Rebuild and swap the snapshot. The caller holds the rebuild gate.
+    /// Discovery rows survive: they carry their own fingerprints, and the
+    /// fresh snapshot recomputes the helper set against them.
     async fn rebuild(&self) -> Result<(), BoxErr> {
-        let (bindings, issues) = transport::build_tool_bindings(
+        let (bindings, mut projection) = transport::build_tool_bindings(
             &self.store,
             &self.scope,
             self.instance_id,
             self.session_key.as_deref(),
         )
         .await?;
-        let tools = merged_tools(&bindings, &self.management)?;
-        if let Ok(mut projection) = self.projection.lock() {
-            *projection = issues;
+        let rows = self.search.rows();
+        let (snapshot, suppression) = Self::build_snapshot(
+            bindings,
+            &self.management,
+            self.search_enabled,
+            &self.search_helper_defs,
+            &rows,
+        )
+        .map_err(BoxErr::from)?;
+        projection.extend(suppression);
+        if let Ok(mut report) = self.projection.lock() {
+            *report = projection;
         }
-        *self.snapshot.write().unwrap() = Arc::new(CatalogSnapshot { bindings, tools });
+        *self.snapshot.write().unwrap() = Arc::new(snapshot);
         Ok(())
     }
 

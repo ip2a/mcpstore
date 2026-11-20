@@ -4,9 +4,13 @@ use super::catalog::{
 };
 use super::tools::{
     build_kv_tools, build_openapi_tools, build_prompt_route_tools,
-    build_resource_route_tools, build_resource_template_route_tools, build_search_tools,
+    build_resource_route_tools, build_resource_template_route_tools, build_search_helpers,
     build_service_tools, build_session_state_tools, build_tool_route_tools, deserialize_item,
     deserialize_items,
+};
+use super::search::{
+    entries_from_prompts, entries_from_resources, entries_from_templates, parse_search_arguments,
+    rank, resource_view, search_payload, search_text, Entry, EntryKind,
 };
 use super::tools::{
     call_kv_tool, call_openapi_tool, call_prompt_route_tool, call_resource_route_tool,
@@ -82,30 +86,45 @@ impl GatewayServer {
             } else {
                 HashMap::new()
             }),
-            search_tools: Arc::new(if options.expose_search_tools {
-                build_search_tools()
-            } else {
-                HashMap::new()
-            }),
+        });
+        // Search helpers are not a management family: permission only at
+        // build, residency decided per kind by the activation truth table.
+        let search_enabled = options.expose_search_tools;
+        let search_helper_defs = Arc::new(if search_enabled {
+            build_search_helpers()
+        } else {
+            HashMap::new()
         });
         // A management tool colliding with a downstream name fails the mount
-        // at build (the surface would be ambiguous from day one).
-        let tools =
-            merged_tools(&bindings, &management).map_err(|error| -> BoxErr { error.into() })?;
+        // at build (the surface would be ambiguous from day one). Discovery
+        // rows start unknown: helpers activate as complete native catalog
+        // pages are observed while serving.
+        let (snapshot, mut projection) = GatewayCatalog::build_snapshot(
+            bindings,
+            &management,
+            search_enabled,
+            &search_helper_defs,
+            &DiscoveryRows::default(),
+        )
+        .map_err(|error| -> BoxErr { error.into() })?;
+        projection.extend(issues);
         let catalog = GatewayCatalog::new(
             Arc::clone(&store),
             scope.clone(),
             instance_id,
             session_key.clone(),
             Arc::clone(&management),
-            CatalogSnapshot { bindings, tools },
+            search_enabled,
+            search_helper_defs,
+            snapshot,
         );
-        if let Ok(mut projection) = catalog.projection.lock() {
-            *projection = issues;
+        if let Ok(mut report) = catalog.projection.lock() {
+            *report = projection;
         }
         // Mount-lifetime invalidation: tool syncs and route writes publish
         // McpToolsChanged on the local bus (the store owns the upstream
-        // connections); mark the snapshot dirty and warm a rebuild.
+        // connections); mark the snapshot dirty and warm a rebuild. Upstream
+        // prompt/resource events clear the affected discovery columns.
         store
             .event_bus()
             .subscribe(
@@ -113,6 +132,30 @@ impl GatewayServer {
                 0,
                 Arc::new(CatalogInvalidator {
                     catalog: Arc::downgrade(&catalog),
+                }),
+            )
+            .await;
+        store
+            .event_bus()
+            .subscribe(
+                mcpstore::events::types::EventKind::McpPromptsChanged.as_str(),
+                0,
+                Arc::new(DiscoveryInvalidator {
+                    catalog: Arc::downgrade(&catalog),
+                    event_kind: mcpstore::events::types::EventKind::McpPromptsChanged.as_str(),
+                    kinds: &[EntryKind::Prompt],
+                }),
+            )
+            .await;
+        store
+            .event_bus()
+            .subscribe(
+                mcpstore::events::types::EventKind::McpResourcesChanged.as_str(),
+                0,
+                Arc::new(DiscoveryInvalidator {
+                    catalog: Arc::downgrade(&catalog),
+                    event_kind: mcpstore::events::types::EventKind::McpResourcesChanged.as_str(),
+                    kinds: &[EntryKind::Resource, EntryKind::ResourceTemplate],
                 }),
             )
             .await;
@@ -163,29 +206,104 @@ impl GatewayServer {
     }
 
     fn instructions(&self) -> String {
-        format!(
+        let mut instructions = format!(
             "Rust MCPStore server. scope={} tool_count={}",
             self.scope_label,
             self.catalog.current().tools.len()
-        )
+        );
+        if self.catalog.search_allowed() {
+            instructions.push_str(
+                " Search helpers (search_tools, search_prompt, search_resource) appear on this mount once the kind's visible catalog reaches 10 entries; prompts and resources only after a complete native catalog page was observed.",
+            );
+        }
+        instructions
     }
 
-    async fn call_search_tool(
+    /// One of the three search helpers. Dispatch only routes names present in
+    /// the served snapshot, so an inactive or suppressed helper never reaches
+    /// this path — it falls through to the business unknown-tool route.
+    async fn call_search_helper(
         &self,
+        helper: &str,
+        meta: Option<&rmcp::model::RequestMetaObject>,
         arguments: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
-        let query = arguments
-            .get("query")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let top_k = arguments.get("top_k").and_then(Value::as_u64).unwrap_or(10) as usize;
-        let tools = self.catalog.ensure().await.tools.clone();
-        let hits = super::search::search_tools(&tools, &query, top_k);
-        let payload = serde_json::to_value(&hits).map_err(|error| {
-            ErrorData::internal_error(format!("search result serialization failed: {error}"), None)
-        })?;
-        Ok(CallToolResult::structured(payload))
+        // The helpers search the mount's own view. A call explicitly naming a
+        // different business session key targets a surface the helper cannot
+        // see — reject instead of silently searching the mount view.
+        let (args, session_key) =
+            extract_business_session_key(meta, arguments, self.session_key.as_deref());
+        if session_key.as_deref() != self.session_key.as_deref() {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "search helpers only see this mount's own view; session key '{}' is a different surface",
+                    session_key.as_deref().unwrap_or_default()
+                ),
+                None,
+            ));
+        }
+        let Value::Object(args) = args else {
+            return Err(ErrorData::invalid_params(
+                "search arguments must be an object",
+                None,
+            ));
+        };
+        let request =
+            parse_search_arguments(&args).map_err(|error| ErrorData::invalid_params(error, None))?;
+        let snapshot = self.catalog.ensure().await;
+        let tool_entries = snapshot.tool_entries.clone();
+        match helper {
+            SEARCH_TOOLS_HELPER => {
+                // Tools are always completely known from the snapshot.
+                let refs: Vec<&Entry> = tool_entries.iter().collect();
+                let hits = rank(&refs, &request.query, request.limit);
+                Ok(self.search_answer(&hits, &[]))
+            }
+            SEARCH_PROMPT_HELPER => {
+                if !self.catalog.verify_discovery_rows(&[EntryKind::Prompt]).await {
+                    return Ok(self.search_answer(&[], &["prompt"]));
+                }
+                let rows = self.catalog.search_rows();
+                match rows.prompts {
+                    Some(prompts) => {
+                        let refs: Vec<&Entry> = prompts.iter().collect();
+                        let hits = rank(&refs, &request.query, request.limit);
+                        Ok(self.search_answer(&hits, &[]))
+                    }
+                    None => Ok(self.search_answer(&[], &["prompt"])),
+                }
+            }
+            SEARCH_RESOURCE_HELPER => {
+                let kinds = [EntryKind::Resource, EntryKind::ResourceTemplate];
+                if !self.catalog.verify_discovery_rows(&kinds).await {
+                    return Ok(self.search_answer(&[], &["resource", "resource_template"]));
+                }
+                let rows = self.catalog.search_rows();
+                match resource_view(&rows) {
+                    Some((entries, resources_known, templates_known)) => {
+                        let hits = rank(&entries, &request.query, request.limit);
+                        let mut unknown_kinds = Vec::new();
+                        if !resources_known {
+                            unknown_kinds.push("resource");
+                        }
+                        if !templates_known {
+                            unknown_kinds.push("resource_template");
+                        }
+                        Ok(self.search_answer(&hits, &unknown_kinds))
+                    }
+                    None => Ok(self.search_answer(&[], &["resource", "resource_template"])),
+                }
+            }
+            other => unreachable!("dispatch only routes the three published helper names: {other}"),
+        }
+    }
+
+    fn search_answer(&self, hits: &[&Entry], unknown_kinds: &[&str]) -> CallToolResult {
+        let mut result = CallToolResult::structured(search_payload(hits, unknown_kinds));
+        // The structured payload is authoritative; the text companion renders
+        // the hits readably instead of dumping raw JSON.
+        result.content = vec![ContentBlock::text(search_text(hits, unknown_kinds))];
+        result
     }
 }
 
@@ -218,7 +336,19 @@ impl ServerHandler for GatewayServer {
                 }),
             )
             .await;
-        context.cancelled().await;
+        let mut helper_changes = self.catalog.subscribe_search_changes();
+        loop {
+            tokio::select! {
+                _ = context.cancelled() => break,
+                changed = helper_changes.changed() => {
+                    // The published helper set moved: the tools surface
+                    // changed for this client too.
+                    if changed.is_err() || context.sink().notify_tool_list_changed().await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
         active.store(false, Ordering::Release);
         Ok(())
     }
@@ -249,11 +379,18 @@ impl ServerHandler for GatewayServer {
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        self.catalog
-            .current()
+        let catalog = self.catalog.current();
+        catalog
             .bindings
             .get(name)
             .map(|binding| binding.tool.clone())
+            .or_else(|| {
+                catalog
+                    .search_helpers
+                    .iter()
+                    .find(|tool| tool.name.as_ref() == name)
+                    .cloned()
+            })
             .or_else(|| self.management.session_state_tools.get(name).cloned())
             .or_else(|| self.management.tool_route_tools.get(name).cloned())
             .or_else(|| self.management.prompt_route_tools.get(name).cloned())
@@ -261,7 +398,6 @@ impl ServerHandler for GatewayServer {
             .or_else(|| self.management.openapi_tools.get(name).cloned())
             .or_else(|| self.management.service_tools.get(name).cloned())
             .or_else(|| self.management.kv_tools.get(name).cloned())
-            .or_else(|| self.management.search_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -274,12 +410,29 @@ impl ServerHandler for GatewayServer {
         let instance_id = self.instance_id;
         let session_key = self.session_key.clone();
         async move {
-            let resources = if let Some(session_key) = session_key.as_deref() {
-                store.list_resources_in_session(session_key).await
-            } else if let Some(instance_id) = instance_id {
-                store.list_resources_for_instance(instance_id).await
+            // Discovery sampling: capture the authority state before the
+            // native catalog read so the rows publish only when nothing moved.
+            let capture = if self.catalog.search_allowed() {
+                self.catalog.discovery_capture().await.ok()
             } else {
-                store.list_resources_scoped(&scope).await
+                None
+            };
+            let (resources, skipped_instances) = if let Some(session_key) = session_key.as_deref()
+            {
+                store
+                    .list_resources_in_session(session_key)
+                    .await
+                    .map(|entries| (entries, 0usize))
+            } else if let Some(instance_id) = instance_id {
+                store
+                    .list_resources_for_instance(instance_id)
+                    .await
+                    .map(|entries| (entries, 0usize))
+            } else {
+                store
+                    .list_resources_scoped_page(&scope)
+                    .await
+                    .map(|page| (page.entries, page.skipped_instances))
             }
             .map_err(map_store_error)?;
             let resources = apply_service_routes(
@@ -290,6 +443,15 @@ impl ServerHandler for GatewayServer {
             )?;
             let resources = project_catalog_uris(resources, "uri", false)?;
             let resources = deserialize_items::<Resource>(resources, "resource")?;
+            // Session/instance views fail loud (Ok = complete); a scope page
+            // with skipped instances is partial and never publishes as the
+            // catalog.
+            if let Some(capture) = capture.filter(|_| skipped_instances == 0) {
+                let entries = entries_from_resources(&resources);
+                self.catalog
+                    .publish_discovery(capture, EntryKind::Resource, entries.into())
+                    .await;
+            }
             Ok(ListResourcesResult::with_all_items(resources))
         }
     }
@@ -305,14 +467,27 @@ impl ServerHandler for GatewayServer {
         let instance_id = self.instance_id;
         let session_key = self.session_key.clone();
         async move {
-            let templates = if let Some(session_key) = session_key.as_deref() {
-                store.list_resource_templates_in_session(session_key).await
+            let capture = if self.catalog.search_allowed() {
+                self.catalog.discovery_capture().await.ok()
+            } else {
+                None
+            };
+            let (templates, skipped_instances) = if let Some(session_key) = session_key.as_deref()
+            {
+                store
+                    .list_resource_templates_in_session(session_key)
+                    .await
+                    .map(|entries| (entries, 0usize))
             } else if let Some(instance_id) = instance_id {
                 store
                     .list_resource_templates_for_instance(instance_id)
                     .await
+                    .map(|entries| (entries, 0usize))
             } else {
-                store.list_resource_templates_scoped(&scope).await
+                store
+                    .list_resource_templates_scoped_page(&scope)
+                    .await
+                    .map(|page| (page.entries, page.skipped_instances))
             }
             .map_err(map_store_error)?;
             let templates = apply_service_routes(
@@ -323,6 +498,12 @@ impl ServerHandler for GatewayServer {
             )?;
             let templates = project_catalog_uris(templates, "uriTemplate", true)?;
             let templates = deserialize_items::<ResourceTemplate>(templates, "resource template")?;
+            if let Some(capture) = capture.filter(|_| skipped_instances == 0) {
+                let entries = entries_from_templates(&templates);
+                self.catalog
+                    .publish_discovery(capture, EntryKind::ResourceTemplate, entries.into())
+                    .await;
+            }
             Ok(ListResourceTemplatesResult::with_all_items(templates))
         }
     }
@@ -398,12 +579,26 @@ impl ServerHandler for GatewayServer {
         let instance_id = self.instance_id;
         let session_key = self.session_key.clone();
         async move {
-            let prompts = if let Some(session_key) = session_key.as_deref() {
-                store.list_prompts_in_session(session_key).await
-            } else if let Some(instance_id) = instance_id {
-                store.list_prompts_for_instance(instance_id).await
+            let capture = if self.catalog.search_allowed() {
+                self.catalog.discovery_capture().await.ok()
             } else {
-                store.list_prompts_scoped(&scope).await
+                None
+            };
+            let (prompts, skipped_instances) = if let Some(session_key) = session_key.as_deref() {
+                store
+                    .list_prompts_in_session(session_key)
+                    .await
+                    .map(|entries| (entries, 0usize))
+            } else if let Some(instance_id) = instance_id {
+                store
+                    .list_prompts_for_instance(instance_id)
+                    .await
+                    .map(|entries| (entries, 0usize))
+            } else {
+                store
+                    .list_prompts_scoped_page(&scope)
+                    .await
+                    .map(|page| (page.entries, page.skipped_instances))
             }
             .map_err(map_store_error)?;
             let prompts = apply_service_routes(
@@ -414,6 +609,12 @@ impl ServerHandler for GatewayServer {
             )?;
             let prompts = project_prompt_names(prompts)?;
             let prompts = deserialize_items::<Prompt>(prompts, "prompt")?;
+            if let Some(capture) = capture.filter(|_| skipped_instances == 0) {
+                let entries = entries_from_prompts(&prompts);
+                self.catalog
+                    .publish_discovery(capture, EntryKind::Prompt, entries.into())
+                    .await;
+            }
             Ok(ListPromptsResult::with_all_items(prompts))
         }
     }
@@ -510,10 +711,17 @@ impl ServerHandler for GatewayServer {
             .service_tools
             .contains_key(tool_name.as_str());
         let is_cache_tool = self.management.kv_tools.contains_key(tool_name.as_str());
-        let is_search_tool = self
-            .management
-            .search_tools
-            .contains_key(tool_name.as_str());
+        // Search helpers are snapshot-resident, not families: the served
+        // snapshot decides whether the name is a helper right now. An
+        // inactive helper name falls through to the business unknown-tool
+        // route below.
+        let search_helper = self
+            .catalog
+            .current()
+            .search_helpers
+            .iter()
+            .find(|tool| tool.name.as_ref() == tool_name.as_str())
+            .map(|tool| tool.name.to_string());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let instance_id = self.instance_id;
@@ -527,7 +735,7 @@ impl ServerHandler for GatewayServer {
             || is_openapi_tool
             || is_service_tool
             || is_cache_tool
-            || is_search_tool;
+            || search_helper.is_some();
         let management_store = Arc::clone(&store);
         let management_caller = self.caller.clone();
         let management_scope = scope_label(&scope);
@@ -599,8 +807,11 @@ impl ServerHandler for GatewayServer {
                     .await
                     .map(Into::into);
             }
-            if is_search_tool {
-                return self.call_search_tool(arguments).await.map(Into::into);
+            if let Some(helper) = search_helper.as_deref() {
+                return self
+                    .call_search_helper(helper, meta.as_ref(), arguments)
+                    .await
+                    .map(Into::into);
             }
 
             let mut call = self.call_log.begin(

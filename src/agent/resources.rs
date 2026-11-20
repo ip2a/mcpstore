@@ -3,6 +3,16 @@ use crate::routing::resources::apply_resource;
 use crate::store::prelude::*;
 impl MCPStore {
     pub async fn list_resources_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
+        Ok(self.collect_scope_resources_scoped(scope).await?.entries)
+    }
+
+    /// Scope-wide resource catalog with skip accounting. A non-zero
+    /// `skipped_instances` means the page is partial — gateway discovery
+    /// sampling refuses to publish it as a complete catalog.
+    pub async fn list_resources_scoped_page(
+        &self,
+        scope: &ScopeRef,
+    ) -> Result<ScopedCatalogPage<serde_json::Value>> {
         self.collect_scope_resources_scoped(scope).await
     }
 
@@ -85,6 +95,16 @@ impl MCPStore {
         &self,
         scope: &ScopeRef,
     ) -> Result<Vec<serde_json::Value>> {
+        Ok(self
+            .collect_scope_resource_templates_scoped(scope)
+            .await?
+            .entries)
+    }
+
+    pub async fn list_resource_templates_scoped_page(
+        &self,
+        scope: &ScopeRef,
+    ) -> Result<ScopedCatalogPage<serde_json::Value>> {
         self.collect_scope_resource_templates_scoped(scope).await
     }
 

@@ -280,7 +280,7 @@ impl Drop for GatewayRuntime {
 }
 
 /// What a mount must match to stay as it is: the ledger's derived scope and
-/// exposure. A diverging fingerprint rebuilds the mount ( hubKey).
+/// exposure. A diverging fingerprint rebuilds the mount.
 #[derive(Clone, PartialEq)]
 struct MountFingerprint {
     scope: ScopeRef,
@@ -570,9 +570,9 @@ const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5
 /// Re-read the wired ledger and apply the diff to the live mounts. Projection
 /// invalidation already rides the daemon's local event bus; no cross-process
 /// scopes replay is needed.
-/// Fail-safe per  hubPrune — a ledger that can't be read (parse
-/// failure or vanished file) means nothing is killed; the warning repeats
-/// only when the ledger state changes, not every 5s.
+/// Fail-safe prune: a ledger that can't be read (parse failure or vanished
+/// file) means nothing is killed; the warning repeats only when the ledger
+/// state changes, not every 5s.
 async fn reconcile_loop(
     store: Arc<MCPStore>,
     options: GatewayOptions,

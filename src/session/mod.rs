@@ -1764,6 +1764,20 @@ impl MCPStore {
         Ok(instances)
     }
 
+    /// Authoritative membership of a session: the instance ids a mount keyed
+    /// by this session key projects. Same resolution as the session catalog
+    /// lists — active session required, bound instances deduped and sorted.
+    pub async fn session_instance_ids(&self, session_key: &str) -> Result<Vec<InstanceId>> {
+        self.ensure_session_active(session_key).await?;
+        let session = self.require_session(session_key).await?;
+        Ok(self
+            .session_service_instances(&session)
+            .await?
+            .into_iter()
+            .map(|instance| instance.instance_id)
+            .collect())
+    }
+
     fn session_tool_allowed(
         visibility: &Option<SessionToolVisibility>,
         instance_id: InstanceId,

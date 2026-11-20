@@ -31,7 +31,7 @@ struct DaemonHost {
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     let store = load_kernel(&args).await?.store().clone();
 
-    // Initialize daemon identity (server-id)
+    // Initialize daemon identity
     let data_dir = store
         .config_manager()
         .mcp_path()
@@ -700,7 +700,7 @@ fn wire_error(error: serde_json::Error) -> Error {
     )
 }
 
-/// Enforce 0600 permissions on sensitive files (ensurePrivateFile).
+/// Enforce 0600 permissions on sensitive files.
 #[cfg(unix)]
 fn enforce_file_permissions(data_dir: &std::path::Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;

@@ -41,6 +41,7 @@ class FastMCP:
         self._name = name
         self._tools: dict[str, _ToolDef] = {}
         self._resources: dict[str, _ResourceDef] = {}
+        self._templates: dict[str, _ResourceDef] = {}
         self._prompts: dict[str, _PromptDef] = {}
         self._legacy_protocol_version: str | None = None
 
@@ -58,12 +59,16 @@ class FastMCP:
 
     def resource(self, uri: str):
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            self._resources[uri] = _ResourceDef(
+            entry = _ResourceDef(
                 uri=uri,
                 name=func.__name__,
                 description=inspect.getdoc(func) or "",
                 func=func,
             )
+            if "{" in uri and "}" in uri:
+                self._templates[uri] = entry
+            else:
+                self._resources[uri] = entry
             return func
 
         return decorator
@@ -174,7 +179,17 @@ class FastMCP:
             }
 
         if method == "resources/templates/list":
-            return {"resourceTemplates": []}
+            return {
+                "resourceTemplates": [
+                    {
+                        "uriTemplate": template.uri,
+                        "name": template.name,
+                        "description": template.description,
+                        "mimeType": "text/plain",
+                    }
+                    for template in self._templates.values()
+                ]
+            }
 
         if method == "resources/read":
             uri = params.get("uri")

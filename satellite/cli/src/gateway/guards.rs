@@ -1,6 +1,6 @@
-//! Gateway HTTP guard chain, ported from incident-hardened
-//! `cors.go` / `serveMCP` (see local/调研文档 §3.1 + §7). Every guard here
-//! exists because a real attack defeated the code before it:
+//! Gateway HTTP guard chain for incident-hardened MCP serving
+//! (see local/调研文档 §3.1 + §7). Every guard here exists because a real
+//! attack defeated the code before it:
 //!
 //! 1. peer loopback — the gateway hands out the user's downstream tool
 //!    calls; only local callers may drive it (Bearer key lands with the
@@ -9,7 +9,7 @@
 //!    looks "same-origin" to the browser; a GET carries no Origin so an
 //!    Origin-only check loses. Host must be an exact loopback name.
 //!    `*.localhost` fails too: WebKit resolves those via the system DNS
-//!    ( #2256) and there is no key mechanism yet to hold them to.
+//!    (#2256-class WebKit DNS behaviour) and there is no key mechanism yet to hold them to.
 //! 3. Origin check — `null` is refused (sandboxed iframe / file:// /
 //!    webview, #2242); non-http(s) schemes pass (desktop apps, editor
 //!    webviews and extensions are not CORS-bound and a web page cannot
@@ -20,7 +20,7 @@
 //!    stream, no DELETE session to smuggle a cross-origin call through.
 //! 5. Rate limit before execution — per-mount byte budget reserved before
 //!    the body reaches the server, so an over-limit caller never runs a
-//!    tool ( reserveFor, c431225a/6b6113aa).
+//!    tool (reserve-before-execute budget).
 //! 6. Body ceiling — enforced by rmcp itself (`max_request_body_bytes`,
 //!    4 MiB default, streamed and Content-Length-independent), so no extra
 //!    layer is needed here.
@@ -47,9 +47,9 @@ const RATE_REFILL_PER_SEC: f64 = 2.0 * 1024.0 * 1024.0;
 /// Cost charged when Content-Length is absent (chunked bodies).
 const RATE_DEFAULT_COST: f64 = 4096.0;
 
-/// Per-mount byte budget ( `reserveFor` semantics): reserve before
-/// anything runs, refill continuously. A normal tool call costs a few KiB;
-/// floods drain the bucket and get refused without executing.
+/// Per-mount byte budget: reserve before anything runs, refill continuously.
+/// A normal tool call costs a few KiB; floods drain the bucket and get
+/// refused without executing.
 pub(crate) struct RateLimiter {
     buckets: Mutex<HashMap<String, Bucket>>,
 }
@@ -104,7 +104,7 @@ fn host_token(host_header: &str) -> &str {
 
 /// Host must be an exact loopback name — the rebinding guard. An attacker
 /// domain resolving to 127.0.0.1 stays out; `*.localhost` stays out (WebKit
-/// asks system DNS for those,  #2256, no key mechanism to exempt).
+/// asks system DNS for those; no key mechanism yet to exempt).
 pub(crate) fn host_is_loopback(host_header: Option<&str>) -> bool {
     let Some(host_header) = host_header else {
         return true; // no Host: in-process caller (HTTP/2 :authority covers prod)
@@ -118,9 +118,9 @@ pub(crate) fn host_is_loopback(host_header: Option<&str>) -> bool {
     }
 }
 
-/// Origin guard ( foreignPage + null + localhostSubdomain, reduced to
-/// the no-key world): empty passes (every agent's requests), `null` is
-/// refused, non-http(s) schemes pass, http(s) passes only at loopback names.
+/// Origin guard (foreign page + null + localhost subdomain, reduced to the
+/// no-key world): empty passes (every agent's requests), `null` is refused,
+/// non-http(s) schemes pass, http(s) passes only at loopback names.
 pub(crate) fn origin_refused(origin: Option<&str>) -> bool {
     let Some(origin) = origin.filter(|o| !o.is_empty()) else {
         return false;
@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn localhost_subdomain_host_refused() {
-        // WebKit resolves *.localhost through system DNS ( #2256)
+        // WebKit resolves *.localhost through system DNS
         let mut request = request(Method::POST, "/mcp/agent1");
         request
             .headers_mut()

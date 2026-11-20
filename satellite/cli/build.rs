@@ -14,7 +14,9 @@ fn generate_web_assets() -> io::Result<()> {
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo"));
-    let repo_web_dir = manifest_dir.join("../../web/dist");
+    // Post-refactor layout: UI lives under satellite/web (sibling of this crate).
+    // Keep assets/web as a fallback for packaged CLI trees that vendor the dist.
+    let repo_web_dir = manifest_dir.join("../web/dist");
     let packaged_web_dir = manifest_dir.join("assets/web");
     let web_dir = if repo_web_dir.exists() {
         repo_web_dir

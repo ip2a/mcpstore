@@ -484,7 +484,7 @@ function LaunchSettingsDialog({
   )
 }
 
-/** Narrative narrative markers for the latest-call story. */
+/** Narrative markers for the latest-call story. */
 type NarrativeKind = "muted" | "emphasis" | "ok" | "error" | "detail"
 
 function NarrativeMarker({ kind }: { kind: NarrativeKind }) {

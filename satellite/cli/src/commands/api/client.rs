@@ -745,8 +745,8 @@ pub(crate) fn refresh_wired_urls(state: &ApiState) {
 }
 
 /// Entry URL host for wired clients: the address an agent can actually dial
-/// the gateway at ( gatewayOf — generate the entry per where the agent
-/// reaches the gateway, not where the gateway happens to bind). A loopback
+/// the gateway at (generate the entry per where the agent reaches the
+/// gateway, not where the gateway happens to bind). A loopback
 /// bind serves 127.0.0.1; an all-interfaces bind serves the machine's
 /// primary LAN address; an explicit host passes through untouched.
 fn gateway_entry_host(gateway_host: &str) -> String {

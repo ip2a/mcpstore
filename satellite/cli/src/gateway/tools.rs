@@ -711,13 +711,30 @@ pub(super) fn service_tool(
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
-pub(super) fn build_search_tools() -> HashMap<String, Tool> {
-    [kv_tool(
-        SEARCH_TOOL,
-        "Search visible MCPStore tools by keyword (BM25). Returns up to top_k matching tool names with relevance scores; call a returned name with a normal tool call. Prefer this over scanning the full tool list when the catalog is large.",
-        search_schema(),
-        true,
-    )]
+/// The three catalog-search helpers. The definitions never change; which of
+/// them a mount publishes is decided per snapshot by the activation truth
+/// table in `search.rs` (allowed + that kind's visible catalog >= 10).
+pub(super) fn build_search_helpers() -> HashMap<String, Tool> {
+    [
+        kv_tool(
+            SEARCH_TOOLS_HELPER,
+            "Find visible tools on this gateway mount by keyword. Returns the best-matching public tool names; call a returned name with a normal tools/call. Prefer this over reading the full tools/list when the catalog is large.",
+            search_schema(),
+            true,
+        ),
+        kv_tool(
+            SEARCH_PROMPT_HELPER,
+            "Find visible prompts on this gateway mount by keyword. Returns the best-matching public prompt names; fetch a returned name with prompts/get, passing the arguments declared by prompts/list.",
+            search_schema(),
+            true,
+        ),
+        kv_tool(
+            SEARCH_RESOURCE_HELPER,
+            "Find visible resources and resource templates on this gateway mount by keyword. Read a returned resource uri with resources/read; a template hit returns its uriTemplate for reference and cannot be read directly.",
+            search_schema(),
+            true,
+        ),
+    ]
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
     .collect()
@@ -907,16 +924,19 @@ pub(super) fn search_schema() -> Map<String, Value> {
         "query".to_string(),
         serde_json::json!({
             "type": "string",
-            "description": "Keyword query. Lowercased and split on non-alphanumeric runs; matched against tool name (highest weight), description, and input_schema property names/descriptions via BM25."
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Keyword query, 1-500 characters after trimming. Matched against public names, titles, descriptions, parameter names and descriptions, and public URIs via BM25 (English tokens and Chinese character bigrams)."
         }),
     );
     properties.insert(
-        "top_k".to_string(),
+        "limit".to_string(),
         serde_json::json!({
             "type": "integer",
             "minimum": 1,
-            "default": 10,
-            "description": "Maximum number of matches to return. Defaults to 10."
+            "maximum": 20,
+            "default": 5,
+            "description": "Maximum number of matches to return. Defaults to 5."
         }),
     );
     object_schema(properties, &["query"])
@@ -1866,9 +1886,9 @@ pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
 /// no call-time hint and fall through to None (the CLI hint from
 /// FailureCode::hint is used instead — it names a user action the agent can
 /// pass along).
-/// Timeout ladder (: 40 list < 50 call < 60 client). The store's
-/// upstream deadline (30s, `CALL_DEADLINE` in `service/remote_call.rs`)
-/// fires first and its error is translated by `llm_error_result`; this
+/// Timeout ladder (40 list < 50 call < 60 client). The store's upstream
+/// deadline (30s, `CALL_DEADLINE` in `service/remote_call.rs`) fires first
+/// and its error is translated by `llm_error_result`; this
 /// gateway budget is the outer belt for store-layer hangs, so the agent
 /// gets an actionable error instead of a raw client drop; the agent SDK's
 /// own timeout (typically 60s) comes last. tools/list carries no budget by
