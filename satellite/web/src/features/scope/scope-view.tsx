@@ -4,7 +4,6 @@ import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { AgentIdPicker } from "@/components/shared/agent-id-picker"
-import { FlutedGlassBackground } from "@/components/shared/fluted-glass-background"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -57,10 +56,10 @@ const SCOPE_STATUS_ORDER: ServiceDisplayStatus[] = [
 ]
 
 const SCOPE_STATUS_COLOR: Record<ServiceDisplayStatus, string> = {
-  connected: "text-emerald-200",
-  connecting: "text-amber-200",
-  disconnected: "text-white/70",
-  error: "text-red-200",
+  connected: "text-emerald-500",
+  connecting: "text-amber-500",
+  disconnected: "text-muted-foreground",
+  error: "text-destructive",
 }
 
 const SCOPE_LIST_GRID_CLASSNAME =
@@ -427,9 +426,10 @@ function ScopeListCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-white/15 bg-[#073d69] p-4 text-center",
-        "shadow-[0_14px_28px_-20px_rgba(2,8,32,0.55)] transition-[border-color,box-shadow] duration-[400ms]",
-        "hover:z-10 hover:border-white/35 hover:shadow-[0_18px_36px_-18px_rgba(2,8,32,0.7)]",
+        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-center",
+        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
+        "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
+        "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
       )}
       onClick={onSelect}
       onKeyDown={(event) => {
@@ -439,16 +439,15 @@ function ScopeListCard({
         }
       }}
     >
-      <FlutedGlassBackground />
-      <div className="relative z-[1] flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-1 drop-shadow-[0_1px_3px_rgba(0,19,46,0.35)]">
-        <span className="line-clamp-3 font-mono text-xl font-bold leading-snug tracking-tight text-white">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-1">
+        <span className="line-clamp-3 font-mono text-xl font-bold leading-snug tracking-tight text-foreground">
           {title}
         </span>
         {statusCounts.length ? (
           <p className="line-clamp-2 text-xs lowercase leading-5">
             {statusCounts.map(({ status, count }, index) => (
               <span key={status}>
-                {index > 0 ? <span className="text-white/50"> · </span> : null}
+                {index > 0 ? <span className="text-muted-foreground"> · </span> : null}
                 <span className={SCOPE_STATUS_COLOR[status]}>
                   {count} {t(SERVICE_STATUS_LABEL_KEYS[status])}
                 </span>
@@ -456,7 +455,7 @@ function ScopeListCard({
             ))}
           </p>
         ) : (
-          <p className="text-xs text-white/70">
+          <p className="text-xs text-muted-foreground">
             {services.length} {t("services")}
           </p>
         )}
