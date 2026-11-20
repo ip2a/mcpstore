@@ -510,7 +510,7 @@ function ThemeSettingsRow() {
           label={t("theme")}
         />
       ) : (
-        <div className="h-[5.8rem] w-[9.5rem]" aria-hidden />
+        <div className="h-9 w-[calc(3rem*1.6439)]" aria-hidden />
       )}
     </SettingsRow>
   )

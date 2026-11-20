@@ -52,5 +52,9 @@ export function FocusThemeSwitch({
     return () => el.removeEventListener("change", onChange)
   }, [label, onCheckedChange])
 
-  return <focus-switch ref={ref} />
+  return (
+    <div className="focus-theme-switch">
+      <focus-switch ref={ref} />
+    </div>
+  )
 }

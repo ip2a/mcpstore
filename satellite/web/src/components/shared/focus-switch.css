@@ -1,8 +1,20 @@
+/* Layout slot stays h-9 so SettingsRow height matches Language; switch paints larger into row padding. */
+.focus-theme-switch {
+  position: relative;
+  height: 2.25rem;
+  width: calc(3rem * 1.6439);
+  flex-shrink: 0;
+}
+
 focus-switch {
   display: block;
-  position: relative;
-  width: 9.5rem;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  height: 3rem;
+  width: calc(3rem * 1.6439);
   aspect-ratio: 1.6439;
+  transform: translateY(-50%);
 }
 
 focus-switch canvas {
