@@ -223,7 +223,7 @@ pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> S
     format!("{}__{instance_id}", service_namespace(service_name))
 }
 
-/// Cap tool names at this many bytes, matching magpie's hub projection.
+/// Cap tool names at this many bytes for hub projection.
 pub(super) const MAX_TOOL_NAME: usize = 64;
 
 /// Resolve the exposed tool name: `<service>__<tool>`, 64-byte rune-safe

@@ -32,7 +32,6 @@
 !/README_*.md
 !/install.sh
 !/platforms.toml
-!/paseo.json
 
 # README documentation assets (screenshots).
 !docs/

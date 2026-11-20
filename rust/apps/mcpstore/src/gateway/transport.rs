@@ -73,7 +73,7 @@ pub(super) async fn build_tool_bindings(
         let exposed_name = if namespace_tools
             || names.get(&original_name).copied().unwrap_or_default() > 1
         {
-            // ponytail: magpie-style tool naming — <server>__<tool>, unsafe chars → '-',
+            // ponytail: namespaced tool naming — <server>__<tool>, unsafe chars → '-',
             // 64-byte rune-safe truncation, collision suffix (_2, _3, …) budget within 64.
             exposed_tool_name(&service_name, &original_name, &mut taken)
         } else {

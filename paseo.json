@@ -1,8 +1,0 @@
-{
-  "worktree": {
-    "setup": [
-      "sh \"$PASEO_SOURCE_CHECKOUT_PATH/local/paseo-worktree-setup.sh\" || echo '[setup] Private setup script missing, skipping'",
-      "cargo fetch --manifest-path rust/apps/mcpstore/Cargo.toml"
-    ]
-  }
-}
