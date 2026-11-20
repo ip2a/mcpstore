@@ -3147,7 +3147,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "sse-stream",
+ "sse-stream 0.3.0",
  "thiserror 2.0.18",
  "tokio",
  "toml 0.8.2",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-tauri"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -4768,7 +4768,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "sse-stream",
+ "sse-stream 0.2.6",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -5596,15 +5596,31 @@ dependencies = [
 
 [[package]]
 name = "sse-stream"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39f24a9b78c40b90817bbcd1821c74ddfd74916aadd29403d001532a9195532d"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
 dependencies = [
  "bytes",
  "futures-util",
  "http-body",
  "http-body-util",
  "pin-project-lite",
+]
+
+[[package]]
+name = "sse-stream"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d385160fc0fba84f7b9cc8ef3263e410d0e3ca7ab4927f1356df33145ace69a4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body",
+ "http-body-util",
+ "memchr",
+ "pin-project-lite",
+ "simdutf8",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

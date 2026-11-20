@@ -39,7 +39,7 @@ iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
 url = "2.5"
 futures = "0.3"
-sse-stream = "0.2.4"
+sse-stream = "0.3.0"
 base64 = "0.22"
 regex = "1.11"
 email_address = { version = "0.2.9", default-features = false }
