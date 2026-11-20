@@ -33,7 +33,6 @@
 !/install.sh
 !/platforms.toml
 
-
 # README documentation assets (screenshots).
 !docs/
 !docs/assets/
