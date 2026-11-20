@@ -29,6 +29,13 @@ const DESIGN_MIN_INNER_HEIGHT: f64 = 480.0;
 const DEFAULT_INNER_WIDTH: f64 = 1048.0;
 const DEFAULT_INNER_HEIGHT: f64 = 720.0;
 
+/// Loopback hosts that must bypass HTTP(S)_PROXY. The desktop shell and its
+/// sidecar talk to the local panel/daemon over 127.0.0.1; a user-wide proxy
+/// (Clash/Surge/etc.) that also captures loopback makes health checks and the
+/// WebView look "blank" even though the panel is fine. External hosts (GitHub,
+/// plugin marketplaces, remote MCP) stay on the user's proxy.
+const LOOPBACK_NO_PROXY_HOSTS: &[&str] = &["127.0.0.1", "localhost", "::1"];
+
 #[derive(Clone, Copy)]
 struct MinInnerSize {
     width: f64,
@@ -60,7 +67,11 @@ fn panel_url(app: &AppHandle) -> Result<String> {
             .map_err(|error| anyhow!("failed to load config.toml: {error}"))?
             .web;
         let url = format!("http://127.0.0.1:{}", web.port);
-        let client = Client::new();
+        // Health checks are loopback-only; never send them through a user proxy.
+        let client = Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|error| anyhow!("failed to build panel probe client: {error}"))?;
         if client
             .get(format!("{url}/api/health"))
             .send()
@@ -127,6 +138,9 @@ fn spawn_sidecar(
     if let Some(dir) = current_dir {
         command.current_dir(dir);
     }
+    // Re-assert on the child even though the parent already primed env: some
+    // launch paths (Finder vs terminal) inherit different proxy settings.
+    apply_loopback_no_proxy_to_command(&mut command);
     Ok(command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
@@ -171,6 +185,8 @@ fn apply_min_inner_size(window: &WebviewWindow) {
 }
 
 fn prime_desktop_environment() {
+    ensure_loopback_no_proxy();
+
     #[cfg(not(target_os = "windows"))]
     {
         if let Some(shell_path) = read_login_shell_path() {
@@ -179,6 +195,47 @@ fn prime_desktop_environment() {
                 std::env::set_var("PATH", merged);
             }
         }
+    }
+}
+
+/// Merge loopback bypass hosts into NO_PROXY / no_proxy without wiping the
+/// caller's existing exceptions (corp domains, etc.).
+fn merge_no_proxy_value(existing: Option<&str>) -> String {
+    let mut merged = Vec::new();
+    let mut seen = HashSet::new();
+
+    for host in LOOPBACK_NO_PROXY_HOSTS
+        .iter()
+        .copied()
+        .chain(
+            existing
+                .into_iter()
+                .flat_map(|value| value.split(','))
+                .map(str::trim)
+                .filter(|part| !part.is_empty()),
+        )
+    {
+        let key = host.to_ascii_lowercase();
+        if seen.insert(key) {
+            merged.push(host.to_string());
+        }
+    }
+
+    merged.join(",")
+}
+
+fn ensure_loopback_no_proxy() {
+    for key in ["NO_PROXY", "no_proxy"] {
+        let current = std::env::var(key).ok();
+        let merged = merge_no_proxy_value(current.as_deref());
+        std::env::set_var(key, merged);
+    }
+}
+
+fn apply_loopback_no_proxy_to_command(command: &mut Command) {
+    for key in ["NO_PROXY", "no_proxy"] {
+        let current = std::env::var(key).ok();
+        command.env(key, merge_no_proxy_value(current.as_deref()));
     }
 }
 
@@ -316,4 +373,25 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running mcpstore tauri app");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_no_proxy_value;
+
+    #[test]
+    fn merge_no_proxy_adds_loopback_hosts() {
+        assert_eq!(
+            merge_no_proxy_value(None),
+            "127.0.0.1,localhost,::1"
+        );
+    }
+
+    #[test]
+    fn merge_no_proxy_preserves_existing_entries() {
+        assert_eq!(
+            merge_no_proxy_value(Some("*.corp.example, localhost, github.com")),
+            "127.0.0.1,localhost,::1,*.corp.example,github.com"
+        );
+    }
 }
