@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 mcpstore-cli = { path = "../../cli" }
 anyhow = "1.0"
-dirs = "6.0"
+dirs = "7.0"
 reqwest = { version = "0.12", features = ["json"] }
 tauri = { version = "2", features = [] }
 # Required by the tauri::generate_context! macro expansion, not by hand-written code.
