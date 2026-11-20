@@ -137,7 +137,7 @@ pub async fn serve_react_app(request: axum::extract::Request) -> Response {
     if !has_assets() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "mcpstore web assets are missing. Run `cd web && npm run build` before building or set MCPSTORE_WEB_ASSETS_DIR.",
+            "mcpstore web assets are missing. Run `cd satellite/web && npm run build` before building or set MCPSTORE_WEB_ASSETS_DIR.",
         )
             .into_response();
     }
