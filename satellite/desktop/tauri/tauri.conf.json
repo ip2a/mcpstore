@@ -14,7 +14,11 @@
     "active": true,
     "targets": [
       "app",
-      "dmg"
+      "dmg",
+      "msi",
+      "nsis",
+      "deb",
+      "appimage"
     ],
     "externalBin": [
       "binaries/mcpstore"

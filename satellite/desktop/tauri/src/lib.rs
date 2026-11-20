@@ -343,18 +343,20 @@ pub fn run() {
                 width: DEFAULT_INNER_WIDTH as u32,
                 height: DEFAULT_INNER_HEIGHT as u32,
             };
-            let window = WebviewWindowBuilder::new(
+            let builder = WebviewWindowBuilder::new(
                 app,
                 "main",
                 WebviewUrl::External(url.parse().expect("desktop URL is valid")),
             )
-            .title("mcpstore")
-            .hidden_title(true)
-            .inner_size(initial_state.width as f64, initial_state.height as f64)
-            .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, DESIGN_MIN_INNER_HEIGHT)
-            .zoom_hotkeys_enabled(false)
-            .center()
-            .build()?;
+            .title("mcpstore");
+            #[cfg(target_os = "macos")]
+            let builder = builder.hidden_title(true);
+            let window = builder
+                .inner_size(initial_state.width as f64, initial_state.height as f64)
+                .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, DESIGN_MIN_INNER_HEIGHT)
+                .zoom_hotkeys_enabled(false)
+                .center()
+                .build()?;
 
             apply_min_inner_size(&window);
 

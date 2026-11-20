@@ -6,18 +6,21 @@ use tokio::net::TcpStream;
 
 /// Kernel RPC stream: local Unix socket or authenticated TCP.
 pub enum HostStreamInner {
+    #[cfg(unix)]
     Unix(tokio::net::UnixStream),
     Tcp(tokio::net::TcpStream),
 }
 
 #[derive(Debug)]
 pub enum HostStreamOwnedRead {
+    #[cfg(unix)]
     Unix(tokio::net::unix::OwnedReadHalf),
     Tcp(tokio::net::tcp::OwnedReadHalf),
 }
 
 #[derive(Debug)]
 pub enum HostStreamOwnedWrite {
+    #[cfg(unix)]
     Unix(tokio::net::unix::OwnedWriteHalf),
     Tcp(tokio::net::tcp::OwnedWriteHalf),
 }
@@ -25,6 +28,7 @@ pub enum HostStreamOwnedWrite {
 impl HostStreamInner {
     pub fn into_split(self) -> (HostStreamOwnedRead, HostStreamOwnedWrite) {
         match self {
+            #[cfg(unix)]
             Self::Unix(stream) => {
                 let (read, write) = stream.into_split();
                 (
@@ -43,6 +47,7 @@ impl HostStreamInner {
     }
 }
 
+#[cfg(unix)]
 impl From<tokio::net::UnixStream> for HostStreamInner {
     fn from(value: tokio::net::UnixStream) -> Self {
         Self::Unix(value)
@@ -62,6 +67,7 @@ impl tokio::io::AsyncRead for HostStreamOwnedRead {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         match &mut *self {
+            #[cfg(unix)]
             Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
             Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
         }
@@ -75,6 +81,7 @@ impl tokio::io::AsyncWrite for HostStreamOwnedWrite {
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
         match &mut *self {
+            #[cfg(unix)]
             Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
             Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
         }
@@ -85,6 +92,7 @@ impl tokio::io::AsyncWrite for HostStreamOwnedWrite {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         match &mut *self {
+            #[cfg(unix)]
             Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
             Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
         }
@@ -95,6 +103,7 @@ impl tokio::io::AsyncWrite for HostStreamOwnedWrite {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         match &mut *self {
+            #[cfg(unix)]
             Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
             Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
         }
@@ -142,8 +151,16 @@ pub async fn connect_endpoint() -> Result<HostStream, Error> {
     }
     #[cfg(not(unix))]
     {
-        let address = crate::daemon::protocol::default_endpoint_address();
-        tokio::net::TcpStream::connect(&address)
+        // The server publishes its actual port, even when configured to bind port 0.
+        let path = crate::daemon::protocol::default_endpoint_path();
+        let address = std::fs::read_to_string(&path).map_err(|error| {
+            Error::new(
+                FailureCode::ConnectionRefused,
+                format!("failed to read KernelHost endpoint {}: {error}", path.display()),
+            )
+        })?;
+        let address = local_socket_address(address.trim())?;
+        tokio::net::TcpStream::connect(address)
             .await
             .map_err(|error| {
                 Error::new(
@@ -151,6 +168,7 @@ pub async fn connect_endpoint() -> Result<HostStream, Error> {
                     format!("failed to connect to KernelHost {address}: {error}"),
                 )
             })
+            .map(Into::into)
     }
 }
 
@@ -166,9 +184,31 @@ pub async fn connect_tcp_endpoint(address: &str) -> Result<HostStream, Error> {
         .map(Into::into)
 }
 
+#[cfg(any(not(unix), test))]
+fn local_socket_address(value: &str) -> Result<std::net::SocketAddr, Error> {
+    value
+        .parse::<std::net::SocketAddr>()
+        .ok()
+        .filter(|address| address.ip().is_loopback())
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::ConfigInvalid,
+                format!("KernelHost local endpoint must be a loopback IP and port: {value}"),
+            )
+        })
+}
+
+#[cfg(test)]
+#[test]
+fn local_listener_only_accepts_loopback_addresses() {
+    assert!(local_socket_address("127.0.0.1:0").is_ok());
+    assert!(local_socket_address("[::1]:1820").is_ok());
+    assert!(local_socket_address("0.0.0.0:1820").is_err());
+}
+
 impl HostListener {
     #[cfg(unix)]
-    pub fn bind() -> Result<(Self, BoundEndpoint), Error> {
+    pub async fn bind() -> Result<(Self, BoundEndpoint), Error> {
         let path = crate::daemon::protocol::default_socket_path();
         let listener = tokio::net::UnixListener::bind(&path).map_err(|error| {
             Error::new(
@@ -189,9 +229,9 @@ impl HostListener {
     }
 
     #[cfg(not(unix))]
-    pub fn bind() -> Result<(Self, BoundEndpoint), Error> {
-        let address = crate::daemon::protocol::default_endpoint_address();
-        let listener = tokio::net::TcpListener::bind(&address)
+    pub async fn bind() -> Result<(Self, BoundEndpoint), Error> {
+        let address = local_socket_address(&crate::daemon::protocol::default_endpoint_address())?;
+        let listener = tokio::net::TcpListener::bind(address)
             .await
             .map_err(|error| {
                 Error::new(
