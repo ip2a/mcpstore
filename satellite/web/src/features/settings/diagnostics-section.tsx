@@ -36,8 +36,6 @@ export function DiagnosticsSection({
 
   return (
     <div className="flex flex-col gap-6 py-2">
-      <p className="px-0.5 text-xs text-muted-foreground">{t("diagnosticsRestartNotice")}</p>
-
       <Group title={t("diagnosticsRuntimeLog")}>
         <Toggle
           title={enabled(t("diagnosticsRuntimeLog"))}

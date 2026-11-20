@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { DatabaseIcon, FileTextIcon, PlusIcon } from "lucide-react"
+import { ChevronRightIcon, DownloadIcon, PlusIcon, RotateCwIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
+import { AsciiOceanBackground } from "@/components/shared/ascii-ocean-background"
 import { FocusThemeSwitch } from "@/components/shared/focus-switch"
 import { PanelCard } from "@/components/shared/panel-card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   WORKSPACE_TABS_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
@@ -15,7 +17,6 @@ import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
-import { MarkIcon } from "@/components/shared/mark-icon"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -51,11 +52,10 @@ import {
   formatReleaseVersion,
   isDesktopShell,
   ResetWindowSizeButton,
-  UpdateButton,
   useAppUpdater,
   useAppVersionLabel,
+  type UpdaterPhase,
 } from "@/features/settings/updater"
-import { EXPOSE_KEYS } from "@/features/clients/clients-view"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { useKvHealthQuery } from "@/features/kv/queries"
 import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
@@ -236,6 +236,14 @@ export function SettingsView() {
                       </Select>
                     </SettingsRow>
                     <ThemeSettingsRow />
+                    {isDesktopShell ? (
+                      <SettingsRow
+                        title={t("resetDefaultWindowSize")}
+                        description={t("resetDefaultWindowSizeDescription")}
+                      >
+                        <ResetWindowSizeButton />
+                      </SettingsRow>
+                    ) : null}
                   </SettingsSection>
 
                   <SettingsSection title={t("serviceTabsPrefsLabel")}>
@@ -288,7 +296,6 @@ export function SettingsView() {
                       description={configFile?.path || t("configFileMissing")}
                     >
                       <Button size="sm" variant="outline" onClick={() => setConfigOpen(true)}>
-                        <FileTextIcon data-icon="inline-start" />
                         {t("view")}
                       </Button>
                     </SettingsRow>
@@ -302,7 +309,15 @@ export function SettingsView() {
               className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             >
               <ScrollPane className="flex-1" innerClassName="px-4 py-4">
-                <ConnectionSection draft={draft} patchDraft={patchDraft} />
+                <section className="flex flex-col gap-6">
+                  <SettingsSection
+                    title={t("coreBackendStartupTitle")}
+                  >
+                    <ListenPortFields draft={draft} patchDraft={patchDraft} />
+                    <PanelAuthField draft={draft} patchDraft={patchDraft} />
+                  </SettingsSection>
+                  <ConnectionSection draft={draft} patchDraft={patchDraft} />
+                </section>
               </ScrollPane>
             </TabsContent>
 
@@ -328,22 +343,11 @@ export function SettingsView() {
             >
               <ScrollPane className="flex-1" innerClassName="px-4 py-4">
                 <section className="flex flex-col gap-6">
-                  <SettingsSection title={t("switchKvStorage")}>
+                  <SettingsSection title="KvStore">
                     <KvSettingsSection />
                   </SettingsSection>
 
-                  <SettingsSection
-                    title={t("coreBackendStartupTitle")}
-                    description={t("coreBackendStartupDescription")}
-                  >
-                    <ListenPortFields draft={draft} patchDraft={patchDraft} />
-                    <PanelAuthField draft={draft} patchDraft={patchDraft} />
-                  </SettingsSection>
-
-                  <SettingsSection
-                    title={t("managementMcp")}
-                    description={t("managementMcpUnavailable")}
-                  >
+                  <SettingsSection title={t("managementMcp")}>
                     <ToggleField
                       title={t("managementMcpEnabled")}
                       description={t("managementMcpEnabledDescription")}
@@ -351,21 +355,6 @@ export function SettingsView() {
                       disabled
                       onCheckedChange={() => {}}
                     />
-                    <SettingsRow
-                      title={t("managementMcpFamilies")}
-                      description={t("managementMcpFamiliesDescription")}
-                    >
-                      <div className="flex max-w-md flex-wrap justify-end gap-1.5">
-                        {EXPOSE_KEYS.map((key) => (
-                          <span
-                            key={key}
-                            className="rounded-md border border-border/60 px-2 py-1 font-mono text-xs text-muted-foreground"
-                          >
-                            {key}
-                          </span>
-                        ))}
-                      </div>
-                    </SettingsRow>
                   </SettingsSection>
                 </section>
               </ScrollPane>
@@ -373,64 +362,46 @@ export function SettingsView() {
 
             <TabsContent
               value="about"
-              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              className="relative mt-0 flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent"
             >
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+              <AsciiOceanBackground />
+              <ScrollPane
+                className="relative z-10 min-h-0 flex-1 bg-transparent"
+                innerClassName="px-4 py-2"
+              >
                 <section className="flex flex-col gap-5">
                   <McpstoreAsciiBanner />
-                  <div className="flex items-start justify-between gap-4">
-                    <p className="text-sm text-muted-foreground">{t("settingsDescription")}</p>
-                    <MarkIcon className="size-8 shrink-0" />
-                  </div>
-                  <div className="divide-y">
-                    <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
-                    <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
-                    {isDesktopShell ? (
-                      <>
-                        <AboutRow
-                          label={
-                            updateAvailable
-                              ? t("updateAvailable", { version: `v${updateAvailable}` })
-                              : t("checkUpdates")
-                          }
-                          action={
-                            <UpdateButton
-                              phase={phase}
-                              progress={progress}
-                              onCheck={() => void checkForUpdate()}
-                              onRestart={restartToUpdate}
-                            />
-                          }
-                        />
-                        <AboutRow
-                          label={t("resetDefaultWindowSize")}
-                          action={<ResetWindowSizeButton />}
-                        />
-                      </>
-                    ) : null}
-                    <AboutRow
-                      label={t("github")}
-                      href="https://github.com/ip2a/mcpstore"
-                      value="https://github.com/ip2a/mcpstore"
-                    />
-                    <AboutRow
-                      label={t("rustCrate")}
-                      href="https://crates.io/crates/mcpstore"
-                      value="https://crates.io/crates/mcpstore"
-                    />
-                    <AboutRow
-                      label={t("pythonPackage")}
-                      href="https://pypi.org/project/mcpstore/"
-                      value="https://pypi.org/project/mcpstore/"
-                    />
-                    <AboutRow
-                      label={t("npmPackage")}
-                      href="https://www.npmjs.com/package/@ip2a/mcpstore"
-                      value="https://www.npmjs.com/package/@ip2a/mcpstore"
+                  <div className="flex flex-col gap-2">
+                    <div className="px-0.5">
+                      <h3 className="text-sm font-medium text-foreground">
+                        {t("aboutMcpstore")}
+                      </h3>
+                    </div>
+                    <AboutVersionCard
+                      version={appVersion}
+                      phase={phase}
+                      progress={progress}
+                      updateAvailable={updateAvailable}
+                      onCheck={() => void checkForUpdate()}
+                      onRestart={restartToUpdate}
                     />
                   </div>
                 </section>
               </ScrollPane>
+              <div className="relative z-10 flex shrink-0 flex-col items-center gap-2 px-4 pb-3 pt-1">
+                <p className="text-sm text-muted-foreground">
+                  {t("poweredBy")}{" "}
+                  <a
+                    href="https://crates.io/crates/mcpstore"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    mcpstore
+                  </a>
+                </p>
+                <AboutSocialLinks />
+              </div>
             </TabsContent>
           </Tabs>
         ) : (
@@ -482,8 +453,7 @@ function KvSettingsSection() {
   return (
     <SettingsRow title={t("switchKvStorage")} description={t("currentKvStorage", { store: storeName })}>
       <Button size="sm" variant="outline" onClick={() => setKvDialogOpen(true)}>
-        <DatabaseIcon data-icon="inline-start" />
-        {t("switchKvStore")}
+        {t("switch")}
       </Button>
     </SettingsRow>
   )
@@ -541,34 +511,145 @@ function ToggleField({
   )
 }
 
-function AboutRow({
-  href,
-  label,
-  value,
-  action,
+function AboutVersionCard({
+  version,
+  phase,
+  progress,
+  updateAvailable,
+  onCheck,
+  onRestart,
 }: {
-  href?: string
-  label: string
-  value?: string
-  action?: ReactNode
+  version: string | null
+  phase: UpdaterPhase
+  progress: number
+  updateAvailable: string | null
+  onCheck: () => void
+  onRestart: () => void
 }) {
+  const { t } = useI18n()
+  const busy = phase === "checking" || phase === "downloading"
+  const ready = phase === "ready"
+  const latest = phase === "latest"
+
+  const statusText =
+    phase === "checking"
+      ? t("checkingForUpdates")
+      : phase === "downloading"
+        ? t("downloadingUpdate", { progress: `${progress}%` })
+        : ready
+          ? t("updateReadyNotice")
+          : latest
+            ? t("upToDate")
+            : updateAvailable
+              ? t("updateAvailable", { version: formatReleaseVersion(updateAvailable) })
+              : null
+
+  const buttonLabel = ready
+    ? t("updateNow")
+    : phase === "downloading"
+      ? t("downloadingUpdate", { progress: `${progress}%` })
+      : phase === "checking"
+        ? t("checkingForUpdates")
+        : latest
+          ? t("updateLatest")
+          : t("checkUpdates")
+
   return (
-    <div className="flex min-w-0 items-center justify-between gap-4 py-3">
-      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
-      {action ? (
-        action
-      ) : href ? (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-card px-8 py-3.5 shadow-xs">
+      <div className="flex min-w-0 items-center gap-4">
+        <img
+          src="/logo.png"
+          alt=""
+          className="size-10 shrink-0 rounded-lg"
+          draggable={false}
+        />
+        <div className="min-w-0 space-y-1">
+          <div className="truncate text-sm font-semibold text-foreground">mcpstore</div>
+          <p className="truncate text-xs text-muted-foreground">
+            {t("currentVersion", { version: formatReleaseVersion(version) })}
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {statusText ? (
+          <span className="hidden text-xs text-muted-foreground sm:inline">{statusText}</span>
+        ) : null}
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-md bg-foreground px-4 text-background hover:bg-foreground/90"
+          disabled={busy}
+          onClick={ready ? onRestart : onCheck}
+        >
+          {busy ? <RotateCwIcon data-icon="inline-start" className="animate-spin" /> : null}
+          {buttonLabel}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const ABOUT_SOCIAL_LINKS = [
+  {
+    id: "github",
+    href: "https://github.com/ip2a/mcpstore",
+    label: "github.com/ip2a/mcpstore",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-6 shrink-0 fill-[#333] dark:fill-foreground">
+        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+      </svg>
+    ),
+  },
+  {
+    id: "rust",
+    href: "https://crates.io/crates/mcpstore",
+    label: "crates.io/crates/mcpstore",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-6 shrink-0 fill-[#dea584]">
+        <path d="M12.9 2.1 21 6.7v10.6l-8.1 4.6L4.8 17.3V6.7l8.1-4.6zm0 1.8L6.6 7.5v8.8l6.3 3.6 6.3-3.6V7.5l-6.3-3.6zm0 2.3 3.9 2.2v1.3l-3.9 2.2-3.9-2.2V8.4l3.9-2.2zm-3.2 4.4 3.2 1.8v3.6l-3.2-1.8v-3.6zm6.4 0v3.6l3.2 1.8v-3.6l-3.2-1.8z" />
+      </svg>
+    ),
+  },
+  {
+    id: "python",
+    href: "https://pypi.org/project/mcpstore/",
+    label: "pypi.org/project/mcpstore",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-6 shrink-0 fill-[#3776ab]">
+        <path d="M12 0C5.83 0 5.39.22 5.39 5.02v1.84h6.73v.55H3.52C1.03 7.41 0 8.84 0 12.02c0 3.26 1.1 4.63 3.93 4.63h2.25V14.4c0-2.61 2.25-4.89 4.89-4.89h5.94c2.17 0 3.93-1.8 3.93-3.97V5.02C20.94.2 19.77 0 12 0zm-3.3 2.18c.68 0 1.23.55 1.23 1.23S9.38 4.64 8.7 4.64s-1.23-.55-1.23-1.23.55-1.23 1.23-1.23zM20.07 7.97v2.11c0 2.72-2.31 5.05-5.05 5.05H9.08c-2.17 0-3.93 1.85-3.93 4.02v2.83C5.15 23.8 6.72 24 12 24c6.2 0 6.61-.23 6.61-5.02v-1.84h-6.67v-.55h8.54c2.49 0 3.52-1.37 3.52-4.55 0-3.26-1.1-4.63-3.93-4.63zm-3.34 12.54c.68 0 1.23.55 1.23 1.23s-.55 1.23-1.23 1.23-1.23-.55-1.23-1.23.55-1.23 1.23-1.23z" />
+      </svg>
+    ),
+  },
+  {
+    id: "npm",
+    href: "https://www.npmjs.com/package/@ip2a/mcpstore",
+    label: "@ip2a/mcpstore",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-6 shrink-0 fill-[#cb3837]">
+        <path d="M0 7.334v8h6.666v1.332H12v-1.332h12v-8zm6.666 6.664H5.334v-4H3.999v4H1.335V8.667h5.331zm4 0v1.336H8.001V8.667h5.334v5.331zm12 0h-1.33v-4h-1.336v4h-1.335v-4h-1.33v4h-2.671V8.667h8.002zM10.665 10H12v2.667h-1.335z" />
+      </svg>
+    ),
+  },
+] as const
+
+function AboutSocialLinks() {
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {ABOUT_SOCIAL_LINKS.map((link) => (
         <a
-          href={href}
+          key={link.id}
+          href={link.href}
           target="_blank"
           rel="noreferrer"
-          className="min-w-0 truncate text-sm font-medium hover:underline"
+          title={link.label}
+          className="group flex h-12 w-12 items-center justify-center overflow-hidden rounded-[10px] bg-transparent text-foreground transition-all duration-300 hover:w-[18rem] hover:rounded-md"
         >
-          {value}
+          {link.icon}
+          <span className="ml-0 w-0 overflow-hidden text-center text-sm font-medium whitespace-nowrap opacity-0 transition-all duration-300 group-hover:ml-1.5 group-hover:w-48 group-hover:opacity-100">
+            {link.label}
+          </span>
         </a>
-      ) : (
-        <span className="min-w-0 truncate text-sm font-medium">{value}</span>
-      )}
+      ))}
     </div>
   )
 }
@@ -585,7 +666,6 @@ function ListenPortFields({
     <>
       <SettingsRow
         title={t("defaultBackendPort")}
-        description={t("defaultBackendPortDescription")}
       >
         <InputGroup className={compactInputGroupClass}>
           <InputGroupInput
@@ -601,7 +681,6 @@ function ListenPortFields({
       </SettingsRow>
       <SettingsRow
         title={t("defaultFrontendPort")}
-        description={t("defaultFrontendPortDescription")}
       >
         <InputGroup className={compactInputGroupClass}>
           <InputGroupInput
@@ -628,7 +707,7 @@ function PanelAuthField({
 }) {
   const { t } = useI18n()
   return (
-    <SettingsRow title={t("panelAuthSetting")} description={t("panelAuthSettingDescription")}>
+    <SettingsRow title={t("panelAuthSetting")}>
       <Switch
         checked={draft.web.auth}
         onCheckedChange={(checked) => patchDraft({ web: { ...draft.web, auth: checked } })}
@@ -753,6 +832,7 @@ function ConnectionSection({
   const [editUrls, setEditUrls] = useState("")
   const [statuses, setStatuses] = useState<Record<string, HostStatus>>({})
   const [checking, setChecking] = useState<Record<string, boolean>>({})
+  const [hostsOpen, setHostsOpen] = useState(false)
 
   function patchHosts(
     nextEntries: Record<string, { urls: string[] }>,
@@ -915,7 +995,7 @@ function ConnectionSection({
   }
 
   return (
-    <section className="flex flex-col gap-6">
+    <>
       <SettingsSection title={t("connection")}>
         {hosts.map((host) => {
           const isEditing = editingName === host.name
@@ -967,6 +1047,26 @@ function ConnectionSection({
             </SettingsRow>
           )
         })}
+        <Collapsible open={hostsOpen} onOpenChange={setHostsOpen}>
+          <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-3.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
+            <ChevronRightIcon
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground transition-transform",
+                hostsOpen && "rotate-90",
+              )}
+            />
+            {t("host")}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <button
+              type="button"
+              className="flex w-full items-center border-t border-border/60 px-4 py-3.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
+              onClick={openAddDialog}
+            >
+              {t("addHost")}
+            </button>
+          </CollapsibleContent>
+        </Collapsible>
       </SettingsSection>
 
       {editingHost ? (
@@ -1015,22 +1115,6 @@ function ConnectionSection({
           </div>
         </div>
       ) : null}
-
-      <div className="flex flex-col gap-2">
-        <h3 className="px-0.5 text-sm font-medium text-foreground">{t("host")}</h3>
-        <div className="flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-lg border border-border/60 bg-card px-4 py-6 text-center">
-          <button
-            type="button"
-            aria-label={t("addHost")}
-            className="flex size-10 items-center justify-center rounded-md border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
-            onClick={openAddDialog}
-          >
-            <PlusIcon className="size-4" />
-          </button>
-          <span className="text-sm font-medium">{t("addHost")}</span>
-          <span className="max-w-sm text-xs text-muted-foreground">{t("connectionDescription")}</span>
-        </div>
-      </div>
 
       <Dialog open={addingOpen} onOpenChange={handleAddDialogOpenChange}>
         <DialogContent className="sm:max-w-lg">
@@ -1150,6 +1234,6 @@ function ConnectionSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   )
 }

@@ -126,7 +126,7 @@ export type SettingsDraft = {
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "general", labelKey: "general" },
-  { id: "connection", labelKey: "connection" },
+  { id: "connection", labelKey: "access" },
   { id: "diagnostics", labelKey: "diagnostics" },
   { id: "advanced", labelKey: "advanced" },
   { id: "about", labelKey: "about" },

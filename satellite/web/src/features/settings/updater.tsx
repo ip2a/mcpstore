@@ -36,7 +36,7 @@ export function formatReleaseVersion(version: string | null | undefined) {
   return version.startsWith("v") ? version : `v${version}`
 }
 
-type UpdaterPhase = "idle" | "checking" | "downloading" | "ready"
+export type UpdaterPhase = "idle" | "checking" | "downloading" | "ready" | "latest"
 
 export function useAppUpdater() {
   const { t } = useI18n()
@@ -45,12 +45,18 @@ export function useAppUpdater() {
   const [update, setUpdate] = useState<Update | null>(null)
 
   const checkForUpdate = useCallback(async () => {
-    if (!isDesktopShell) return
     setPhase("checking")
+    setProgress(0)
+    if (!isDesktopShell) {
+      // Web/dev builds have no Tauri updater — treat current package as latest.
+      setPhase("latest")
+      toast.success(t("upToDate"))
+      return
+    }
     try {
       const result = await check()
       if (result == null) {
-        setPhase("idle")
+        setPhase("latest")
         toast.success(t("upToDate"))
         return
       }
