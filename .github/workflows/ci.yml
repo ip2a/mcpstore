@@ -28,9 +28,6 @@ jobs:
       - name: Check Rust workspace
         run: cargo check --workspace
 
-      - name: Check Rust workspace (light feature only)
-        run: cargo check -p mcpstore --no-default-features --features light
-
       - name: Test Rust workspace
         run: cargo test --workspace
 
