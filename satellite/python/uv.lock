@@ -76,7 +76,7 @@ wheels = [
 
 [[package]]
 name = "mcpstore"
-version = "2.3.1"
+version = "2.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic", extra = ["email"] },

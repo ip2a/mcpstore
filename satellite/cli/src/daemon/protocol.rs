@@ -24,7 +24,25 @@ pub fn default_socket_path() -> PathBuf {
 pub fn default_pid_path() -> PathBuf {
     std::env::var("MCPSTORE_PID")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp/mcpstore.pid"))
+        .unwrap_or_else(|_| default_pid_file())
+}
+
+#[cfg(unix)]
+fn default_pid_file() -> PathBuf {
+    PathBuf::from("/tmp/mcpstore.pid")
+}
+
+/// `/tmp` is not writable by default on Windows; ride the per-user temp dir.
+#[cfg(not(unix))]
+fn default_pid_file() -> PathBuf {
+    std::env::temp_dir().join("mcpstore.pid")
+}
+
+/// File where the KernelHost publishes its resolved loopback address so local
+/// clients can discover it (Unix clients discover via the socket path instead).
+#[cfg(not(unix))]
+pub fn default_endpoint_path() -> PathBuf {
+    default_pid_path().with_extension("endpoint")
 }
 
 /// Default loopback address used by the KernelHost stream transport.
@@ -305,10 +323,17 @@ pub fn is_host_running() -> bool {
     }
     #[cfg(not(unix))]
     {
-        std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string()])
+        // tasklist /FI is non-destructive (taskkill would terminate the process).
+        let Ok(output) = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
             .output()
-            .is_ok()
+        else {
+            return false;
+        };
+        // Match the quoted PID field in the CSV row; the "no tasks" notice is
+        // localized, the row shape is not.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.contains(&format!("\"{pid}\""))
     }
 }
 
@@ -318,6 +343,8 @@ pub fn cleanup_stale_files() {
         let _ = std::fs::remove_file(default_pid_path());
         #[cfg(unix)]
         let _ = std::fs::remove_file(default_socket_path());
+        #[cfg(not(unix))]
+        let _ = std::fs::remove_file(default_endpoint_path());
     }
 }
 
@@ -345,6 +372,13 @@ mod host_tests {
         assert!(!is_host_running());
         std::fs::write(&pid_path, "not-a-pid").unwrap();
         assert!(!is_host_running());
+        #[cfg(windows)]
+        {
+            std::fs::write(&pid_path, std::process::id().to_string()).unwrap();
+            assert!(is_host_running());
+            std::fs::write(&pid_path, "4294967295").unwrap();
+            assert!(!is_host_running());
+        }
         std::fs::remove_file(&pid_path).unwrap();
         assert!(!is_host_running());
 

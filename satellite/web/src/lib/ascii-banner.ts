@@ -30,3 +30,16 @@ export const ASCII_LETTERS: Record<string, string> = {
   R: letterR.trim(),
   E: letterE.trim(),
 }
+
+/** Optical kerning per letter (em). Negative pulls neighbors closer without changing glyphs. */
+export const ASCII_LETTER_KERN: Record<string, { start?: number; end?: number }> = {
+  M: { end: 0.5 },
+  C: { end: -0.06 },
+  P: { end: -0.12 },
+  S: { end: 0.08 },
+  // T stem is inset ~3 cells; pull both sides so gaps match denser letters
+  T: { start: -0.28, end: 0.3 },
+  O: { end: 0.42 },
+  R: { end: -0.06 },
+  E: {},
+}

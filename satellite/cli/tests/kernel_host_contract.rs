@@ -1,3 +1,7 @@
+// Unix-socket contract suite; the Windows daemon rides loopback TCP, so this
+// whole target compiles out on non-Unix until a TCP variant exists.
+#![cfg(unix)]
+
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;

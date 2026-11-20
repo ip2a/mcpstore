@@ -28,9 +28,9 @@ export type WorkspaceCrumb = {
   onClick?: () => void
 }
 
-/** Uppercase Latin letters so scope/tab crumbs match TabsTrigger `uppercase`. */
+/** Keep i18n/label casing as-is (TabsTrigger no longer forces uppercase). */
 export function breadcrumbUppercase(label: string): string {
-  return /[A-Za-z]/.test(label) ? label.toUpperCase() : label
+  return label
 }
 
 export function instanceScopeBreadcrumbLabel(
