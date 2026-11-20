@@ -5,8 +5,8 @@
 //! with secret/argument values collected from the user at install time.
 //!
 //! The algorithms (address normalisation, ranking, registry conversion,
-//! server-key identity) are ported from `internal/library/market.go`
-//! / `market_addr.go`; see `local/调研文档-mcp市场调研v1.md` for the design.
+//! server-key identity) follow the market design in
+//! `local/调研文档-mcp市场调研v1.md`.
 //! Icons: featured entries carry curated URLs; registry entries keep only
 //! icons published in the MCP Registry / protocol payload. Missing icons
 //! stay empty — the panel falls back to the default MCP service mark.
@@ -27,7 +27,7 @@ use super::envelope::{success, ApiResult};
 
 const REGISTRY_URL: &str = "https://registry.modelcontextprotocol.io/v0/servers";
 
-/// The registry answers slowly often enough (13-37 s,  #3043) that the
+/// The registry answers slowly often enough (13-37 s observed) that the
 /// shared HTTP client's budget is too tight; its asks get their own client.
 static REGISTRY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
@@ -197,8 +197,8 @@ fn arg_input(label: &str, description: &str, placeholder: &str) -> MarketInput {
 }
 
 /// The services the market offers first. Every one was checked: its package
-/// is published, its endpoint answers. Titles are set from the 
-/// catalogue the panel's Services tab is modelled on.
+/// is published, its endpoint answers. Titles match the catalogue the
+/// panel's Services tab is modelled on.
 static FEATURED: LazyLock<Vec<MarketService>> = LazyLock::new(|| {
     let mut list = vec![
         remote("context7", "Upstash", &github_icon("upstash"), "https://context7.com",
@@ -845,7 +845,7 @@ fn has_placeholder(s: &str) -> bool {
 
 /// How well a registry entry reads as what was searched for: what's called
 /// what was searched for first, then what says it is, with an icon and a
-/// repository. Ported from rank().
+/// repository.
 fn rank(r: &RegistryServer, m: &MarketService, q: &str) -> i32 {
     let mut s = 0;
     let short = r.name.rsplit('/').next().unwrap_or("").to_lowercase();
@@ -1390,7 +1390,7 @@ mod tests {
             addr_terms("github.com/crystaldba/postgres-mcp"),
             vec!["postgres-mcp", "crystaldba"]
         );
-        //  skips names shorter than two characters.
+        // Skip names shorter than two characters.
         assert_eq!(addr_terms("github.com/o/r"), Vec::<String>::new());
         assert_eq!(addr_terms("@scope/pkg"), vec!["pkg", "scope"]);
         assert_eq!(addr_terms("mcp.context7.com/mcp"), vec!["context7", "mcp"]);

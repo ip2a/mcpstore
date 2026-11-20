@@ -1,12 +1,12 @@
-//! Bounded reads of peer response bodies ( discipline: "reads from a
-//! peer always carry a limit" — local/调研文档 §12.3). Every HTTP body the
-//! store reads outside the rmcp transports goes through `read_body_capped`;
+//! Bounded reads of peer response bodies ("reads from a peer always carry
+//! a limit" — local/调研文档 §12.3). Every HTTP body the store reads outside
+//! the rmcp transports goes through `read_body_capped`;
 //! the rmcp transport internals carry their own limits (server request body
 //! 4 MiB, client SSE events 16 MiB) — the unbounded rmcp gaps (stdio line
 //! codec, plain JSON client responses) are upstream and tracked in the
 //! gateway hardening backlog.
 
-/// Cap for peer response bodies, 16 MiB scanner order.
+/// Cap for peer response bodies (16 MiB scanner order).
 pub(crate) const PEER_BODY_CAP: usize = 16 * 1024 * 1024;
 
 /// Stream a response body in chunks, refusing bodies that exceed `cap`.

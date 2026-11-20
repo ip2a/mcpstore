@@ -294,12 +294,12 @@ pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> S
     format!("{}__{instance_id}", service_namespace(service_name))
 }
 
-/// Cap tool names at this many bytes, matching hub projection.
+/// Cap tool names at this many bytes for hub projection.
 pub(super) const MAX_TOOL_NAME: usize = 64;
 
-/// Legacy namespaced namespaced tool name helper (kept for unit tests /
-/// reference). Live gateway projection now allows same exposed names and
-/// routes by override `weight` instead of auto-suffixing collisions.
+/// Legacy namespaced tool name helper (kept for unit tests / reference).
+/// Live gateway projection now allows same exposed names and routes by
+/// override `weight` instead of auto-suffixing collisions.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn exposed_tool_name(
     service_name: &str,

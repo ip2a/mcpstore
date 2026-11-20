@@ -5,7 +5,7 @@ use rand::RngCore;
 
 const DAEMON_ID_FILENAME: &str = "daemon-id";
 
-/// Generate a unique daemon identifier (server-id).
+/// Generate a unique daemon identifier.
 /// Format: `d_` + 9 bytes base64url (12 chars) = 14 chars total
 fn generate_daemon_id() -> String {
     let mut bytes = [0u8; 9];
@@ -18,7 +18,7 @@ fn generate_daemon_id() -> String {
 
 /// Get or create the daemon ID for this data directory.
 ///
-/// - Checks `MCPSTORE_DAEMON_ID` env var first (test override, 学 )
+/// - Checks `MCPSTORE_DAEMON_ID` env var first (test override)
 /// - Reads existing `daemon-id` file if present
 /// - Generates new ID on first run
 /// - Enforces 0600 permissions

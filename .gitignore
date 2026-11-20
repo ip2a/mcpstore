@@ -26,7 +26,6 @@
 !/README_*.md
 !/install.sh
 
-
 # README documentation assets (screenshots).
 !docs/
 !docs/assets/

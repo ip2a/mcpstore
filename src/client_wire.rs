@@ -13,7 +13,7 @@
 //! ponytail: JSON clients are serialized pretty (serde_json with preserve_order keeps
 //! key order, but indentation is normalized and JSONC comments are dropped); Codex TOML
 //! is append-only (`[mcp_servers.<name>]` table at end of file, comments preserved).
-//! A byte-level span-splice editor (approach) can replace this when loss shows.
+//! A byte-level span-splice editor can replace this when loss shows.
 
 use crate::{Error, FailureCode, Result, ScopeRef};
 use serde::{Deserialize, Serialize};

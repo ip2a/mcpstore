@@ -1886,9 +1886,9 @@ pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
 /// no call-time hint and fall through to None (the CLI hint from
 /// FailureCode::hint is used instead — it names a user action the agent can
 /// pass along).
-/// Timeout ladder (: 40 list < 50 call < 60 client). The store's
-/// upstream deadline (30s, `CALL_DEADLINE` in `service/remote_call.rs`)
-/// fires first and its error is translated by `llm_error_result`; this
+/// Timeout ladder (40 list < 50 call < 60 client). The store's upstream
+/// deadline (30s, `CALL_DEADLINE` in `service/remote_call.rs`) fires first
+/// and its error is translated by `llm_error_result`; this
 /// gateway budget is the outer belt for store-layer hangs, so the agent
 /// gets an actionable error instead of a raw client drop; the agent SDK's
 /// own timeout (typically 60s) comes last. tools/list carries no budget by
