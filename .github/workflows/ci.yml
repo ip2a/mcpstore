@@ -100,6 +100,7 @@ jobs:
         run: |
           python scripts/test_release_domains.py
           python scripts/test_wait_release_run.py
+          python scripts/test_desktop_update_manifest.py
 
       - name: Validate npm package manifests
         run: |

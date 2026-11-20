@@ -95,6 +95,7 @@ pub async fn stop() -> Result<(), BoxErr> {
 
     // Clean up stale files.
     let _ = std::fs::remove_file(pid_path);
+    #[cfg(unix)]
     let _ = std::fs::remove_file(crate::daemon::protocol::default_socket_path());
     Ok(())
 }

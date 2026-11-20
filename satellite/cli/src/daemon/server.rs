@@ -63,7 +63,12 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let pid_path = default_pid_path();
     let pid = std::process::id();
     std::fs::write(&pid_path, pid.to_string())?;
-    let (listener, endpoint) = HostListener::bind()?;
+    let (listener, endpoint) = HostListener::bind().await?;
+    #[cfg(not(unix))]
+    std::fs::write(
+        crate::daemon::protocol::default_endpoint_path(),
+        endpoint.address.as_bytes(),
+    )?;
     let state = crate::commands::api::state_for_store(Arc::clone(&store));
     state.set_telemetry(telemetry);
     let remote_listener = bind_remote_listener(&app_config).await?;
@@ -170,7 +175,10 @@ fn endpoint_cleanup_paths() -> Vec<std::path::PathBuf> {
 
 #[cfg(not(unix))]
 fn endpoint_cleanup_paths() -> Vec<std::path::PathBuf> {
-    vec![default_pid_path()]
+    vec![
+        crate::daemon::protocol::default_endpoint_path(),
+        default_pid_path(),
+    ]
 }
 
 fn cleanup_paths(paths: Vec<std::path::PathBuf>) {
