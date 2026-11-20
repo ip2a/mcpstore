@@ -10,7 +10,7 @@ export function McpstoreAsciiBanner({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md bg-muted/25 px-2 py-4",
+        "grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md bg-transparent px-2 py-4",
         className,
       )}
       style={{ ["--ascii-banner-color" as string]: bannerColor }}
