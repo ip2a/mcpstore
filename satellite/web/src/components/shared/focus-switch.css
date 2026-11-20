@@ -1,0 +1,46 @@
+focus-switch {
+  display: block;
+  position: relative;
+  width: 9.5rem;
+  aspect-ratio: 1.6439;
+}
+
+focus-switch canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  pointer-events: none;
+}
+
+focus-switch button {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 9999px;
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  color: transparent;
+}
+
+focus-switch button.drag {
+  cursor: grabbing;
+}
+
+focus-switch button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(239, 160, 44, 0.9);
+}
+
+focus-switch .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

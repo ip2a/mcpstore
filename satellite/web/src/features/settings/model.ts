@@ -9,11 +9,9 @@ import type { I18nKey } from "@/lib/i18n-core"
 
 export type SectionId =
   | "general"
-  | "managementMcp"
   | "connection"
   | "diagnostics"
-  | "kv"
-  | "config"
+  | "advanced"
   | "about"
 
 export type HostDraft = {
@@ -128,11 +126,9 @@ export type SettingsDraft = {
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "general", labelKey: "general" },
-  { id: "managementMcp", labelKey: "managementMcp" },
   { id: "connection", labelKey: "connection" },
   { id: "diagnostics", labelKey: "diagnostics" },
-  { id: "kv", labelKey: "kv" },
-  { id: "config", labelKey: "configFile" },
+  { id: "advanced", labelKey: "advanced" },
   { id: "about", labelKey: "about" },
 ]
 

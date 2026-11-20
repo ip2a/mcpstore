@@ -1,14 +1,5 @@
 import type { ReactNode } from "react"
 
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLegend,
-  FieldSet,
-  FieldTitle,
-} from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import {
   Select,
@@ -19,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { SettingsRow, SettingsSection } from "@/features/settings/settings-section"
 import { useI18n } from "@/lib/i18n-context"
 import type { DiagnosticsDraft } from "@/features/settings/model"
 
@@ -43,8 +35,8 @@ export function DiagnosticsSection({
     t("diagnosticsEnableChannelDescription", { channel })
 
   return (
-    <div className="flex flex-col gap-6">
-      <p className="text-xs text-muted-foreground">{t("diagnosticsRestartNotice")}</p>
+    <div className="flex flex-col gap-6 py-2">
+      <p className="px-0.5 text-xs text-muted-foreground">{t("diagnosticsRestartNotice")}</p>
 
       <Group title={t("diagnosticsRuntimeLog")}>
         <Toggle
@@ -53,10 +45,7 @@ export function DiagnosticsSection({
           checked={value.runtime_log.enabled}
           onCheckedChange={(enabled) => patch("runtime_log", { enabled })}
         />
-        <Field orientation="responsive">
-          <FieldContent>
-            <FieldTitle>{t("diagnosticsLevel")}</FieldTitle>
-          </FieldContent>
+        <SettingsRow title={t("diagnosticsLevel")}>
           <Select
             value={value.runtime_log.level}
             onValueChange={(level) => patch("runtime_log", { level })}
@@ -74,7 +63,7 @@ export function DiagnosticsSection({
               </SelectGroup>
             </SelectContent>
           </Select>
-        </Field>
+        </SettingsRow>
         <NumberField
           title={t("diagnosticsMaxSizeBytes")}
           value={value.runtime_log.max_size_bytes}
@@ -288,12 +277,7 @@ export function DiagnosticsSection({
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <FieldSet className="gap-4">
-      <FieldLegend>{title}</FieldLegend>
-      <FieldGroup className="gap-4">{children}</FieldGroup>
-    </FieldSet>
-  )
+  return <SettingsSection title={title}>{children}</SettingsSection>
 }
 
 function Toggle({
@@ -308,13 +292,9 @@ function Toggle({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <Field orientation="responsive">
-      <FieldContent>
-        <FieldTitle>{title}</FieldTitle>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
-      </FieldContent>
+    <SettingsRow title={title} description={description}>
       <Switch aria-label={title} checked={checked} onCheckedChange={onCheckedChange} />
-    </Field>
+    </SettingsRow>
   )
 }
 
@@ -340,11 +320,7 @@ function NumberField({
   const { t } = useI18n()
   const minimum = allowZero ? 0 : 1
   return (
-    <Field orientation="responsive">
-      <FieldContent>
-        <FieldTitle>{title}</FieldTitle>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
-      </FieldContent>
+    <SettingsRow title={title} description={description}>
       <InputGroup className="w-36 shrink-0">
         <InputGroupInput
           aria-label={title}
@@ -365,6 +341,6 @@ function NumberField({
         />
         {suffix ? <InputGroupAddon align="inline-end">{suffix}</InputGroupAddon> : null}
       </InputGroup>
-    </Field>
+    </SettingsRow>
   )
 }

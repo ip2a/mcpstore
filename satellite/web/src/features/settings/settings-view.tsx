@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { DatabaseIcon, MonitorIcon, PencilIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react"
+import { DatabaseIcon, FileTextIcon, PlusIcon } from "lucide-react"
+import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
+import { FocusThemeSwitch } from "@/components/shared/focus-switch"
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
 import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
-import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
@@ -25,13 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldTitle,
-} from "@/components/ui/field"
+import { SettingsRow, SettingsSection } from "@/features/settings/settings-section"
 import { Label } from "@/components/ui/label"
 import { InputGroup, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import {
@@ -42,8 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { DiagnosticsSection } from "@/features/settings/diagnostics-section"
 import {
@@ -78,8 +71,9 @@ const compactInputGroupClass = "w-20 shrink-0"
 export function SettingsView() {
   const { setLanguageOverride, t } = useI18n()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<SectionId>("connection")
+  const [activeTab, setActiveTab] = useState<SectionId>("general")
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
+  const [configOpen, setConfigOpen] = useState(false)
   const metaQuery = useSettingsMetaQuery(true)
   const settingsMutation = useUpdateSettingsMutation()
   const {
@@ -95,7 +89,10 @@ export function SettingsView() {
   const error = metaQuery.error
   const errorMessage =
     error instanceof Error ? error.message : error ? String(error) : t("settingsUnavailable")
-  const saving = settingsMutation.isPending
+  const saveTimerRef = useRef<number | null>(null)
+  const draftRef = useRef<SettingsDraft | null>(null)
+  const persistInFlightRef = useRef(false)
+  const persistAgainRef = useRef(false)
 
   const configFile = meta?.config_file
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
@@ -108,29 +105,64 @@ export function SettingsView() {
   }, [configFile?.path, draft, t])
 
   useEffect(() => {
-    if (meta?.settings) setDraft(settingsDraft(meta.settings))
+    const settings = meta?.settings
+    if (!settings) return
+    setDraft((current) => {
+      if (current) return current
+      const next = settingsDraft(settings)
+      draftRef.current = next
+      return next
+    })
   }, [meta])
 
-  function patchDraft(patch: Partial<SettingsDraft>) {
-    setDraft((current) => (current ? { ...current, ...patch } : current))
-  }
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current)
+    }
+  }, [])
 
-  async function handleSave() {
-    if (!draft) return
-    const validationError = validateHostsConfig(draft.hosts)
+  async function persistDraft() {
+    const next = draftRef.current
+    if (!next) return
+    const validationError = validateHostsConfig(next.hosts)
     if (validationError) {
       toast.error(validationError)
       return
     }
+    if (persistInFlightRef.current) {
+      persistAgainRef.current = true
+      return
+    }
+    persistInFlightRef.current = true
+    persistAgainRef.current = false
     try {
-      await settingsMutation.mutateAsync(payloadFromDraft(draft))
-      setLanguageOverride(draft.language)
-      syncApiBaseFromHosts(draft.hosts)
-      toast.success(t("saved"))
+      await settingsMutation.mutateAsync(payloadFromDraft(next))
+      setLanguageOverride(next.language)
+      syncApiBaseFromHosts(next.hosts)
       await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("saveFailed"))
+    } finally {
+      persistInFlightRef.current = false
+      if (persistAgainRef.current) {
+        persistAgainRef.current = false
+        void persistDraft()
+      }
     }
+  }
+
+  function patchDraft(patch: Partial<SettingsDraft>) {
+    setDraft((current) => {
+      if (!current) return current
+      const next = { ...current, ...patch }
+      draftRef.current = next
+      if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = window.setTimeout(() => {
+        saveTimerRef.current = null
+        void persistDraft()
+      }, 400)
+      return next
+    })
   }
 
   const stateGuard =
@@ -167,44 +199,29 @@ export function SettingsView() {
                 {sections.map((item) => {
                   const label = t(item.labelKey)
                   return (
-                    <TabsTrigger key={item.id} value={item.id} title={label}>
+                    <TabsTrigger key={item.id} value={item.id} title={label} className="flex-none">
                       {label}
                     </TabsTrigger>
                   )
                 })}
               </WorkspaceTabsList>
-              <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void metaQuery.refetch()}
-                  disabled={metaQuery.isFetching}
-                >
-                  <RefreshCwSpinIcon data-icon="inline-start" spinning={metaQuery.isFetching} />
-                  {t("refresh")}
-                </Button>
-                <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
-                  {t("save")}
-                </Button>
-              </div>
             </div>
 
             <TabsContent
               value="general"
               className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                <section className="flex flex-col gap-5">
-                  <FieldGroup>
-                    <Field orientation="responsive">
-                      <FieldContent>
-                        <FieldTitle>{t("language")}</FieldTitle>
-                        <FieldDescription>{t("chooseLanguage")}</FieldDescription>
-                      </FieldContent>
+              <ScrollPane className="flex-1" innerClassName="px-4 py-4">
+                <section className="flex flex-col gap-6">
+                  <SettingsSection title={t("language")}>
+                    <SettingsRow title={t("language")} description={t("chooseLanguage")}>
                       <Select
                         value={draft.language}
-                        onValueChange={(value) => patchDraft({ language: value as UiLanguage })}
+                        onValueChange={(value) => {
+                          const language = value as UiLanguage
+                          setLanguageOverride(language)
+                          patchDraft({ language })
+                        }}
                       >
                         <SelectTrigger className="w-44">
                           <SelectValue />
@@ -217,12 +234,15 @@ export function SettingsView() {
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                    </Field>
-                    <Field orientation="responsive">
-                      <FieldContent>
-                        <FieldTitle>{t("serviceTabsSort")}</FieldTitle>
-                        <FieldDescription>{t("serviceTabsSortDescription")}</FieldDescription>
-                      </FieldContent>
+                    </SettingsRow>
+                    <ThemeSettingsRow />
+                  </SettingsSection>
+
+                  <SettingsSection title={t("serviceTabsPrefsLabel")}>
+                    <SettingsRow
+                      title={t("serviceTabsSort")}
+                      description={t("serviceTabsSortDescription")}
+                    >
                       <Select
                         value={draft.serviceTabs.sort}
                         onValueChange={(value) =>
@@ -249,7 +269,7 @@ export function SettingsView() {
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                    </Field>
+                    </SettingsRow>
                     <ToggleField
                       title={t("serviceTabsShowDisconnected")}
                       description={t("serviceTabsShowDisconnectedDescription")}
@@ -260,54 +280,19 @@ export function SettingsView() {
                         })
                       }
                     />
-                  </FieldGroup>
+                  </SettingsSection>
 
-                  <div className="flex flex-col gap-3">
-                    <h4 className="text-sm font-medium">{t("coreBackend")}</h4>
-                    <BackendFields draft={draft} patchDraft={patchDraft} />
-                  </div>
-                </section>
-              </ScrollPane>
-            </TabsContent>
-
-            {/*
-                Placeholder for a future standalone "mcpstore management MCP".
-                This is NOT a gateway feature: it will wrap panel/API management
-                capabilities (services, KV, search, overrides, …) as their own MCP
-                server. UI stays disabled until that server is implemented.
-              */}
-            <TabsContent
-              value="managementMcp"
-              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-            >
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                <section className="flex flex-col gap-5">
-                  <FieldGroup>
-                    <ToggleField
-                      title={t("managementMcpEnabled")}
-                      description={t("managementMcpEnabledDescription")}
-                      checked={false}
-                      disabled
-                      onCheckedChange={() => {}}
-                    />
-                    <p className="text-xs text-muted-foreground">{t("managementMcpUnavailable")}</p>
-                  </FieldGroup>
-                  <div className="flex flex-col gap-2">
-                    <h4 className="text-sm font-medium">{t("managementMcpFamilies")}</h4>
-                    <p className="text-xs text-muted-foreground">
-                      {t("managementMcpFamiliesDescription")}
-                    </p>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                      {EXPOSE_KEYS.map((key) => (
-                        <span
-                          key={key}
-                          className="rounded-md border border-border/60 px-2 py-1.5 font-mono text-xs text-muted-foreground"
-                        >
-                          {key}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+                  <SettingsSection title={t("configFile")}>
+                    <SettingsRow
+                      title={t("settingsConfigExists")}
+                      description={configFile?.path || t("configFileMissing")}
+                    >
+                      <Button size="sm" variant="outline" onClick={() => setConfigOpen(true)}>
+                        <FileTextIcon data-icon="inline-start" />
+                        {t("view")}
+                      </Button>
+                    </SettingsRow>
+                  </SettingsSection>
                 </section>
               </ScrollPane>
             </TabsContent>
@@ -316,7 +301,7 @@ export function SettingsView() {
               value="connection"
               className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+              <ScrollPane className="flex-1" innerClassName="px-4 py-4">
                 <ConnectionSection draft={draft} patchDraft={patchDraft} />
               </ScrollPane>
             </TabsContent>
@@ -333,31 +318,55 @@ export function SettingsView() {
               </ScrollPane>
             </TabsContent>
 
-            <TabsContent value="kv" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                <KvSettingsSection />
-              </ScrollPane>
-            </TabsContent>
-
+            {/*
+                Advanced: KV switch + placeholder for a future standalone
+                "mcpstore management MCP" (not a gateway feature).
+              */}
             <TabsContent
-              value="config"
+              value="advanced"
               className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                <section className="flex flex-col gap-3">
-                  <p
-                    className="truncate font-mono text-xs text-muted-foreground"
-                    title={configFile?.path || undefined}
+              <ScrollPane className="flex-1" innerClassName="px-4 py-4">
+                <section className="flex flex-col gap-6">
+                  <SettingsSection title={t("switchKvStorage")}>
+                    <KvSettingsSection />
+                  </SettingsSection>
+
+                  <SettingsSection
+                    title={t("coreBackendStartupTitle")}
+                    description={t("coreBackendStartupDescription")}
                   >
-                    {configFile?.path || t("configFileMissing")}
-                  </p>
-                  <InputGroup>
-                    <InputGroupTextarea
-                      className="min-h-80 font-mono text-xs"
-                      readOnly
-                      value={configContent}
+                    <ListenPortFields draft={draft} patchDraft={patchDraft} />
+                    <PanelAuthField draft={draft} patchDraft={patchDraft} />
+                  </SettingsSection>
+
+                  <SettingsSection
+                    title={t("managementMcp")}
+                    description={t("managementMcpUnavailable")}
+                  >
+                    <ToggleField
+                      title={t("managementMcpEnabled")}
+                      description={t("managementMcpEnabledDescription")}
+                      checked={false}
+                      disabled
+                      onCheckedChange={() => {}}
                     />
-                  </InputGroup>
+                    <SettingsRow
+                      title={t("managementMcpFamilies")}
+                      description={t("managementMcpFamiliesDescription")}
+                    >
+                      <div className="flex max-w-md flex-wrap justify-end gap-1.5">
+                        {EXPOSE_KEYS.map((key) => (
+                          <span
+                            key={key}
+                            className="rounded-md border border-border/60 px-2 py-1 font-mono text-xs text-muted-foreground"
+                          >
+                            {key}
+                          </span>
+                        ))}
+                      </div>
+                    </SettingsRow>
+                  </SettingsSection>
                 </section>
               </ScrollPane>
             </TabsContent>
@@ -430,6 +439,29 @@ export function SettingsView() {
           </div>
         )}
       </PanelCard>
+
+      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t("configFile")}</DialogTitle>
+            <DialogDescription className="font-mono text-xs">
+              {configFile?.path || t("configFileMissing")}
+            </DialogDescription>
+          </DialogHeader>
+          <InputGroup>
+            <InputGroupTextarea
+              className="min-h-80 max-h-[60vh] font-mono text-xs"
+              readOnly
+              value={configContent}
+            />
+          </InputGroup>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfigOpen(false)}>
+              {t("close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -448,20 +480,39 @@ function KvSettingsSection() {
       : t("unknown")
 
   return (
-    <section className="flex flex-col gap-5">
-      <FieldGroup>
-        <Field orientation="responsive">
-          <FieldContent>
-            <FieldTitle>{t("switchKvStorage")}</FieldTitle>
-            <FieldDescription>{t("currentKvStorage", { store: storeName })}</FieldDescription>
-          </FieldContent>
-          <Button size="sm" variant="outline" onClick={() => setKvDialogOpen(true)}>
-            <DatabaseIcon data-icon="inline-start" />
-            {t("switchKvStore")}
-          </Button>
-        </Field>
-      </FieldGroup>
-    </section>
+    <SettingsRow title={t("switchKvStorage")} description={t("currentKvStorage", { store: storeName })}>
+      <Button size="sm" variant="outline" onClick={() => setKvDialogOpen(true)}>
+        <DatabaseIcon data-icon="inline-start" />
+        {t("switchKvStore")}
+      </Button>
+    </SettingsRow>
+  )
+}
+
+function ThemeSettingsRow() {
+  const { t } = useI18n()
+  const { theme, setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const dark =
+    theme === "dark" || (theme !== "light" && resolvedTheme === "dark")
+
+  return (
+    <SettingsRow title={t("theme")} description={t("chooseTheme")}>
+      {mounted ? (
+        <FocusThemeSwitch
+          checked={dark}
+          onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+          label={t("theme")}
+        />
+      ) : (
+        <div className="h-[5.8rem] w-[9.5rem]" aria-hidden />
+      )}
+    </SettingsRow>
   )
 }
 
@@ -479,18 +530,14 @@ function ToggleField({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <Field orientation="responsive">
-      <FieldContent>
-        <FieldTitle>{title}</FieldTitle>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
-      </FieldContent>
+    <SettingsRow title={title} description={description}>
       <Switch
         checked={checked}
         disabled={disabled}
         onCheckedChange={onCheckedChange}
         aria-label={title}
       />
-    </Field>
+    </SettingsRow>
   )
 }
 
@@ -526,7 +573,7 @@ function AboutRow({
   )
 }
 
-function BackendFields({
+function ListenPortFields({
   draft,
   patchDraft,
 }: {
@@ -535,12 +582,11 @@ function BackendFields({
 }) {
   const { t } = useI18n()
   return (
-    <FieldGroup>
-      <Field orientation="responsive">
-        <FieldContent>
-          <FieldTitle>{t("defaultBackendPort")}</FieldTitle>
-          <FieldDescription>{t("defaultBackendPortDescription")}</FieldDescription>
-        </FieldContent>
+    <>
+      <SettingsRow
+        title={t("defaultBackendPort")}
+        description={t("defaultBackendPortDescription")}
+      >
         <InputGroup className={compactInputGroupClass}>
           <InputGroupInput
             inputMode="numeric"
@@ -552,12 +598,11 @@ function BackendFields({
             }
           />
         </InputGroup>
-      </Field>
-      <Field orientation="responsive">
-        <FieldContent>
-          <FieldTitle>{t("defaultFrontendPort")}</FieldTitle>
-          <FieldDescription>{t("defaultFrontendPortDescription")}</FieldDescription>
-        </FieldContent>
+      </SettingsRow>
+      <SettingsRow
+        title={t("defaultFrontendPort")}
+        description={t("defaultFrontendPortDescription")}
+      >
         <InputGroup className={compactInputGroupClass}>
           <InputGroupInput
             inputMode="numeric"
@@ -569,18 +614,26 @@ function BackendFields({
             }
           />
         </InputGroup>
-      </Field>
-      <Field orientation="responsive">
-        <FieldContent>
-          <FieldTitle>{t("panelAuthSetting")}</FieldTitle>
-          <FieldDescription>{t("panelAuthSettingDescription")}</FieldDescription>
-        </FieldContent>
-        <Switch
-          checked={draft.web.auth}
-          onCheckedChange={(checked) => patchDraft({ web: { ...draft.web, auth: checked } })}
-        />
-      </Field>
-    </FieldGroup>
+      </SettingsRow>
+    </>
+  )
+}
+
+function PanelAuthField({
+  draft,
+  patchDraft,
+}: {
+  draft: SettingsDraft
+  patchDraft: (patch: Partial<SettingsDraft>) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <SettingsRow title={t("panelAuthSetting")} description={t("panelAuthSettingDescription")}>
+      <Switch
+        checked={draft.web.auth}
+        onCheckedChange={(checked) => patchDraft({ web: { ...draft.web, auth: checked } })}
+      />
+    </SettingsRow>
   )
 }
 
@@ -853,173 +906,68 @@ function ConnectionSection({
 
   const editingHost = editingName ? hosts.find((host) => host.name === editingName) : null
 
+  function openAddDialog() {
+    setEditingName(null)
+    setEditName("")
+    setEditUrls("")
+    resetPending()
+    setAddingOpen(true)
+  }
+
   return (
-    <section className="flex flex-col gap-4">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4">
+    <section className="flex flex-col gap-6">
+      <SettingsSection title={t("connection")}>
         {hosts.map((host) => {
-          const isActive = host.name === draft.hosts.active
           const isEditing = editingName === host.name
           const canDelete = hosts.length > 1
           const isChecking = checking[host.name] === true
           const status = statuses[host.name]
           const online = status?.online === true
           const address = formatHostAddress(host.urls[0] ?? "")
-          const detail =
-            online && status?.store
-              ? host.urls.length > 1
-                ? `${status.store} · +${host.urls.length - 1}`
-                : status.store
-              : host.urls.length > 1
-                ? `${host.urls[0]} +${host.urls.length - 1}`
-                : (host.urls[0] ?? address)
-          const metaParts = [
-            status?.version ? `v${status.version}` : null,
+          const latencyLabel =
             online && status?.latencyMs != null
               ? formatLatency(status.latencyMs)
               : isChecking
                 ? "…"
-                : null,
-          ].filter(Boolean)
-
+                : status == null
+                  ? "…"
+                  : "—"
           return (
-            <div
+            <SettingsRow
               key={host.name}
-              role="button"
-              tabIndex={0}
-              className={cn(
-                "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
-                "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
-                "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
-                "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
-                isActive && "border-sky-500/35",
-                isEditing && "border-border bg-muted/40",
-              )}
-              onClick={(event) => {
-                if (event.target instanceof Element && event.target.closest("button")) return
-                patchDraft({ hosts: { ...draft.hosts, active: host.name } })
-              }}
-              onKeyDown={(event) => {
-                if (event.target instanceof Element && event.target.closest("button")) return
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  patchDraft({ hosts: { ...draft.hosts, active: host.name } })
-                }
-              }}
+              title={host.name}
+              description={address || undefined}
             >
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex size-8 shrink-0 items-center justify-center text-muted-foreground">
-                  <MonitorIcon className="size-8" aria-hidden />
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {latencyLabel}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="line-clamp-1 text-sm font-semibold leading-snug">
-                    {host.name}
-                  </span>
-                  <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <span
-                      className={cn(
-                        "size-1.5 shrink-0 rounded-full",
-                        status == null
-                          ? "bg-muted-foreground/40"
-                          : online
-                            ? "bg-emerald-500"
-                            : "bg-destructive",
-                      )}
-                    />
-                    <span className="truncate">
-                      {status == null ? "…" : online ? t("online") : t("offline")}
-                    </span>
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("refresh")}
-                    disabled={isChecking}
-                    onClick={() => void refreshLatency(host.name, { notify: true })}
-                  >
-                    <RefreshCwSpinIcon spinning={isChecking} className="size-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={isEditing ? "secondary" : "ghost"}
-                    size="icon-sm"
-                    aria-label={t("edit")}
-                    aria-pressed={isEditing}
-                    onClick={() => toggleEdit(host)}
-                  >
-                    <PencilIcon className="size-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("delete")}
-                    disabled={!canDelete}
-                    title={!canDelete ? t("connectionDeleteLastHint") : undefined}
-                    onClick={() => removeHost(host.name)}
-                  >
-                    <Trash2Icon
-                      className={cn(
-                        "size-3.5",
-                        canDelete ? "text-destructive" : "text-muted-foreground",
-                      )}
-                    />
-                  </Button>
-                </div>
-              </div>
-
-              <div
-                className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground"
-                title={detail}
-              >
-                <p className="truncate">{address || t("noDescription")}</p>
-                {detail && detail !== address ? <p className="truncate">{detail}</p> : null}
-              </div>
-
-              {metaParts.length > 0 ? (
-                <p
-                  className="mt-3 min-w-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
-                  title={metaParts.join(" · ")}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  aria-pressed={isEditing}
+                  onClick={() => toggleEdit(host)}
                 >
-                  {metaParts.join(" · ")}
-                </p>
-              ) : (
-                <Skeleton className="mt-3 h-4 w-1/2" aria-hidden />
-              )}
-            </div>
+                  {t("edit")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                  disabled={!canDelete}
+                  title={!canDelete ? t("connectionDeleteLastHint") : undefined}
+                  onClick={() => removeHost(host.name)}
+                >
+                  {t("connectionRemove")}
+                </Button>
+              </div>
+            </SettingsRow>
           )
         })}
-
-        <div
-          role="button"
-          tabIndex={0}
-          className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
-          onClick={() => {
-            setEditingName(null)
-            setEditName("")
-            setEditUrls("")
-            resetPending()
-            setAddingOpen(true)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              setEditingName(null)
-              setEditName("")
-              setEditUrls("")
-              resetPending()
-              setAddingOpen(true)
-            }
-          }}
-        >
-          <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
-            <PlusIcon className="size-4" />
-          </span>
-          <span className="text-sm font-medium">{t("addHost")}</span>
-        </div>
-      </div>
+      </SettingsSection>
 
       {editingHost ? (
         <div className="rounded-lg border border-border/50 bg-card p-4">
@@ -1067,6 +1015,22 @@ function ConnectionSection({
           </div>
         </div>
       ) : null}
+
+      <div className="flex flex-col gap-2">
+        <h3 className="px-0.5 text-sm font-medium text-foreground">{t("host")}</h3>
+        <div className="flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-lg border border-border/60 bg-card px-4 py-6 text-center">
+          <button
+            type="button"
+            aria-label={t("addHost")}
+            className="flex size-10 items-center justify-center rounded-md border border-dashed border-border/70 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+            onClick={openAddDialog}
+          >
+            <PlusIcon className="size-4" />
+          </button>
+          <span className="text-sm font-medium">{t("addHost")}</span>
+          <span className="max-w-sm text-xs text-muted-foreground">{t("connectionDescription")}</span>
+        </div>
+      </div>
 
       <Dialog open={addingOpen} onOpenChange={handleAddDialogOpenChange}>
         <DialogContent className="sm:max-w-lg">
