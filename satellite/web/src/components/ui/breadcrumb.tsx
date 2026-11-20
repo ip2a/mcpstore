@@ -1,4 +1,4 @@
-import * as React from "react"
+import type * as React from "react"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -8,12 +8,7 @@ import { useI18n } from "@/lib/i18n-context"
 function Breadcrumb({ className, ...props }: React.ComponentProps<"nav">) {
   const { t } = useI18n()
   return (
-    <nav
-      aria-label={t("breadcrumb")}
-      data-slot="breadcrumb"
-      className={cn(className)}
-      {...props}
-    />
+    <nav aria-label={t("breadcrumb")} data-slot="breadcrumb" className={cn(className)} {...props} />
   )
 }
 
@@ -23,7 +18,7 @@ function BreadcrumbList({ className, ...props }: React.ComponentProps<"ol">) {
       data-slot="breadcrumb-list"
       className={cn(
         "flex flex-wrap items-center gap-1.5 text-sm wrap-break-word text-muted-foreground",
-        className
+        className,
       )}
       {...props}
     />
@@ -62,8 +57,6 @@ function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       data-slot="breadcrumb-page"
-      role="link"
-      aria-disabled="true"
       aria-current="page"
       className={cn("font-normal text-foreground", className)}
       {...props}
@@ -71,11 +64,7 @@ function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-function BreadcrumbSeparator({
-  children,
-  className,
-  ...props
-}: React.ComponentProps<"li">) {
+function BreadcrumbSeparator({ children, className, ...props }: React.ComponentProps<"li">) {
   return (
     <li
       data-slot="breadcrumb-separator"
@@ -84,31 +73,22 @@ function BreadcrumbSeparator({
       className={cn("[&>svg]:size-3.5", className)}
       {...props}
     >
-      {children ?? (
-        <ChevronRightIcon />
-      )}
+      {children ?? <ChevronRightIcon />}
     </li>
   )
 }
 
-function BreadcrumbEllipsis({
-  className,
-  ...props
-}: React.ComponentProps<"span">) {
+function BreadcrumbEllipsis({ className, ...props }: React.ComponentProps<"span">) {
   const { t } = useI18n()
   return (
     <span
       data-slot="breadcrumb-ellipsis"
       role="presentation"
       aria-hidden="true"
-      className={cn(
-        "flex size-5 items-center justify-center [&>svg]:size-4",
-        className
-      )}
+      className={cn("flex size-5 items-center justify-center [&>svg]:size-4", className)}
       {...props}
     >
-      <MoreHorizontalIcon
-      />
+      <MoreHorizontalIcon />
       <span className="sr-only">{t("more")}</span>
     </span>
   )

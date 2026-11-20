@@ -7,11 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   isGatewayRequestActive,
   useGatewayRequestFlow,
@@ -54,9 +50,7 @@ export function RoutedCallsPanel() {
   const rows = [...records].reverse()
 
   if (rows.length === 0) {
-    return (
-      <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
-    )
+    return <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
   }
 
   return (
@@ -65,12 +59,8 @@ export function RoutedCallsPanel() {
         <Table className={TRACE_TABLE_CLASSNAME}>
           <TableHeader>
             <TableRow>
-              <TableHead className={TRACE_COL1_CLASSNAME}>
-                {t("gatewayHistoryColTime")}
-              </TableHead>
-              <TableHead className={TRACE_COL2_CLASSNAME}>
-                {t("gatewayHistoryColTarget")}
-              </TableHead>
+              <TableHead className={TRACE_COL1_CLASSNAME}>{t("gatewayHistoryColTime")}</TableHead>
+              <TableHead className={TRACE_COL2_CLASSNAME}>{t("gatewayHistoryColTarget")}</TableHead>
               <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
               <TableHead>{t("gatewayHistoryColKind")}</TableHead>
               <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
@@ -84,9 +74,7 @@ export function RoutedCallsPanel() {
               const active = isGatewayRequestActive(record)
               return (
                 <TableRow key={record.call_id}>
-                  <TableCell
-                    className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}
-                  >
+                  <TableCell className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="cursor-default">{formatClock(record.at_unix_ms)}</span>

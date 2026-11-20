@@ -6,10 +6,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  useGatewayProjectionQuery,
-  useGatewayStatusQuery,
-} from "@/features/clients/queries"
+import { useGatewayProjectionQuery, useGatewayStatusQuery } from "@/features/clients/queries"
 import {
   TRACE_COL1_CELL_CLASSNAME,
   TRACE_COL1_CLASSNAME,
@@ -80,9 +77,7 @@ export function ProjectionPanel() {
   const rows = flattenIssues(projection.data?.mounts ?? [], t("gatewayProjectionGenericMount"))
 
   if (rows.length === 0) {
-    return (
-      <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayProjectionEmpty")}</p>
-    )
+    return <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayProjectionEmpty")}</p>
   }
 
   return (

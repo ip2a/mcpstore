@@ -20,8 +20,7 @@ export function useServiceDetailQuery(addr: ServiceAddress, enabled = false) {
     queryKey: queryKeys.instance(addr),
     queryFn: () => getServiceInstance(addr),
     refetchOnMount: "always",
-    refetchInterval: (query) =>
-      isServiceTransitioning(query.state.data?.state) ? 3_000 : false,
+    refetchInterval: (query) => (isServiceTransitioning(query.state.data?.state) ? 3_000 : false),
   })
 }
 

@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode } from "react"
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -28,10 +28,40 @@ export function BasicCard({
 }) {
   const clickable = Boolean(onClick)
 
+  // Clicks/keys inside the action slot must not reach the card (or its ancestors).
+  function handleCardClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest("[data-basic-card-action]")) {
+      event.stopPropagation()
+      return
+    }
+    onClick?.()
+  }
+
+  function handleCardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest("[data-basic-card-action]")) {
+      event.stopPropagation()
+      return
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      onClick?.()
+    }
+  }
+
+  // Attached only when interaction is possible; role="button" only when actually clickable.
+  const interactiveProps =
+    onClick || action
+      ? {
+          role: clickable ? ("button" as const) : undefined,
+          tabIndex: clickable ? 0 : undefined,
+          onClick: handleCardClick,
+          onKeyDown: handleCardKeyDown,
+        }
+      : {}
+
   return (
     <div
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
+      {...interactiveProps}
       className={cn(
         "group relative z-[1] flex h-[9.5rem] flex-col overflow-hidden rounded-lg border border-border/50 bg-card px-4 pt-4 pb-3 text-left",
         "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
@@ -40,20 +70,6 @@ export function BasicCard({
         clickable && "cursor-pointer",
         className,
       )}
-      onClick={onClick}
-      onKeyDown={
-        onClick
-          ? (event: KeyboardEvent<HTMLDivElement>) => {
-              if (event.target instanceof Element && event.target.closest("[data-basic-card-action]")) {
-                return
-              }
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                onClick()
-              }
-            }
-          : undefined
-      }
     >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-w-0 items-center gap-2">
@@ -74,12 +90,7 @@ export function BasicCard({
             ) : null}
           </span>
           {action ? (
-            <span
-              data-basic-card-action
-              className="shrink-0"
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
+            <span data-basic-card-action className="shrink-0">
               {action}
             </span>
           ) : null}

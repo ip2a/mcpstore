@@ -111,9 +111,7 @@ export function toggleServiceStatusFilter(
   current: ServiceStatusFilter,
   status: ServiceDisplayStatus,
 ): ServiceStatusFilter {
-  return current.includes(status)
-    ? current.filter((item) => item !== status)
-    : [...current, status]
+  return current.includes(status) ? current.filter((item) => item !== status) : [...current, status]
 }
 
 export function useServicesList(services: ServiceInstance[]) {
@@ -197,9 +195,7 @@ export function useServicesList(services: ServiceInstance[]) {
 
   const applySort = (spec: ServiceSortSpec) => {
     commitOrder(
-      [...services]
-        .sort(compareBySort(spec, primitiveCount))
-        .map((service) => service.instance_id),
+      [...services].sort(compareBySort(spec, primitiveCount)).map((service) => service.instance_id),
     )
   }
 

@@ -108,10 +108,7 @@ export function AddServiceForm({
           <DropdownMenuItem disabled>{t("noServices")}</DropdownMenuItem>
         ) : (
           existingServices.map((service) => (
-            <DropdownMenuItem
-              key={service.instance_id}
-              onClick={() => fillFromExisting(service)}
-            >
+            <DropdownMenuItem key={service.instance_id} onClick={() => fillFromExisting(service)}>
               {service.service_name}
             </DropdownMenuItem>
           ))
@@ -185,9 +182,7 @@ export function AddServiceForm({
             <DialogFormFooter
               start={fillFromExistingButton}
               onCancel={onCancel}
-              submitLabel={
-                submittingIntent === "add" ? t("adding") : t("navAddService")
-              }
+              submitLabel={submittingIntent === "add" ? t("adding") : t("navAddService")}
               submitting={submittingIntent === "add"}
               submitDisabled={submitting}
               submitButtonProps={{
@@ -196,18 +191,9 @@ export function AddServiceForm({
                 variant: "outline",
               }}
             >
-              <Button
-                type="submit"
-                name="intent"
-                value="add-connect"
-                disabled={submitting}
-              >
-                {submittingIntent === "add-connect" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {submittingIntent === "add-connect"
-                  ? t("adding")
-                  : t("addServiceAndConnect")}
+              <Button type="submit" name="intent" value="add-connect" disabled={submitting}>
+                {submittingIntent === "add-connect" ? <Spinner data-icon="inline-start" /> : null}
+                {submittingIntent === "add-connect" ? t("adding") : t("addServiceAndConnect")}
               </Button>
             </DialogFormFooter>
           ) : (
@@ -221,23 +207,12 @@ export function AddServiceForm({
                   variant="outline"
                   disabled={submitting}
                 >
-                  {submittingIntent === "add" ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : null}
+                  {submittingIntent === "add" ? <Spinner data-icon="inline-start" /> : null}
                   {submittingIntent === "add" ? t("adding") : t("navAddService")}
                 </Button>
-                <Button
-                  type="submit"
-                  name="intent"
-                  value="add-connect"
-                  disabled={submitting}
-                >
-                  {submittingIntent === "add-connect" ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : null}
-                  {submittingIntent === "add-connect"
-                    ? t("adding")
-                    : t("addServiceAndConnect")}
+                <Button type="submit" name="intent" value="add-connect" disabled={submitting}>
+                  {submittingIntent === "add-connect" ? <Spinner data-icon="inline-start" /> : null}
+                  {submittingIntent === "add-connect" ? t("adding") : t("addServiceAndConnect")}
                 </Button>
               </div>
             </div>

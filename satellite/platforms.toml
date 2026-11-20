@@ -1,6 +1,6 @@
 [meta]
 binary_name = "mcpstore"
-version_source = "rust/Cargo.toml"
+version_source = "satellite/cli/Cargo.toml"
 
 [[platforms]]
 id = "darwin-arm64"

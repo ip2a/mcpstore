@@ -245,11 +245,9 @@ function ServiceCardDialogBody({
   const status = deriveServiceDisplayStatus(service.state)
   // Dialog chrome uses list projection first; route query stays for the editor pane.
   const routeQuery = useServiceRouteQuery(service.service_name, service.scope)
-  const serviceRoute = routeQuery.data?.route
+  const serviceRoute = routeQuery.data?.override
   const projectedName =
-    serviceRoute?.display_name?.trim() ||
-    service.display_name?.trim() ||
-    service.service_name
+    serviceRoute?.display_name?.trim() || service.display_name?.trim() || service.service_name
   const scopeLabel =
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const isEditTab = EDIT_TABS.has(activeTab)
@@ -296,7 +294,10 @@ function ServiceCardDialogBody({
           </DialogDescription>
         </DialogHeader>
 
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => void onFormSubmit(event)}>
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(event) => void onFormSubmit(event)}
+        >
           <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 pb-4 pt-0 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:pb-4">
             <QuietScroll className="flex min-h-0 pt-4 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
               {isSessionsTab ? (
@@ -464,10 +465,7 @@ function ServiceCardDialogBody({
                   {sessionFrames.loading ? (
                     <PageSkeleton />
                   ) : sessionFrames.selected ? (
-                    <FrameDetailPane
-                      frame={sessionFrames.selected}
-                      insetClassName="px-0 py-0"
-                    />
+                    <FrameDetailPane frame={sessionFrames.selected} insetClassName="px-0 py-0" />
                   ) : (
                     <p className="px-1 py-2 text-sm text-muted-foreground">
                       {sessionFrames.noSession
@@ -507,10 +505,7 @@ function ServiceCardDialogBody({
                   <Button type="button" variant="outline" onClick={cancelEditing}>
                     {t("cancel")}
                   </Button>
-                  <Button
-                    type="submit"
-                    disabled={isGatewayTab ? gatewayBusy : submitting}
-                  >
+                  <Button type="submit" disabled={isGatewayTab ? gatewayBusy : submitting}>
                     {(isGatewayTab ? gatewayBusy : submitting) ? (
                       <Spinner data-icon="inline-start" />
                     ) : null}

@@ -157,9 +157,7 @@ export function CodeBlockBody({
         style={fill ? undefined : { maxHeight }}
         {...props}
       >
-        <pre
-          className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre", styles.code)}
-        >
+        <pre className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre", styles.code)}>
           {children}
         </pre>
       </div>

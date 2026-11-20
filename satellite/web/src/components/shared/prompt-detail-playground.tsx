@@ -22,12 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { TypographyH2, TypographyInlineCode, TypographyLead } from "@/components/ui/typography"
 import { RouteEditor } from "@/features/routes/route-editor"
-import {
-  getInstancePrompt,
-  type PromptInfo,
-  type ScopeRef,
-  type ServiceInstance,
-} from "@/lib/api"
+import { getInstancePrompt, type PromptInfo, type ScopeRef, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { parsePromptArgs, type PromptArgDef } from "@/lib/prompt-info"
 import { hasJsonContent } from "@/lib/tool-info"
@@ -312,9 +307,7 @@ export function PromptPlaygroundAside({
             </span>
           </CodeBlockTitle>
           <CodeBlockActions>
-            <CodeBlockCopyButton
-              value={displayContent == null ? requestArgsText : responseText}
-            />
+            <CodeBlockCopyButton value={displayContent == null ? requestArgsText : responseText} />
           </CodeBlockActions>
         </CodeBlockHeader>
         <CodeBlockBody variant="response" fill nativeScroll>

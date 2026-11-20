@@ -2,12 +2,7 @@ import { useState } from "react"
 import { PencilIcon, SettingsIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { RouteEditor } from "@/features/routes/route-editor"
 import type { ServiceInstance, ScopeView } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"

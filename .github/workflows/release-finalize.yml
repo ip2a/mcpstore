@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate release tag
         run: python scripts/release_preflight.py --domain app --require-tag
@@ -27,20 +27,8 @@ jobs:
       - name: Verify all release workflows succeeded for this tag
         shell: bash
         run: |
-          set -euo pipefail
-          # The auto-chain (build-cli -> publish-npm -> finalize) already
-          # guarantees the CLI build and npm publish succeeded; the desktop
-          # build runs outside that chain, so it is the one remaining gate.
-          # SDK (crates/pypi) publishes are dispatched manually against
-          # sdk-v* tags and never block an App release.
-          for workflow in \
-            release-build-desktop; do
-            run_id="$(gh run list --workflow="${workflow}" --branch="${GITHUB_REF_NAME}" --status=success --limit=100 --json databaseId,headSha --jq '.[] | select(.headSha == "'"${GITHUB_SHA}"'") | .databaseId' | head -n1)"
-            if [ -z "${run_id}" ]; then
-              echo "::error::${workflow} has no successful run for ${GITHUB_REF_NAME} at ${GITHUB_SHA}"
-              exit 1
-            fi
-            echo "${workflow}: ${run_id}"
+          for workflow in release-build-cli release-publish-npm release-build-desktop; do
+            python3 scripts/wait_release_run.py "$workflow" --minutes 45
           done
 
       - name: Publish GitHub Release

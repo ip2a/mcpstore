@@ -170,7 +170,9 @@ function KvKeyDetailDialog({
           <DialogTitle className="truncate font-mono" title={entry?.key}>
             {entry?.key}
           </DialogTitle>
-          {subtitle ? <DialogDescription className="capitalize">{subtitle}</DialogDescription> : null}
+          {subtitle ? (
+            <DialogDescription className="capitalize">{subtitle}</DialogDescription>
+          ) : null}
         </DialogHeader>
         {entry ? (
           <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
@@ -246,13 +248,7 @@ function KvKeyDetailDialog({
   )
 }
 
-export function KvKeysTable({
-  layers,
-  search = "",
-}: {
-  layers: KvLayerNode[]
-  search?: string
-}) {
+export function KvKeysTable({ layers, search = "" }: { layers: KvLayerNode[]; search?: string }) {
   const { t } = useI18n()
   const [viewEntry, setViewEntry] = useState<KvKeyEntry | null>(null)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)

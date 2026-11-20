@@ -39,10 +39,7 @@ type Props = {
    */
   enabledValue?: boolean
   /** Return `false` to keep the dialog open (e.g. validation failed). */
-  onSave: (
-    next: string,
-    extras?: InlineRouteSaveExtras,
-  ) => Promise<boolean | void> | boolean | void
+  onSave: (next: string, extras?: InlineRouteSaveExtras) => Promise<boolean | void> | boolean | void
   children?: ReactNode
 }
 
@@ -86,10 +83,7 @@ export function InlineRouteField({
     }
     setSaving(true)
     try {
-      const ok = await onSave(
-        draft,
-        showEnabledSwitch ? { enabled: draftEnabled } : undefined,
-      )
+      const ok = await onSave(draft, showEnabledSwitch ? { enabled: draftEnabled } : undefined)
       if (ok === false) return
       setOpen(false)
     } finally {
@@ -147,9 +141,7 @@ export function InlineRouteField({
               <div
                 className={cn(
                   "overflow-auto rounded-md border bg-muted/30 px-3",
-                  multiline
-                    ? "min-h-0 flex-1 py-2"
-                    : "flex h-9 items-center py-1",
+                  multiline ? "min-h-0 flex-1 py-2" : "flex h-9 items-center py-1",
                 )}
               >
                 <p

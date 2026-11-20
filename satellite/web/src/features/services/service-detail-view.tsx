@@ -20,11 +20,7 @@ import {
   ToolPlaygroundAside,
 } from "@/components/shared/tool-detail-playground"
 import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useServiceAuthQuery,
@@ -117,16 +113,10 @@ function CatalogSplitLayout(props: {
         groupResizeBehavior="preserve-pixel-size"
         className="min-h-0"
       >
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden pr-3">
-          {props.list}
-        </div>
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden pr-3">{props.list}</div>
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel
-        id={CATALOG_DETAIL_PANEL_ID}
-        minSize="40%"
-        className="min-h-0"
-      >
+      <ResizablePanel id={CATALOG_DETAIL_PANEL_ID} minSize="40%" className="min-h-0">
         <div className="flex h-full min-h-0 flex-col overflow-hidden pl-3">{props.detail}</div>
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -187,9 +177,7 @@ export function ServiceDetailView(props: {
   // Prefer the route entry-projected list (same surface the global tools page
   // uses); fall back to the raw detail payload until it arrives.
   const projectedToolsQuery = useServiceProjectedToolsQuery(props.service)
-  const tools = projectedToolsQuery.data?.length
-    ? projectedToolsQuery.data
-    : service.tools || []
+  const tools = projectedToolsQuery.data?.length ? projectedToolsQuery.data : service.tools || []
   const resources = resourcesQuery.data || []
   const resourceTemplates = resourceTemplatesQuery.data || []
   const prompts = promptsQuery.data || []
@@ -334,8 +322,7 @@ export function ServiceDetailView(props: {
     if (activeTab === "prompts" || activeTab === "resources") void loadCatalog()
   }, [activeTab, props.service.instance_id])
 
-  const catalogSplitClassName =
-    "mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+  const catalogSplitClassName = "mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
   const { defaultLayout: catalogDefaultLayout, onLayoutChanged: onCatalogLayoutChanged } =
     useDefaultLayout({
       id: CATALOG_SPLIT_LAYOUT_ID,
@@ -452,10 +439,7 @@ export function ServiceDetailView(props: {
           </ScrollPane>
         ) : activeTab === "tools" && selectedTool ? (
           <div
-            className={cn(
-              toolDetailPlaygroundGrid,
-              !playgroundOpen && "@min-[42rem]:grid-cols-1",
-            )}
+            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
           >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <ScrollPane className="min-h-0 flex-1">
@@ -483,9 +467,7 @@ export function ServiceDetailView(props: {
               />
             ) : null}
           </div>
-        ) : activeTab === "resources" &&
-          resourceSubTab === "items" &&
-          selectedResource ? (
+        ) : activeTab === "resources" && resourceSubTab === "items" && selectedResource ? (
           <ServiceResourceDetailPane
             resource={selectedResource}
             service={service}

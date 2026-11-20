@@ -2,10 +2,7 @@ import { useMemo } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
-import {
-  useSetToolRoute,
-  useToolRoutesQuery,
-} from "@/features/routes/queries"
+import { useSetToolRoute, useToolRoutesQuery } from "@/features/routes/queries"
 import type { ScopeRef, ToolInfo, ToolRoutePatch, ToolRouteRule } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getOriginalToolName } from "@/lib/tool-info"

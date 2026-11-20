@@ -36,8 +36,7 @@ function framesForInstanceSince(
 ): FrameRecord[] {
   const matched = frames.filter(
     (frame) =>
-      frame.instance_id === instanceId &&
-      (notBeforeMs <= 0 || frame.ts_unix_ms >= notBeforeMs),
+      frame.instance_id === instanceId && (notBeforeMs <= 0 || frame.ts_unix_ms >= notBeforeMs),
   )
   if (matched.length === 0) return []
   // Stick to the newest session among matches so a reconnect doesn't mix timelines.
@@ -51,10 +50,7 @@ function framesForInstanceSince(
  * - Connecting: poll recent upstream frames and stream them as they land (backend
  *   already writes live; no extra daemon stream endpoint needed).
  */
-function summaryFromFrames(
-  frames: FrameRecord[],
-  instanceId: string,
-): FrameSessionSummary | null {
+function summaryFromFrames(frames: FrameRecord[], instanceId: string): FrameSessionSummary | null {
   if (frames.length === 0) return null
   const first = frames[0]!
   const last = frames[frames.length - 1]!
@@ -183,9 +179,7 @@ export function useServiceCardSessionFrames(
     staleTime: 30_000,
   })
 
-  const frames = live
-    ? liveFrames
-    : (idleHistoryQuery.data ?? heldLiveFrames.current)
+  const frames = live ? liveFrames : (idleHistoryQuery.data ?? heldLiveFrames.current)
   const sessionId = live ? liveSessionId : idleSessionId
   useEffect(() => {
     if (prevSessionId.current === sessionId) return
@@ -213,10 +207,12 @@ export function useServiceCardSessionFrames(
   )
 
   // Never skeleton over frames we already have (live stream or seeded idle).
-  const loading = frames.length === 0 && (live
-    ? liveRecentQuery.isLoading
-    : (!idleSessionId && sessionsQuery.isLoading) ||
-      (Boolean(idleSessionId) && idleHistoryQuery.isLoading))
+  const loading =
+    frames.length === 0 &&
+    (live
+      ? liveRecentQuery.isLoading
+      : (!idleSessionId && sessionsQuery.isLoading) ||
+        (Boolean(idleSessionId) && idleHistoryQuery.isLoading))
 
   return {
     frames,

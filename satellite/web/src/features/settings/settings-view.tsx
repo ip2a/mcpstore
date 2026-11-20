@@ -1,14 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { useQueryClient } from "@tanstack/react-query"
-import {
-  DatabaseIcon,
-  MonitorIcon,
-  PencilIcon,
-  PlusIcon,
-  SaveIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { DatabaseIcon, MonitorIcon, PencilIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
@@ -40,11 +33,7 @@ import {
   FieldTitle,
 } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
-import {
-  InputGroup,
-  InputGroupInput,
-  InputGroupTextarea,
-} from "@/components/ui/input-group"
+import { InputGroup, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import {
   Select,
   SelectContent,
@@ -168,286 +157,278 @@ export function SettingsView() {
         {stateGuard ? (
           <div className="p-4">{stateGuard}</div>
         ) : draft ? (
-            <Tabs
-              value={activeTab}
-              onValueChange={(value) => setActiveTab(value as SectionId)}
-              className={WORKSPACE_TABS_CLASSNAME}
-            >
-              <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-                <WorkspaceTabsList value={activeTab} className="gap-1">
-                  {sections.map((item) => {
-                    const label = t(item.labelKey)
-                    return (
-                      <TabsTrigger key={item.id} value={item.id} title={label}>
-                        {label}
-                      </TabsTrigger>
-                    )
-                  })}
-                </WorkspaceTabsList>
-                <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void metaQuery.refetch()}
-                    disabled={metaQuery.isFetching}
-                  >
-                    <RefreshCwSpinIcon data-icon="inline-start" spinning={metaQuery.isFetching} />
-                    {t("refresh")}
-                  </Button>
-                  <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
-                    {saving ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
-                    {t("save")}
-                  </Button>
-                </div>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as SectionId)}
+            className={WORKSPACE_TABS_CLASSNAME}
+          >
+            <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+              <WorkspaceTabsList value={activeTab} className="gap-1">
+                {sections.map((item) => {
+                  const label = t(item.labelKey)
+                  return (
+                    <TabsTrigger key={item.id} value={item.id} title={label}>
+                      {label}
+                    </TabsTrigger>
+                  )
+                })}
+              </WorkspaceTabsList>
+              <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void metaQuery.refetch()}
+                  disabled={metaQuery.isFetching}
+                >
+                  <RefreshCwSpinIcon data-icon="inline-start" spinning={metaQuery.isFetching} />
+                  {t("refresh")}
+                </Button>
+                <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
+                  {t("save")}
+                </Button>
               </div>
+            </div>
 
-              <TabsContent
-                value="general"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <section className="flex flex-col gap-5">
-                    <FieldGroup>
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("language")}</FieldTitle>
-                          <FieldDescription>{t("chooseLanguage")}</FieldDescription>
-                        </FieldContent>
-                        <Select
-                          value={draft.language}
-                          onValueChange={(value) => patchDraft({ language: value as UiLanguage })}
-                        >
-                          <SelectTrigger className="w-44">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="auto">{t("auto")}</SelectItem>
-                              <SelectItem value="zh">{t("chinese")}</SelectItem>
-                              <SelectItem value="en">{t("english")}</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("serviceTabsSort")}</FieldTitle>
-                          <FieldDescription>{t("serviceTabsSortDescription")}</FieldDescription>
-                        </FieldContent>
-                        <Select
-                          value={draft.serviceTabs.sort}
-                          onValueChange={(value) =>
-                            patchDraft({
-                              serviceTabs: {
-                                ...draft.serviceTabs,
-                                sort: value as SettingsDraft["serviceTabs"]["sort"],
-                              },
-                            })
-                          }
-                        >
-                          <SelectTrigger className="w-56">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="name">{t("serviceTabsSortName")}</SelectItem>
-                              <SelectItem value="added_newest">
-                                {t("serviceTabsSortAddedNewest")}
-                              </SelectItem>
-                              <SelectItem value="added_oldest">
-                                {t("serviceTabsSortAddedOldest")}
-                              </SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <ToggleField
-                        title={t("serviceTabsShowDisconnected")}
-                        description={t("serviceTabsShowDisconnectedDescription")}
-                        checked={draft.serviceTabs.showDisconnected}
-                        onCheckedChange={(showDisconnected) =>
+            <TabsContent
+              value="general"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <section className="flex flex-col gap-5">
+                  <FieldGroup>
+                    <Field orientation="responsive">
+                      <FieldContent>
+                        <FieldTitle>{t("language")}</FieldTitle>
+                        <FieldDescription>{t("chooseLanguage")}</FieldDescription>
+                      </FieldContent>
+                      <Select
+                        value={draft.language}
+                        onValueChange={(value) => patchDraft({ language: value as UiLanguage })}
+                      >
+                        <SelectTrigger className="w-44">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="auto">{t("auto")}</SelectItem>
+                            <SelectItem value="zh">{t("chinese")}</SelectItem>
+                            <SelectItem value="en">{t("english")}</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field orientation="responsive">
+                      <FieldContent>
+                        <FieldTitle>{t("serviceTabsSort")}</FieldTitle>
+                        <FieldDescription>{t("serviceTabsSortDescription")}</FieldDescription>
+                      </FieldContent>
+                      <Select
+                        value={draft.serviceTabs.sort}
+                        onValueChange={(value) =>
                           patchDraft({
-                            serviceTabs: { ...draft.serviceTabs, showDisconnected },
+                            serviceTabs: {
+                              ...draft.serviceTabs,
+                              sort: value as SettingsDraft["serviceTabs"]["sort"],
+                            },
                           })
                         }
-                      />
-                    </FieldGroup>
+                      >
+                        <SelectTrigger className="w-56">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="name">{t("serviceTabsSortName")}</SelectItem>
+                            <SelectItem value="added_newest">
+                              {t("serviceTabsSortAddedNewest")}
+                            </SelectItem>
+                            <SelectItem value="added_oldest">
+                              {t("serviceTabsSortAddedOldest")}
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <ToggleField
+                      title={t("serviceTabsShowDisconnected")}
+                      description={t("serviceTabsShowDisconnectedDescription")}
+                      checked={draft.serviceTabs.showDisconnected}
+                      onCheckedChange={(showDisconnected) =>
+                        patchDraft({
+                          serviceTabs: { ...draft.serviceTabs, showDisconnected },
+                        })
+                      }
+                    />
+                  </FieldGroup>
 
-                    <div className="flex flex-col gap-3">
-                      <h4 className="text-sm font-medium">{t("coreBackend")}</h4>
-                      <BackendFields draft={draft} patchDraft={patchDraft} />
-                    </div>
-                  </section>
-                </ScrollPane>
-              </TabsContent>
+                  <div className="flex flex-col gap-3">
+                    <h4 className="text-sm font-medium">{t("coreBackend")}</h4>
+                    <BackendFields draft={draft} patchDraft={patchDraft} />
+                  </div>
+                </section>
+              </ScrollPane>
+            </TabsContent>
 
-              {/*
+            {/*
                 Placeholder for a future standalone "mcpstore management MCP".
                 This is NOT a gateway feature: it will wrap panel/API management
                 capabilities (services, KV, search, overrides, …) as their own MCP
                 server. UI stays disabled until that server is implemented.
               */}
-              <TabsContent
-                value="managementMcp"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <section className="flex flex-col gap-5">
-                    <FieldGroup>
-                      <ToggleField
-                        title={t("managementMcpEnabled")}
-                        description={t("managementMcpEnabledDescription")}
-                        checked={false}
-                        disabled
-                        onCheckedChange={() => {}}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t("managementMcpUnavailable")}
-                      </p>
-                    </FieldGroup>
-                    <div className="flex flex-col gap-2">
-                      <h4 className="text-sm font-medium">{t("managementMcpFamilies")}</h4>
-                      <p className="text-xs text-muted-foreground">
-                        {t("managementMcpFamiliesDescription")}
-                      </p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                        {EXPOSE_KEYS.map((key) => (
-                          <span
-                            key={key}
-                            className="rounded-md border border-border/60 px-2 py-1.5 font-mono text-xs text-muted-foreground"
-                          >
-                            {key}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                </ScrollPane>
-              </TabsContent>
-
-              <TabsContent
-                value="connection"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <ConnectionSection draft={draft} patchDraft={patchDraft} />
-                </ScrollPane>
-              </TabsContent>
-
-              <TabsContent
-                value="diagnostics"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <DiagnosticsSection
-                    value={draft.diagnostics}
-                    onChange={(diagnostics) => patchDraft({ diagnostics })}
-                  />
-                </ScrollPane>
-              </TabsContent>
-
-              <TabsContent
-                value="kv"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <KvSettingsSection />
-                </ScrollPane>
-              </TabsContent>
-
-              <TabsContent
-                value="config"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <section className="flex flex-col gap-3">
-                    <p
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={configFile?.path || undefined}
-                    >
-                      {configFile?.path || t("configFileMissing")}
+            <TabsContent
+              value="managementMcp"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <section className="flex flex-col gap-5">
+                  <FieldGroup>
+                    <ToggleField
+                      title={t("managementMcpEnabled")}
+                      description={t("managementMcpEnabledDescription")}
+                      checked={false}
+                      disabled
+                      onCheckedChange={() => {}}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("managementMcpUnavailable")}</p>
+                  </FieldGroup>
+                  <div className="flex flex-col gap-2">
+                    <h4 className="text-sm font-medium">{t("managementMcpFamilies")}</h4>
+                    <p className="text-xs text-muted-foreground">
+                      {t("managementMcpFamiliesDescription")}
                     </p>
-                    <InputGroup>
-                      <InputGroupTextarea
-                        className="min-h-80 font-mono text-xs"
-                        readOnly
-                        value={configContent}
-                      />
-                    </InputGroup>
-                  </section>
-                </ScrollPane>
-              </TabsContent>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+                      {EXPOSE_KEYS.map((key) => (
+                        <span
+                          key={key}
+                          className="rounded-md border border-border/60 px-2 py-1.5 font-mono text-xs text-muted-foreground"
+                        >
+                          {key}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </ScrollPane>
+            </TabsContent>
 
-              <TabsContent
-                value="about"
-                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
-                  <section className="flex flex-col gap-5">
-                    <McpstoreAsciiBanner />
-                    <div className="flex items-start justify-between gap-4">
-                      <p className="text-sm text-muted-foreground">{t("settingsDescription")}</p>
-                      <MarkIcon className="size-8 shrink-0" />
-                    </div>
-                    <div className="divide-y">
-                      <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
-                      <AboutRow
-                        label={t("sdkVersion")}
-                        value={formatReleaseVersion(meta?.version)}
-                      />
-                      {isDesktopShell ? (
-                        <>
-                          <AboutRow
-                            label={
-                              updateAvailable
-                                ? t("updateAvailable", { version: `v${updateAvailable}` })
-                                : t("checkUpdates")
-                            }
-                            action={
-                              <UpdateButton
-                                phase={phase}
-                                progress={progress}
-                                onCheck={() => void checkForUpdate()}
-                                onRestart={restartToUpdate}
-                              />
-                            }
-                          />
-                          <AboutRow
-                            label={t("resetDefaultWindowSize")}
-                            action={<ResetWindowSizeButton />}
-                          />
-                        </>
-                      ) : null}
-                      <AboutRow
-                        label={t("github")}
-                        href="https://github.com/ip2a/mcpstore"
-                        value="https://github.com/ip2a/mcpstore"
-                      />
-                      <AboutRow
-                        label={t("rustCrate")}
-                        href="https://crates.io/crates/mcpstore"
-                        value="https://crates.io/crates/mcpstore"
-                      />
-                      <AboutRow
-                        label={t("pythonPackage")}
-                        href="https://pypi.org/project/mcpstore/"
-                        value="https://pypi.org/project/mcpstore/"
-                      />
-                      <AboutRow
-                        label={t("npmPackage")}
-                        href="https://www.npmjs.com/package/@ip2a/mcpstore"
-                        value="https://www.npmjs.com/package/@ip2a/mcpstore"
-                      />
-                    </div>
-                  </section>
-                </ScrollPane>
-              </TabsContent>
-            </Tabs>
-          ) : (
-            <div className="p-4">
-              <PageSkeleton />
-            </div>
-          )}
+            <TabsContent
+              value="connection"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <ConnectionSection draft={draft} patchDraft={patchDraft} />
+              </ScrollPane>
+            </TabsContent>
+
+            <TabsContent
+              value="diagnostics"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <DiagnosticsSection
+                  value={draft.diagnostics}
+                  onChange={(diagnostics) => patchDraft({ diagnostics })}
+                />
+              </ScrollPane>
+            </TabsContent>
+
+            <TabsContent value="kv" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <KvSettingsSection />
+              </ScrollPane>
+            </TabsContent>
+
+            <TabsContent
+              value="config"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <section className="flex flex-col gap-3">
+                  <p
+                    className="truncate font-mono text-xs text-muted-foreground"
+                    title={configFile?.path || undefined}
+                  >
+                    {configFile?.path || t("configFileMissing")}
+                  </p>
+                  <InputGroup>
+                    <InputGroupTextarea
+                      className="min-h-80 font-mono text-xs"
+                      readOnly
+                      value={configContent}
+                    />
+                  </InputGroup>
+                </section>
+              </ScrollPane>
+            </TabsContent>
+
+            <TabsContent
+              value="about"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ScrollPane className="flex-1" innerClassName="px-4 py-2">
+                <section className="flex flex-col gap-5">
+                  <McpstoreAsciiBanner />
+                  <div className="flex items-start justify-between gap-4">
+                    <p className="text-sm text-muted-foreground">{t("settingsDescription")}</p>
+                    <MarkIcon className="size-8 shrink-0" />
+                  </div>
+                  <div className="divide-y">
+                    <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
+                    <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
+                    {isDesktopShell ? (
+                      <>
+                        <AboutRow
+                          label={
+                            updateAvailable
+                              ? t("updateAvailable", { version: `v${updateAvailable}` })
+                              : t("checkUpdates")
+                          }
+                          action={
+                            <UpdateButton
+                              phase={phase}
+                              progress={progress}
+                              onCheck={() => void checkForUpdate()}
+                              onRestart={restartToUpdate}
+                            />
+                          }
+                        />
+                        <AboutRow
+                          label={t("resetDefaultWindowSize")}
+                          action={<ResetWindowSizeButton />}
+                        />
+                      </>
+                    ) : null}
+                    <AboutRow
+                      label={t("github")}
+                      href="https://github.com/ip2a/mcpstore"
+                      value="https://github.com/ip2a/mcpstore"
+                    />
+                    <AboutRow
+                      label={t("rustCrate")}
+                      href="https://crates.io/crates/mcpstore"
+                      value="https://crates.io/crates/mcpstore"
+                    />
+                    <AboutRow
+                      label={t("pythonPackage")}
+                      href="https://pypi.org/project/mcpstore/"
+                      value="https://pypi.org/project/mcpstore/"
+                    />
+                    <AboutRow
+                      label={t("npmPackage")}
+                      href="https://www.npmjs.com/package/@ip2a/mcpstore"
+                      value="https://www.npmjs.com/package/@ip2a/mcpstore"
+                    />
+                  </div>
+                </section>
+              </ScrollPane>
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <div className="p-4">
+            <PageSkeleton />
+          </div>
+        )}
       </PanelCard>
     </>
   )
@@ -472,9 +453,7 @@ function KvSettingsSection() {
         <Field orientation="responsive">
           <FieldContent>
             <FieldTitle>{t("switchKvStorage")}</FieldTitle>
-            <FieldDescription>
-              {t("currentKvStorage", { store: storeName })}
-            </FieldDescription>
+            <FieldDescription>{t("currentKvStorage", { store: storeName })}</FieldDescription>
           </FieldContent>
           <Button size="sm" variant="outline" onClick={() => setKvDialogOpen(true)}>
             <DatabaseIcon data-icon="inline-start" />

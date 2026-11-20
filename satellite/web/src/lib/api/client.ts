@@ -14,7 +14,6 @@ export function setPanelToken(token: string) {
 /** Fired when the panel API answers 401 panel_auth_required; PanelTokenGate listens. */
 export const PANEL_AUTH_REQUIRED_EVENT = "mcpstore:panel-auth-required"
 
-
 function apiUrl(path: string) {
   return `${getApiBase()}${path}`
 }

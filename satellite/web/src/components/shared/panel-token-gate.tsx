@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { browserLanguage, translate } from "@/lib/i18n-core";
-import { setPanelToken, PANEL_AUTH_REQUIRED_EVENT } from "@/lib/api/client";
+import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { browserLanguage, translate } from "@/lib/i18n-core"
+import { setPanelToken, PANEL_AUTH_REQUIRED_EVENT } from "@/lib/api/client"
 
 /**
  * Full-screen token prompt shown whenever the panel API answers 401
@@ -13,23 +13,23 @@ import { setPanelToken, PANEL_AUTH_REQUIRED_EVENT } from "@/lib/api/client";
  * gate resolves strings from the browser language directly.
  */
 export function PanelTokenGate() {
-  const [open, setOpen] = useState(false);
-  const [token, setToken] = useState("");
-  const t = (key: Parameters<typeof translate>[1]) => translate(browserLanguage(), key);
+  const [open, setOpen] = useState(false)
+  const [token, setToken] = useState("")
+  const t = (key: Parameters<typeof translate>[1]) => translate(browserLanguage(), key)
 
   useEffect(() => {
-    const show = () => setOpen(true);
-    window.addEventListener(PANEL_AUTH_REQUIRED_EVENT, show);
-    return () => window.removeEventListener(PANEL_AUTH_REQUIRED_EVENT, show);
-  }, []);
+    const show = () => setOpen(true)
+    window.addEventListener(PANEL_AUTH_REQUIRED_EVENT, show)
+    return () => window.removeEventListener(PANEL_AUTH_REQUIRED_EVENT, show)
+  }, [])
 
-  if (!open) return null;
+  if (!open) return null
 
   const save = () => {
-    if (!token.trim()) return;
-    setPanelToken(token);
-    window.location.reload();
-  };
+    if (!token.trim()) return
+    setPanelToken(token)
+    window.location.reload()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4">
@@ -44,7 +44,7 @@ export function PanelTokenGate() {
             value={token}
             onChange={(event) => setToken(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") save();
+              if (event.key === "Enter") save()
             }}
             placeholder={t("panelAuthTokenPlaceholder")}
           />
@@ -54,5 +54,5 @@ export function PanelTokenGate() {
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }

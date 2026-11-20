@@ -17,9 +17,7 @@ import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 
 /** Where the instance detail was opened from — drives breadcrumb root, not the page body. */
-export type InstanceOrigin =
-  | { kind: "services" }
-  | { kind: "scope"; scopeId: string }
+export type InstanceOrigin = { kind: "services" } | { kind: "scope"; scopeId: string }
 
 export type AppView =
   | { name: "home" }

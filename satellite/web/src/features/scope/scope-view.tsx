@@ -41,7 +41,7 @@ import {
   createAgentShell,
   type AgentItem,
   type ScopeSummary,
-  type ScopeView,
+  type ScopeView as ApiScopeView,
   type ServiceInstance,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -76,23 +76,19 @@ function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string
   return scopeIdFromSummary(summary)
 }
 
-function scopeViewFromId(scopeId: string): ScopeView {
+function scopeViewFromId(scopeId: string): ApiScopeView {
   if (scopeId === "all") return { type: "all" }
   if (scopeId === "store") return { type: "store" }
   return { type: "agent", agent_id: scopeId }
 }
 
-function servicesForScope(
-  services: ServiceInstance[],
-  scope: ScopeView,
-): ServiceInstance[] {
+function servicesForScope(services: ServiceInstance[], scope: ApiScopeView): ServiceInstance[] {
   if (scope.type === "store") {
     return services.filter((service) => service.scope.type === "store")
   }
   if (scope.type === "agent") {
     return services.filter(
-      (service) =>
-        service.scope.type === "agent" && service.scope.agent_id === scope.agent_id,
+      (service) => service.scope.type === "agent" && service.scope.agent_id === scope.agent_id,
     )
   }
   return services
@@ -130,7 +126,7 @@ export function ScopeView(props: {
     [props.agents, scopes],
   )
 
-  const selectedScope: ScopeView | null = useMemo(
+  const selectedScope: ApiScopeView | null = useMemo(
     () => (selectedScopeId ? scopeViewFromId(selectedScopeId) : null),
     [selectedScopeId],
   )
@@ -170,8 +166,7 @@ export function ScopeView(props: {
   async function handleRefresh() {
     // refetch() ignores enabled:false — only pull services when the view is fetchable.
     const canRefetchServices =
-      selectedScope != null &&
-      (selectedScope.type !== "agent" || Boolean(selectedScope.agent_id))
+      selectedScope != null && (selectedScope.type !== "agent" || Boolean(selectedScope.agent_id))
     await Promise.all([
       scopesQuery.refetch(),
       canRefetchServices ? liveServicesQuery.refetch() : Promise.resolve(),
@@ -384,7 +379,11 @@ function AddAgentShellDialog({
               {t("cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              {submitting ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              {submitting ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
               {submitting ? t("adding") : t("addScope")}
             </Button>
           </DialogFooter>
@@ -463,4 +462,3 @@ function ScopeListCard({
     </div>
   )
 }
-

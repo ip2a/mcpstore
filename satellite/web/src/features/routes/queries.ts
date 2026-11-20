@@ -46,8 +46,7 @@ function useList<T>(kind: Kind, enabled = true) {
 }
 
 export const useToolRoutesQuery = (enabled = true) => useList<ToolRouteRule>("tool", enabled)
-export const usePromptRoutesQuery = (enabled = true) =>
-  useList<PromptRouteRule>("prompt", enabled)
+export const usePromptRoutesQuery = (enabled = true) => useList<PromptRouteRule>("prompt", enabled)
 export const useResourceRoutesQuery = (enabled = true) =>
   useList<ResourceRouteRule>("resource", enabled)
 export const useResourceTemplateRoutesQuery = (enabled = true) =>
@@ -82,11 +81,8 @@ export const useSetResourceRoute = (serviceName: string, uri: string, scope?: Sc
   useSet<ResourceRoutePatch>("resource", serviceName, uri, scope)
 export const useDeleteResourceRoute = (serviceName: string, uri: string, scope?: ScopeRef) =>
   useDelete("resource", serviceName, uri, scope)
-export const useSetResourceTemplateRoute = (
-  serviceName: string,
-  uri: string,
-  scope?: ScopeRef,
-) => useSet<ResourceTemplateRoutePatch>("resource_template", serviceName, uri, scope)
+export const useSetResourceTemplateRoute = (serviceName: string, uri: string, scope?: ScopeRef) =>
+  useSet<ResourceTemplateRoutePatch>("resource_template", serviceName, uri, scope)
 export const useDeleteResourceTemplateRoute = (
   serviceName: string,
   uri: string,

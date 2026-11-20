@@ -15,10 +15,7 @@ import {
 } from "@/components/shared/workspace-toolbar"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import {
-  FrameDetailPane,
-  FrameTimelineRow,
-} from "@/features/traces/frame-session-panes"
+import { FrameDetailPane, FrameTimelineRow } from "@/features/traces/frame-session-panes"
 import { getFrameHistory, type FrameRecord } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -45,10 +42,7 @@ export function TraceSessionDetailView(props: {
   const methods = useMemo(() => collectMethods(frames), [frames])
   const tabs = useMemo(() => [ALL_TAB, ...methods], [methods])
   const activeTab = tabs.includes(methodTab) ? methodTab : ALL_TAB
-  const filtered = useMemo(
-    () => framesForMethod(frames, activeTab),
-    [frames, activeTab],
-  )
+  const filtered = useMemo(() => framesForMethod(frames, activeTab), [frames, activeTab])
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -62,9 +56,7 @@ export function TraceSessionDetailView(props: {
   const selected = filtered.find((frame) => frame.id === selectedId) ?? null
 
   const peer =
-    frames.find((frame) => frame.peer)?.peer ??
-    frames.find((frame) => frame.caller)?.caller ??
-    null
+    frames.find((frame) => frame.peer)?.peer ?? frames.find((frame) => frame.caller)?.caller ?? null
   const shortId = props.sessionId.slice(0, 8)
   const faceLabel =
     props.face === "gateway" ? t("gatewayFramesFaceGateway") : t("gatewayFramesFaceUpstream")
@@ -90,11 +82,7 @@ export function TraceSessionDetailView(props: {
         subtitle={headerSubtitle}
       />
       <PanelCard className={WORKSPACE_PANEL_CLASSNAME}>
-        <Tabs
-          value={activeTab}
-          onValueChange={setMethodTab}
-          className={WORKSPACE_TABS_CLASSNAME}
-        >
+        <Tabs value={activeTab} onValueChange={setMethodTab} className={WORKSPACE_TABS_CLASSNAME}>
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
             <WorkspaceTabsList value={activeTab}>
               {tabs.map((tab) => (
@@ -104,12 +92,7 @@ export function TraceSessionDetailView(props: {
               ))}
             </WorkspaceTabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <Button
-                disabled={timeline.isFetching}
-                size="sm"
-                variant="outline"
-                onClick={refresh}
-              >
+              <Button disabled={timeline.isFetching} size="sm" variant="outline" onClick={refresh}>
                 <RefreshCwSpinIcon data-icon="inline-start" spinning={timeline.isFetching} />
                 {t("refresh")}
               </Button>
@@ -175,7 +158,6 @@ function framesForMethod(frames: FrameRecord[], tab: string): FrameRecord[] {
       .map((frame) => frame.jsonrpc_id!),
   )
   return frames.filter(
-    (frame) =>
-      frame.method === tab || (frame.jsonrpc_id != null && ids.has(frame.jsonrpc_id)),
+    (frame) => frame.method === tab || (frame.jsonrpc_id != null && ids.has(frame.jsonrpc_id)),
   )
 }

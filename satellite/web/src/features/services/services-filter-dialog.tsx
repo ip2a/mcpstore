@@ -14,13 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
@@ -290,9 +284,7 @@ export function ServicesFilterDialog(props: {
                   <TabsContent value="name" className="mt-0 flex min-h-0 flex-1 flex-col gap-3">
                     <RadioGroup
                       value={pendingSort?.by === "name" ? nameDirection : undefined}
-                      onValueChange={(value) =>
-                        selectNameDirection(value as ServiceSortDirection)
-                      }
+                      onValueChange={(value) => selectNameDirection(value as ServiceSortDirection)}
                       className="flex flex-col gap-3"
                     >
                       <Field orientation="horizontal" className="items-center gap-2">
@@ -380,19 +372,13 @@ export function ServicesFilterDialog(props: {
                           <FieldLegend variant="label">{t(labelKey)}</FieldLegend>
                           <div className="flex flex-col gap-3">
                             <Field orientation="horizontal" className="items-center gap-2">
-                              <RadioGroupItem
-                                value={`${kind}:asc`}
-                                id={`sort-${kind}-asc`}
-                              />
+                              <RadioGroupItem value={`${kind}:asc`} id={`sort-${kind}-asc`} />
                               <Label htmlFor={`sort-${kind}-asc`} className="font-normal">
                                 {t("sortPrimitiveAsc")}
                               </Label>
                             </Field>
                             <Field orientation="horizontal" className="items-center gap-2">
-                              <RadioGroupItem
-                                value={`${kind}:desc`}
-                                id={`sort-${kind}-desc`}
-                              />
+                              <RadioGroupItem value={`${kind}:desc`} id={`sort-${kind}-desc`} />
                               <Label htmlFor={`sort-${kind}-desc`} className="font-normal">
                                 {t("sortPrimitiveDesc")}
                               </Label>

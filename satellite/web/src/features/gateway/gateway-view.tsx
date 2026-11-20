@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import {
-  AlertCircleIcon,
-  CheckIcon,
-  CircleIcon,
-  SettingsIcon,
-  XIcon,
-} from "lucide-react"
+import { AlertCircleIcon, CheckIcon, CircleIcon, SettingsIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
@@ -244,11 +238,7 @@ export function GatewayView({
   )
 }
 
-const BOOT_STEP_LABEL_KEYS = [
-  "gatewayBootSpawn",
-  "gatewayBootMounts",
-  "gatewayBootReady",
-] as const
+const BOOT_STEP_LABEL_KEYS = ["gatewayBootSpawn", "gatewayBootMounts", "gatewayBootReady"] as const
 const BOOT_STEP_INDEX = {
   spawning: 0,
   mounting: 1,
@@ -999,13 +989,7 @@ function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean
   )
 }
 
-function ServiceFlowCard({
-  fresh,
-  recent,
-}: {
-  fresh: boolean
-  recent: GatewayRequestRecord[]
-}) {
+function ServiceFlowCard({ fresh, recent }: { fresh: boolean; recent: GatewayRequestRecord[] }) {
   const { t } = useI18n()
   const latest = recent[0] ?? null
 

@@ -97,11 +97,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    version = verify_release_metadata(args.domain)
+    if args.domain == "sdk" and args.allow_prerelease_tag:
+        raise SystemExit("[error] --allow-prerelease-tag is App-only; SDK tags never prerelease")
+
+    versions = verify_release_metadata(args.domain)
     verify_windows_checkout_paths()
     if args.require_tag:
-        verify_release_tag(args.domain, version, allow_prerelease=args.allow_prerelease_tag)
-    print(f"[ok] release metadata is consistent ({args.domain}) at version {version}")
+        verify_release_tag(args.domain, versions[args.domain], allow_prerelease=args.allow_prerelease_tag)
+    if args.domain == "all":
+        print(f"[ok] release metadata is consistent ({args.domain}): sdk {versions['sdk']}, app {versions['app']}")
+    else:
+        print(f"[ok] release metadata is consistent ({args.domain}) at version {versions[args.domain]}")
 
 
 if __name__ == "__main__":

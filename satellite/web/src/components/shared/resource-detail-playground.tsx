@@ -4,9 +4,7 @@ import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
-import {
-  toolDetailPlaygroundAside,
-} from "@/components/shared/tool-detail-section-layout"
+import { toolDetailPlaygroundAside } from "@/components/shared/tool-detail-section-layout"
 import {
   CodeBlock,
   CodeBlockActions,

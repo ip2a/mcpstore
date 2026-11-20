@@ -49,9 +49,13 @@ export function filterAndSortScopeInstances(
 
   const sorted = filtered.slice()
   if (prefs.sort === "added_newest") {
-    sorted.sort((a, b) => b.added_time - a.added_time || a.service_name.localeCompare(b.service_name))
+    sorted.sort(
+      (a, b) => b.added_time - a.added_time || a.service_name.localeCompare(b.service_name),
+    )
   } else if (prefs.sort === "added_oldest") {
-    sorted.sort((a, b) => a.added_time - b.added_time || a.service_name.localeCompare(b.service_name))
+    sorted.sort(
+      (a, b) => a.added_time - b.added_time || a.service_name.localeCompare(b.service_name),
+    )
   } else {
     sorted.sort((a, b) => a.service_name.localeCompare(b.service_name))
   }

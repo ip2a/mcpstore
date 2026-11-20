@@ -23,8 +23,7 @@ export function ToolListCard({
   const schema = getToolSchema(tool) as { properties?: Record<string, unknown> }
   const paramCount = Object.keys(schema.properties || {}).length
   const description = tool.description?.trim()
-  const scopeLabel =
-    instance.scope.type === "store" ? "store" : instance.scope.agent_id
+  const scopeLabel = instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <BasicCard

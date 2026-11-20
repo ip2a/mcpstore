@@ -41,7 +41,9 @@ export function DialogFormFooter({
 
   return (
     <DialogFooter {...props}>
-      {start ? <div className="mr-auto flex flex-col-reverse gap-2 sm:flex-row">{start}</div> : null}
+      {start ? (
+        <div className="mr-auto flex flex-col-reverse gap-2 sm:flex-row">{start}</div>
+      ) : null}
       <Button type="button" variant="outline" onClick={onCancel} {...cancelButtonProps}>
         {cancelLabel ?? t("cancel")}
       </Button>

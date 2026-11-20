@@ -56,12 +56,7 @@ export function ToolParameterDocList({
         const fieldType = resolveSchemaFieldType(field)
         const formType = resolveFormFieldType(field)
         const argMeta = route.enabled ? route.argMeta(name) : null
-        const paramDoc = resolveParameterDoc(
-          name,
-          field,
-          proseParamDocs,
-          argMeta?.originalName,
-        )
+        const paramDoc = resolveParameterDoc(name, field, proseParamDocs, argMeta?.originalName)
         const defaultValue = field.default
         const isLast = index === fields.length - 1
 

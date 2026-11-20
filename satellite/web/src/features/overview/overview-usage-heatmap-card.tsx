@@ -2,11 +2,7 @@ import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n-context"
 import { getFrameActivityStats, type HeatmapDay } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -61,9 +57,7 @@ function emptyCell(): DayCell {
 
 /** Row 0 = Monday; columns = local hours 0–23. Buckets are summed (DST-safe). */
 function buildMatrix(days: HeatmapDay[]): Matrix {
-  const cells = Array.from({ length: DAYS }, () =>
-    Array.from({ length: HOURS }, emptyCell),
-  )
+  const cells = Array.from({ length: DAYS }, () => Array.from({ length: HOURS }, emptyCell))
   let errors = 0
   let maxCalls = 0
   let maxErrors = 0
@@ -128,12 +122,7 @@ function HeatCell({
   errorsLabel: string
 }) {
   const swatch = (
-    <div
-      className={cn(
-        "min-h-0 min-w-0 rounded-[4px]",
-        shadeClass(cell, maxCalls, maxErrors),
-      )}
-    />
+    <div className={cn("min-h-0 min-w-0 rounded-[4px]", shadeClass(cell, maxCalls, maxErrors))} />
   )
 
   if (cell.count === 0 && cell.errors === 0) return swatch
@@ -148,9 +137,7 @@ function HeatCell({
       <TooltipTrigger asChild>{swatch}</TooltipTrigger>
       <TooltipContent side="top" sideOffset={6} className="max-w-xs">
         <p className="font-medium">{tipTotal}</p>
-        <p className="text-background/75">
-          {parts.join(" · ") || `0 ${callsUnit}`}
-        </p>
+        <p className="text-background/75">{parts.join(" · ") || `0 ${callsUnit}`}</p>
         {cell.errors > 0 ? (
           <p className="mt-0.5 font-medium text-[#ff6b6b]">{errorsLabel}</p>
         ) : null}
@@ -231,14 +218,9 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
             <div className="mt-2 flex shrink-0 items-center justify-end gap-1.5">
               <span className="text-xs text-muted-foreground">{t("homeLess")}</span>
               {OK_CLASS.map((cls) => (
-                <div
-                  key={cls}
-                  className={cn("size-3 shrink-0 rounded-[4px]", cls)}
-                />
+                <div key={cls} className={cn("size-3 shrink-0 rounded-[4px]", cls)} />
               ))}
-              <div
-                className={cn("size-3 shrink-0 rounded-[4px]", ERROR_CLASS[1])}
-              />
+              <div className={cn("size-3 shrink-0 rounded-[4px]", ERROR_CLASS[1])} />
               <span className="text-xs text-muted-foreground">{t("homeMore")}</span>
             </div>
           </>

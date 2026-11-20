@@ -57,7 +57,8 @@ export function UpdateBanner() {
       let total = 0
       let received = 0
       await update.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength != null) total = event.data.contentLength
+        if (event.event === "Started" && event.data.contentLength != null)
+          total = event.data.contentLength
         if (event.event === "Progress" && total > 0) {
           received += event.data.chunkLength
           setProgress(Math.min(100, Math.round((received / total) * 100)))
@@ -66,7 +67,11 @@ export function UpdateBanner() {
       setPhase("ready")
     } catch (error) {
       setPhase("idle")
-      toast.error(t("updateDownloadFailed", { error: error instanceof Error ? error.message : String(error) }))
+      toast.error(
+        t("updateDownloadFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      )
     }
   }, [update, t])
 
@@ -76,7 +81,9 @@ export function UpdateBanner() {
 
   return (
     <div className="fixed right-4 top-4 z-50 w-80 rounded-lg border bg-card p-4 shadow-md">
-      <p className="text-sm font-medium">{t("updateAvailable", { version: formatReleaseVersion(update.version) })}</p>
+      <p className="text-sm font-medium">
+        {t("updateAvailable", { version: formatReleaseVersion(update.version) })}
+      </p>
       {phase === "downloading" ? (
         <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
           <RotateCwIcon className="size-4 animate-spin" />

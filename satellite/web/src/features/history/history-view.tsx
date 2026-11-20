@@ -27,11 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   TRACE_COL1_CELL_CLASSNAME,
   TRACE_COL1_CLASSNAME,
@@ -150,9 +146,7 @@ export function HistoryPanel() {
                   const fullTime = new Date(record.started_at_unix_ms).toLocaleString()
                   return (
                     <TableRow key={record.id}>
-                      <TableCell
-                        className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}
-                      >
+                      <TableCell className={cn(TRACE_COL1_CELL_CLASSNAME, "text-muted-foreground")}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="cursor-default">
@@ -164,19 +158,14 @@ export function HistoryPanel() {
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
-                      <TableCell
-                        className={TRACE_COL2_CELL_CLASSNAME}
-                        title={targetLabel(record)}
-                      >
+                      <TableCell className={TRACE_COL2_CELL_CLASSNAME} title={targetLabel(record)}>
                         {targetLabel(record)}
                       </TableCell>
                       <TableCell className="max-w-[10rem] truncate font-mono text-xs">
                         {record.caller ?? t("gatewayCallDirect")}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {record.kind === "tool"
-                          ? t("gatewayKindTool")
-                          : t("gatewayKindManagement")}
+                        {record.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")}
                       </TableCell>
                       <TableCell>
                         <Badge variant={record.success ? "secondary" : "destructive"}>
@@ -356,8 +345,7 @@ function RequestDetailDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
-  const kindLabel =
-    record?.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")
+  const kindLabel = record?.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")
   const subtitle = record
     ? [
         new Date(record.started_at_unix_ms).toLocaleString(),

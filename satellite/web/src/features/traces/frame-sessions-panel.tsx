@@ -19,11 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { FrameSessionSortBy } from "@/features/traces/frames-filter-dialog"
 import {
   TRACE_COL1_CELL_CLASSNAME,
@@ -109,6 +105,8 @@ function filterAndSortSessions(
           return b.response_bytes - a.response_bytes
         case "service":
           return (a.service_name ?? "").localeCompare(b.service_name ?? "")
+        default:
+          return 0
       }
     })
   }
@@ -116,13 +114,7 @@ function filterAndSortSessions(
 }
 
 /** Clock times in cell; full date+time in tooltip. Cross-day end renders in red. */
-function SessionActiveRange({
-  firstMs,
-  lastMs,
-}: {
-  firstMs: number
-  lastMs: number
-}) {
+function SessionActiveRange({ firstMs, lastMs }: { firstMs: number; lastMs: number }) {
   const first = new Date(firstMs)
   const last = new Date(lastMs)
   const fullRange = `${first.toLocaleString()} – ${last.toLocaleString()}`
@@ -267,9 +259,7 @@ export function FrameSessionsPanel({
                   <TableHead>{t("gatewayFramesColRequest")}</TableHead>
                   <TableHead>{t("gatewayFramesColResponse")}</TableHead>
                   <TableHead>{t("gatewayFramesColCount")}</TableHead>
-                  {onOpenSession ? (
-                    <TableHead>{t("gatewayFramesColActions")}</TableHead>
-                  ) : null}
+                  {onOpenSession ? <TableHead>{t("gatewayFramesColActions")}</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>

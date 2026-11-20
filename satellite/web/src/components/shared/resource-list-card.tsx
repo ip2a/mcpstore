@@ -21,8 +21,7 @@ export function ResourceListCard({
   const displayName = resource.title?.trim() || resource.name
   const description = resource.description?.trim() || resource.uri
   const mime = resourceMimeType(resource)
-  const scopeLabel =
-    instance.scope.type === "store" ? "store" : instance.scope.agent_id
+  const scopeLabel = instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <BasicCard

@@ -90,10 +90,7 @@ export function FrameDetailPane({
   return (
     <ScrollPane
       className={cn("min-h-0 flex-1", className)}
-      innerClassName={cn(
-        insetClassName ?? WORKSPACE_LIST_INSET_CLASSNAME,
-        "flex flex-col gap-3",
-      )}
+      innerClassName={cn(insetClassName ?? WORKSPACE_LIST_INSET_CLASSNAME, "flex flex-col gap-3")}
     >
       <div className="flex flex-col gap-2 border-b pb-3">
         <div className="flex flex-wrap items-center gap-2">

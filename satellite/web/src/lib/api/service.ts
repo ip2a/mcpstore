@@ -64,7 +64,9 @@ export async function createAgentShell(agentId: string): Promise<ScopeSummary> {
 }
 
 /** Remove empty-shell registration; declared instances are kept. */
-export async function removeAgentShell(agentId: string): Promise<{ agent_id: string; removed: boolean }> {
+export async function removeAgentShell(
+  agentId: string,
+): Promise<{ agent_id: string; removed: boolean }> {
   return api<{ agent_id: string; removed: boolean }>(
     `/scopes/agents/${encodeURIComponent(agentId)}`,
     { method: "DELETE" },

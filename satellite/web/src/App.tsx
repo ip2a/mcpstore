@@ -6,10 +6,7 @@ import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppBottomBar } from "@/components/layout/app-bottom-bar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
-import {
-  breadcrumbUppercase,
-  type WorkspaceCrumb,
-} from "@/components/shared/workspace-page-header"
+import { breadcrumbUppercase, type WorkspaceCrumb } from "@/components/shared/workspace-page-header"
 import { useI18n } from "@/lib/i18n-context"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { ClientsView } from "@/features/clients/clients-view"
@@ -292,9 +289,7 @@ export function App() {
                     busy={busy}
                     error={dashboardError}
                     loading={loading}
-                    openCardInstanceId={
-                      view.name === "services" ? view.cardInstanceId : undefined
-                    }
+                    openCardInstanceId={view.name === "services" ? view.cardInstanceId : undefined}
                     openCardTab={view.name === "services" ? view.cardTab : undefined}
                     onOpenCardConsumed={() => {
                       if (view.name === "services" && (view.cardInstanceId || view.cardTab)) {

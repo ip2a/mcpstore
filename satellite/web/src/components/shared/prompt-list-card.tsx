@@ -21,8 +21,7 @@ export function PromptListCard({
   const displayName = prompt.title?.trim() || prompt.name
   const description = prompt.description?.trim()
   const argCount = promptArgCount(prompt)
-  const scopeLabel =
-    instance.scope.type === "store" ? "store" : instance.scope.agent_id
+  const scopeLabel = instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <BasicCard

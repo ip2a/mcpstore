@@ -205,7 +205,10 @@ function renderTokens(tokens: Token[]): ReactNode {
   return tokens.map((token, index) => {
     if (token.type === "whitespace") return token.value
     return (
-      <span key={`${index}-${token.type}-${token.value.slice(0, 24)}`} className={tokenClass[token.type]}>
+      <span
+        key={`${index}-${token.type}-${token.value.slice(0, 24)}`}
+        className={tokenClass[token.type]}
+      >
         {token.value}
       </span>
     )

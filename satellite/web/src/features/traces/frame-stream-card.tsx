@@ -9,22 +9,14 @@ import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
-import {
-  FramesFilterDialog,
-  type FrameSessionSortBy,
-} from "@/features/traces/frames-filter-dialog"
+import { FramesFilterDialog, type FrameSessionSortBy } from "@/features/traces/frames-filter-dialog"
 import { FrameSessionsPanel } from "@/features/traces/frame-sessions-panel"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 import type { FrameSessionSummary } from "@/lib/api"
 
-export type FrameViewMode =
-  | "sessions"
-  | "history"
-  | "kv"
-  | "calls"
-  | "projection"
+export type FrameViewMode = "sessions" | "history" | "kv" | "calls" | "projection"
 
 /** Normalize legacy inbound/outbound/table bookmarks to the unified sessions tab. */
 export function normalizeFrameView(view?: string | null): FrameViewMode | undefined {
@@ -124,10 +116,7 @@ export function FrameStreamCard(props: {
 
   return (
     <PanelCard
-      className={cn(
-        fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2",
-        !fill && "flex flex-col",
-      )}
+      className={cn(fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2", !fill && "flex flex-col")}
       variant={fill ? "stack" : "plain"}
     >
       <Tabs
@@ -137,9 +126,7 @@ export function FrameStreamCard(props: {
       >
         <div
           className={cn(
-            fill
-              ? WORKSPACE_TOOLBAR_CLASSNAME
-              : "flex items-center justify-between border-b pb-2",
+            fill ? WORKSPACE_TOOLBAR_CLASSNAME : "flex items-center justify-between border-b pb-2",
           )}
         >
           <WorkspaceTabsList value={view}>

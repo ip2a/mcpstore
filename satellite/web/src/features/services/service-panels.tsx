@@ -357,12 +357,7 @@ export function ServiceResourceDetailPane({
   content?: unknown
 }) {
   return (
-    <div
-      className={cn(
-        toolDetailPlaygroundGrid,
-        !playgroundOpen && "@min-[42rem]:grid-cols-1",
-      )}
-    >
+    <div className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}>
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <ScrollPane className="min-h-0 flex-1">
           <ResourceDetailDocHeader resource={resource} />
@@ -476,12 +471,7 @@ export function ServicePromptDetailPane({
   content?: unknown
 }) {
   return (
-    <div
-      className={cn(
-        toolDetailPlaygroundGrid,
-        !playgroundOpen && "@min-[42rem]:grid-cols-1",
-      )}
-    >
+    <div className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}>
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <ScrollPane className="min-h-0 flex-1">
           <PromptDetailDocHeader prompt={prompt} />

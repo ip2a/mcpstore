@@ -286,9 +286,7 @@ function ServiceMarketCard({
   // Market / MCP protocol icon when present; otherwise the panel's default MCP mark.
   const icon = item.icon?.trim() && !iconBroken ? item.icon.trim() : null
 
-  const statusText = installed
-    ? t("clientPluginInstalled")
-    : item.publisher?.trim() || item.id
+  const statusText = installed ? t("clientPluginInstalled") : item.publisher?.trim() || item.id
 
   return (
     <BasicCard

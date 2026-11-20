@@ -244,9 +244,7 @@ export function RouteEditor({
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor={`route-description-${componentKey}`}>
-                {t("routeDescription")}
-              </Label>
+              <Label htmlFor={`route-description-${componentKey}`}>{t("routeDescription")}</Label>
               <Textarea
                 id={`route-description-${componentKey}`}
                 value={description}

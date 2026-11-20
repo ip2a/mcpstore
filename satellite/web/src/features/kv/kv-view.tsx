@@ -1,10 +1,7 @@
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import {
-  buildDisplayKvTree,
-  getAllLayerNodes,
-} from "@/features/kv/kv-model"
+import { buildDisplayKvTree, getAllLayerNodes } from "@/features/kv/kv-model"
 import { KvLayerContent } from "@/features/kv/kv-response-view"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { useKvHealthQuery, useKvInspectQuery } from "@/features/kv/queries"

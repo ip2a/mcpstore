@@ -30,15 +30,11 @@ export function useScopeServicesQuery(
   options?: {
     enabled?: boolean
     refetchOnMount?: boolean | "always"
-    refetchInterval?:
-      | number
-      | false
-      | ((query: ScopeServicesQuery) => number | false | undefined)
+    refetchInterval?: number | false | ((query: ScopeServicesQuery) => number | false | undefined)
   },
 ) {
   return useQuery({
-    enabled:
-      (options?.enabled ?? true) && (view.type !== "agent" || Boolean(view.agent_id)),
+    enabled: (options?.enabled ?? true) && (view.type !== "agent" || Boolean(view.agent_id)),
     queryKey: queryKeys.scopeServices(view),
     queryFn: () => listServices(view),
     refetchOnMount: options?.refetchOnMount,

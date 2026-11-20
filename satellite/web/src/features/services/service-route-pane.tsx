@@ -43,14 +43,11 @@ export const ServiceRoutePane = forwardRef<
     hideActions?: boolean
     onBusyChange?: (busy: boolean) => void
   }
->(function ServiceRoutePane(
-  { serviceName, scope, hideActions = false, onBusyChange },
-  ref,
-) {
+>(function ServiceRoutePane({ serviceName, scope, hideActions = false, onBusyChange }, ref) {
   const { t } = useI18n()
   const client = useQueryClient()
   const routeQuery = useServiceRouteQuery(serviceName, scope)
-  const rule: ServiceRouteRule | undefined = routeQuery.data?.route ?? undefined
+  const rule: ServiceRouteRule | undefined = routeQuery.data?.override ?? undefined
   const [displayName, setDisplayName] = useState("")
   const [visibility, setVisibility] = useState<GatewayVisibility>("show")
   const draftRef = useRef({ displayName, visibility, rule })
@@ -138,9 +135,7 @@ export const ServiceRoutePane = forwardRef<
           orientation="horizontal"
           className="justify-between [&>[data-slot=field-label]]:flex-none"
         >
-          <FieldLabel htmlFor="service-route-visibility">
-            {t("serviceRouteVisibility")}
-          </FieldLabel>
+          <FieldLabel htmlFor="service-route-visibility">{t("serviceRouteVisibility")}</FieldLabel>
           <Select
             value={visibility}
             onValueChange={(value) => setVisibility(value as GatewayVisibility)}
@@ -157,9 +152,7 @@ export const ServiceRoutePane = forwardRef<
           </Select>
         </Field>
         <span className="text-xs text-muted-foreground">
-          {visibility === "hide"
-            ? t("serviceRouteHideHint")
-            : t("serviceRouteShowHint")}
+          {visibility === "hide" ? t("serviceRouteHideHint") : t("serviceRouteShowHint")}
         </span>
       </FieldGroup>
 

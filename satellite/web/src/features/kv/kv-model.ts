@@ -167,9 +167,7 @@ function buildLayerNode(
   }
 }
 
-function buildLayersFromCollections(
-  collectionMap: Map<string, KvCollectionNode>,
-): KvLayerNode[] {
+function buildLayersFromCollections(collectionMap: Map<string, KvCollectionNode>): KvLayerNode[] {
   return KV_LAYER_ORDER.map((layer) => buildLayerNode(layer, collectionMap)).filter(
     (layer) => layer.collections.length > 0,
   )
@@ -190,10 +188,7 @@ export function getAllLayerNodes(tree: KvTree | null): KvLayerNode[] {
   return KV_LAYER_ORDER.map((layer) => getLayerNode(tree, layer))
 }
 
-export function buildDisplayKvTree(
-  inspectReport: unknown,
-  healthReport: unknown,
-): KvTree | null {
+export function buildDisplayKvTree(inspectReport: unknown, healthReport: unknown): KvTree | null {
   return buildKvTreeFromInspect(inspectReport) ?? buildKvTreeFromHealth(healthReport)
 }
 
@@ -306,10 +301,7 @@ export function extractKvNamespace(...reports: unknown[]): string | null {
   return null
 }
 
-export function findKvKeyEntry(
-  tree: KvTree | null,
-  keyId: string | null,
-): KvKeyEntry | null {
+export function findKvKeyEntry(tree: KvTree | null, keyId: string | null): KvKeyEntry | null {
   if (!tree || !keyId) return null
   for (const layer of tree.layers) {
     for (const collection of layer.collections) {

@@ -14,7 +14,7 @@ import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions, type FrameSessionSummary } from "@/lib/api"
 
-export type TracesTab = FrameViewMode | "table"
+export type TracesTab = FrameViewMode | "table" | "inbound" | "outbound"
 
 /** Insights → Traces: inbound/outbound MCP frames + request history + routed calls + KV. */
 export function TracesView({

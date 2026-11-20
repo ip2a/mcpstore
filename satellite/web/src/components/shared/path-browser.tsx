@@ -1,7 +1,23 @@
-import { Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowUpIcon, CheckIcon, ChevronRightIcon, FolderIcon, PencilIcon, RefreshCwIcon, XIcon } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import {
+  ArrowUpIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  FolderIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  XIcon,
+} from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -10,46 +26,46 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
+} from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Spinner } from "@/components/ui/spinner";
-import { useI18n } from "@/lib/i18n-context";
-import { cn } from "@/lib/utils";
-import { listDirectories } from "@/lib/api/filesystem";
+} from "@/components/ui/dropdown-menu"
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
+import { Spinner } from "@/components/ui/spinner"
+import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
+import { listDirectories } from "@/lib/api/filesystem"
 
 type PathCrumb = {
-  label: string;
-  path: string;
-};
+  label: string
+  path: string
+}
 
 type CollapsedPathCrumbs = {
-  leading: PathCrumb[];
-  hidden: PathCrumb[];
-  trailing: PathCrumb[];
-};
+  leading: PathCrumb[]
+  hidden: PathCrumb[]
+  trailing: PathCrumb[]
+}
 
-const BREADCRUMB_GAP_PX = 6;
+const BREADCRUMB_GAP_PX = 6
 
 function pathCrumbs(path: string): PathCrumb[] {
-  const windowsPath = /^[A-Za-z]:[\\/]/.test(path);
-  const separator = windowsPath ? "\\" : "/";
-  const segments = path.split(/[\\/]+/).filter(Boolean);
+  const windowsPath = /^[A-Za-z]:[\\/]/.test(path)
+  const separator = windowsPath ? "\\" : "/"
+  const segments = path.split(/[\\/]+/).filter(Boolean)
 
   if (windowsPath) {
     return segments.map((segment, index) => ({
       label: segment,
       path: `${segments.slice(0, index + 1).join(separator)}${index === 0 ? separator : ""}`,
-    }));
+    }))
   }
 
   return [
@@ -58,28 +74,32 @@ function pathCrumbs(path: string): PathCrumb[] {
       label: segment,
       path: `/${segments.slice(0, index + 1).join("/")}`,
     })),
-  ];
+  ]
 }
 
-function toCollapsedPathCrumbs(crumbs: PathCrumb[], leadingCount: number, trailingCount: number): CollapsedPathCrumbs {
+function toCollapsedPathCrumbs(
+  crumbs: PathCrumb[],
+  leadingCount: number,
+  trailingCount: number,
+): CollapsedPathCrumbs {
   if (trailingCount === 0) {
-    return { leading: crumbs.slice(0, leadingCount), hidden: [], trailing: [] };
+    return { leading: crumbs.slice(0, leadingCount), hidden: [], trailing: [] }
   }
 
   return {
     leading: crumbs.slice(0, leadingCount),
     hidden: crumbs.slice(leadingCount, crumbs.length - trailingCount),
     trailing: crumbs.slice(crumbs.length - trailingCount),
-  };
+  }
 }
 
 function initialCollapsedPathCrumbs(crumbs: PathCrumb[]): CollapsedPathCrumbs {
-  if (crumbs.length <= 2) return { leading: crumbs, hidden: [], trailing: [] };
+  if (crumbs.length <= 2) return { leading: crumbs, hidden: [], trailing: [] }
   return {
     leading: [crumbs[0]],
     hidden: crumbs.slice(1, -1),
     trailing: [crumbs[crumbs.length - 1]],
-  };
+  }
 }
 
 function collapsedPathWidth(
@@ -89,13 +109,15 @@ function collapsedPathWidth(
   leadingCount: number,
   trailingCount: number,
 ) {
-  const totalItems = itemWidths.length;
-  const hiddenCount = totalItems - leadingCount - trailingCount;
-  const leadingWidth = itemWidths.slice(0, leadingCount).reduce((sum, width) => sum + width, 0);
-  const trailingWidth = itemWidths.slice(totalItems - trailingCount).reduce((sum, width) => sum + width, 0);
-  const visibleNodes = leadingCount + trailingCount + (hiddenCount > 0 ? 1 : 0);
-  const separatorNodes = Math.max(0, visibleNodes - 1);
-  const flexChildren = visibleNodes + separatorNodes;
+  const totalItems = itemWidths.length
+  const hiddenCount = totalItems - leadingCount - trailingCount
+  const leadingWidth = itemWidths.slice(0, leadingCount).reduce((sum, width) => sum + width, 0)
+  const trailingWidth = itemWidths
+    .slice(totalItems - trailingCount)
+    .reduce((sum, width) => sum + width, 0)
+  const visibleNodes = leadingCount + trailingCount + (hiddenCount > 0 ? 1 : 0)
+  const separatorNodes = Math.max(0, visibleNodes - 1)
+  const flexChildren = visibleNodes + separatorNodes
 
   return (
     leadingWidth +
@@ -103,7 +125,7 @@ function collapsedPathWidth(
     separatorNodes * separatorWidth +
     (hiddenCount > 0 ? ellipsisWidth : 0) +
     Math.max(0, flexChildren - 1) * BREADCRUMB_GAP_PX
-  );
+  )
 }
 
 function computeCollapsedPathCrumbs(
@@ -113,31 +135,31 @@ function computeCollapsedPathCrumbs(
   ellipsisWidth: number,
   availableWidth: number,
 ): CollapsedPathCrumbs {
-  const totalItems = crumbs.length;
-  if (totalItems === 0) return { leading: [], hidden: [], trailing: [] };
-  if (totalItems === 1) return { leading: crumbs, hidden: [], trailing: [] };
-  if (availableWidth <= 0) return initialCollapsedPathCrumbs(crumbs);
+  const totalItems = crumbs.length
+  if (totalItems === 0) return { leading: [], hidden: [], trailing: [] }
+  if (totalItems === 1) return { leading: crumbs, hidden: [], trailing: [] }
+  if (availableWidth <= 0) return initialCollapsedPathCrumbs(crumbs)
 
-  const safeWidth = Math.max(0, availableWidth - 4);
-  const minimum = initialCollapsedPathCrumbs(crumbs);
+  const safeWidth = Math.max(0, availableWidth - 4)
+  const minimum = initialCollapsedPathCrumbs(crumbs)
 
   for (let trailingCount = 0; trailingCount <= Math.min(3, totalItems - 1); trailingCount += 1) {
     for (let leadingCount = totalItems - trailingCount; leadingCount >= 1; leadingCount -= 1) {
-      const hiddenCount = totalItems - leadingCount - trailingCount;
-      if (hiddenCount < 0) continue;
+      const hiddenCount = totalItems - leadingCount - trailingCount
+      if (hiddenCount < 0) continue
 
       if (
         collapsedPathWidth(itemWidths, separatorWidth, ellipsisWidth, leadingCount, trailingCount) >
         safeWidth
       ) {
-        continue;
+        continue
       }
 
-      return toCollapsedPathCrumbs(crumbs, leadingCount, trailingCount);
+      return toCollapsedPathCrumbs(crumbs, leadingCount, trailingCount)
     }
   }
 
-  return minimum;
+  return minimum
 }
 
 function collapsedStatesEqual(left: CollapsedPathCrumbs, right: CollapsedPathCrumbs) {
@@ -148,7 +170,7 @@ function collapsedStatesEqual(left: CollapsedPathCrumbs, right: CollapsedPathCru
     left.leading.every((crumb, index) => crumb.path === right.leading[index]?.path) &&
     left.hidden.every((crumb, index) => crumb.path === right.hidden[index]?.path) &&
     left.trailing.every((crumb, index) => crumb.path === right.trailing[index]?.path)
-  );
+  )
 }
 
 function PathBreadcrumbNav({
@@ -158,52 +180,54 @@ function PathBreadcrumbNav({
   layoutSeed,
   onNavigate,
 }: {
-  slotRef: React.RefObject<HTMLDivElement | null>;
-  rowRef: React.RefObject<HTMLDivElement | null>;
-  crumbs: PathCrumb[];
-  layoutSeed: string;
-  onNavigate: (path: string) => void;
+  slotRef: React.RefObject<HTMLDivElement | null>
+  rowRef: React.RefObject<HTMLDivElement | null>
+  crumbs: PathCrumb[]
+  layoutSeed: string
+  onNavigate: (path: string) => void
 }) {
-  const { t } = useI18n();
-  const listRef = useRef<HTMLOListElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [collapsed, setCollapsed] = useState<CollapsedPathCrumbs>(() => initialCollapsedPathCrumbs(crumbs));
-  const crumbKey = crumbs.map((crumb) => crumb.path).join("|");
+  const { t } = useI18n()
+  const listRef = useRef<HTMLOListElement>(null)
+  const measureRef = useRef<HTMLDivElement>(null)
+  const [collapsed, setCollapsed] = useState<CollapsedPathCrumbs>(() =>
+    initialCollapsedPathCrumbs(crumbs),
+  )
+  const crumbKey = crumbs.map((crumb) => crumb.path).join("|")
 
   useLayoutEffect(() => {
-    setCollapsed(initialCollapsedPathCrumbs(crumbs));
-  }, [crumbKey, crumbs, layoutSeed]);
+    setCollapsed(initialCollapsedPathCrumbs(crumbs))
+  }, [crumbKey, crumbs, layoutSeed])
 
   useLayoutEffect(() => {
-    const slot = slotRef.current;
-    const row = rowRef.current;
-    const measure = measureRef.current;
-    if (!slot || !row || !measure || crumbs.length === 0) return;
+    const slot = slotRef.current
+    const row = rowRef.current
+    const measure = measureRef.current
+    if (!slot || !row || !measure || crumbs.length === 0) return
 
-    let frame = 0;
-    let cancelled = false;
+    let frame = 0
+    let cancelled = false
 
     const measureAndUpdate = () => {
-      if (cancelled) return;
+      if (cancelled) return
 
-      const availableWidth = slot.clientWidth;
+      const availableWidth = slot.clientWidth
       if (availableWidth <= 0) {
-        frame += 1;
-        if (frame <= 8) requestAnimationFrame(measureAndUpdate);
-        return;
+        frame += 1
+        if (frame <= 8) requestAnimationFrame(measureAndUpdate)
+        return
       }
 
-      const separator = measure.querySelector("[data-path-crumb-separator]");
-      const ellipsis = measure.querySelector("[data-path-crumb-ellipsis]");
-      if (!separator || !ellipsis) return;
+      const separator = measure.querySelector("[data-path-crumb-separator]")
+      const ellipsis = measure.querySelector("[data-path-crumb-ellipsis]")
+      if (!separator || !ellipsis) return
 
-      const separatorWidth = separator.getBoundingClientRect().width;
-      const ellipsisWidth = ellipsis.getBoundingClientRect().width;
+      const separatorWidth = separator.getBoundingClientRect().width
+      const ellipsisWidth = ellipsis.getBoundingClientRect().width
       const itemWidths = Array.from(measure.querySelectorAll("[data-path-crumb-item]")).map(
         (element) => element.getBoundingClientRect().width,
-      );
+      )
 
-      if (itemWidths.length !== crumbs.length) return;
+      if (itemWidths.length !== crumbs.length) return
 
       const next = computeCollapsedPathCrumbs(
         crumbs,
@@ -211,33 +235,33 @@ function PathBreadcrumbNav({
         separatorWidth,
         ellipsisWidth,
         availableWidth,
-      );
+      )
 
-      setCollapsed((current) => (collapsedStatesEqual(current, next) ? current : next));
+      setCollapsed((current) => (collapsedStatesEqual(current, next) ? current : next))
 
       requestAnimationFrame(() => {
-        if (cancelled) return;
-        const list = listRef.current;
-        if (!list || crumbs.length <= 2) return;
+        if (cancelled) return
+        const list = listRef.current
+        if (!list || crumbs.length <= 2) return
 
-        const minimum = initialCollapsedPathCrumbs(crumbs);
-        if (list.scrollWidth <= slot.clientWidth + 1) return;
+        const minimum = initialCollapsedPathCrumbs(crumbs)
+        if (list.scrollWidth <= slot.clientWidth + 1) return
 
-        setCollapsed((current) => (collapsedStatesEqual(current, minimum) ? current : minimum));
-      });
-    };
+        setCollapsed((current) => (collapsedStatesEqual(current, minimum) ? current : minimum))
+      })
+    }
 
-    measureAndUpdate();
+    measureAndUpdate()
 
-    const observer = new ResizeObserver(measureAndUpdate);
-    observer.observe(row);
-    observer.observe(slot);
+    const observer = new ResizeObserver(measureAndUpdate)
+    observer.observe(row)
+    observer.observe(slot)
 
     return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [crumbKey, crumbs, layoutSeed, rowRef, slotRef]);
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [crumbKey, crumbs, layoutSeed, rowRef, slotRef])
 
   function renderCrumb(crumb: PathCrumb, isCurrent: boolean) {
     return (
@@ -246,16 +270,20 @@ function PathBreadcrumbNav({
           <BreadcrumbPage className="block truncate">{crumb.label}</BreadcrumbPage>
         ) : (
           <BreadcrumbLink asChild>
-            <button type="button" className="block max-w-full truncate" onClick={() => onNavigate(crumb.path)}>
+            <button
+              type="button"
+              className="block max-w-full truncate"
+              onClick={() => onNavigate(crumb.path)}
+            >
               {crumb.label}
             </button>
           </BreadcrumbLink>
         )}
       </BreadcrumbItem>
-    );
+    )
   }
 
-  const { leading, hidden, trailing } = collapsed;
+  const { leading, hidden, trailing } = collapsed
 
   return (
     <>
@@ -282,7 +310,10 @@ function PathBreadcrumbNav({
           {leading.map((crumb, index) => (
             <Fragment key={crumb.path}>
               {index > 0 ? <BreadcrumbSeparator className="shrink-0" /> : null}
-              {renderCrumb(crumb, trailing.length === 0 && hidden.length === 0 && index === leading.length - 1)}
+              {renderCrumb(
+                crumb,
+                trailing.length === 0 && hidden.length === 0 && index === leading.length - 1,
+              )}
             </Fragment>
           ))}
           {hidden.length ? (
@@ -319,13 +350,10 @@ function PathBreadcrumbNav({
         </BreadcrumbList>
       </Breadcrumb>
     </>
-  );
+  )
 }
 
-function PathNavButton({
-  className,
-  ...props
-}: React.ComponentProps<typeof Button>) {
+function PathNavButton({ className, ...props }: React.ComponentProps<typeof Button>) {
   return (
     <Button
       type="button"
@@ -334,17 +362,17 @@ function PathNavButton({
       className={cn("size-8 shrink-0 rounded-none shadow-xs", className)}
       {...props}
     />
-  );
+  )
 }
 
 function directoryLabel(path: string) {
-  const normalized = path.replace(/[\\/]+$/, "");
-  const segments = normalized.split(/[\\/]+/).filter(Boolean);
-  return segments.at(-1) ?? path;
+  const normalized = path.replace(/[\\/]+$/, "")
+  const segments = normalized.split(/[\\/]+/).filter(Boolean)
+  return segments.at(-1) ?? path
 }
 
 function normalizeDirectoryPath(path: string) {
-  return path.replace(/[\\/]+$/, "");
+  return path.replace(/[\\/]+$/, "")
 }
 
 function DirectoryList({
@@ -354,13 +382,13 @@ function DirectoryList({
   isLoading,
   onNavigate,
 }: {
-  directories: { name: string; path: string }[];
-  currentPath?: string | null;
-  emptyDescription: string;
-  isLoading: boolean;
-  onNavigate: (path: string) => void;
+  directories: { name: string; path: string }[]
+  currentPath?: string | null
+  emptyDescription: string
+  isLoading: boolean
+  onNavigate: (path: string) => void
 }) {
-  const { t } = useI18n();
+  const { t } = useI18n()
 
   if (isLoading) {
     return (
@@ -368,7 +396,7 @@ function DirectoryList({
         <Spinner />
         {t("pathBrowserLoadingDirectories")}
       </div>
-    );
+    )
   }
 
   if (!directories.length) {
@@ -379,7 +407,7 @@ function DirectoryList({
           <EmptyDescription>{emptyDescription}</EmptyDescription>
         </EmptyHeader>
       </Empty>
-    );
+    )
   }
 
   return (
@@ -387,7 +415,7 @@ function DirectoryList({
       {directories.map((directory) => {
         const isCurrent =
           currentPath != null &&
-          normalizeDirectoryPath(directory.path) === normalizeDirectoryPath(currentPath);
+          normalizeDirectoryPath(directory.path) === normalizeDirectoryPath(currentPath)
         return (
           <Button
             key={directory.path}
@@ -400,10 +428,10 @@ function DirectoryList({
             <FolderIcon data-icon="inline-start" />
             <span className="truncate">{directory.name}</span>
           </Button>
-        );
+        )
       })}
     </div>
-  );
+  )
 }
 
 export function PathBrowser({
@@ -414,100 +442,100 @@ export function PathBrowser({
   onFilterChange,
   active = true,
 }: {
-  initialPath?: string | null;
-  onPathChange: (path: string) => void;
-  pathActions?: ReactNode;
-  filter?: string;
-  onFilterChange?: (filter: string) => void;
-  active?: boolean;
+  initialPath?: string | null
+  onPathChange: (path: string) => void
+  pathActions?: ReactNode
+  filter?: string
+  onFilterChange?: (filter: string) => void
+  active?: boolean
 }) {
-  const { t } = useI18n();
-  const activePath = initialPath?.trim() || null;
-  const [pathInput, setPathInput] = useState(activePath || "");
-  const [isEditingPath, setIsEditingPath] = useState(false);
-  const pathInputRef = useRef<HTMLInputElement>(null);
-  const rowRef = useRef<HTMLDivElement>(null);
-  const breadcrumbSlotRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n()
+  const activePath = initialPath?.trim() || null
+  const [pathInput, setPathInput] = useState(activePath || "")
+  const [isEditingPath, setIsEditingPath] = useState(false)
+  const pathInputRef = useRef<HTMLInputElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const breadcrumbSlotRef = useRef<HTMLDivElement>(null)
 
   const listing = useQuery({
     queryKey: ["filesystem", "directories", activePath],
     queryFn: () => listDirectories(activePath),
     enabled: active,
     placeholderData: keepPreviousData,
-  });
+  })
 
-  const parentPath = listing.data?.parent ?? null;
+  const parentPath = listing.data?.parent ?? null
 
   const parentListing = useQuery({
     queryKey: ["filesystem", "directories", parentPath],
     queryFn: () => listDirectories(parentPath),
     enabled: active && Boolean(parentPath),
     placeholderData: keepPreviousData,
-  });
+  })
 
-  const layoutSeed = `${active ? "active" : "inactive"}:${listing.fetchStatus}:${listing.data?.path ?? pathInput}`;
-
-  useEffect(() => {
-    if (!listing.data || listing.isPlaceholderData || listing.isFetching) return;
-    if (listing.data.path !== activePath) onPathChange(listing.data.path);
-  }, [activePath, listing.data, listing.isFetching, listing.isPlaceholderData, onPathChange]);
+  const layoutSeed = `${active ? "active" : "inactive"}:${listing.fetchStatus}:${listing.data?.path ?? pathInput}`
 
   useEffect(() => {
-    if (!isEditingPath) return;
-    pathInputRef.current?.focus();
-    pathInputRef.current?.select();
-  }, [isEditingPath]);
+    if (!listing.data || listing.isPlaceholderData || listing.isFetching) return
+    if (listing.data.path !== activePath) onPathChange(listing.data.path)
+  }, [activePath, listing.data, listing.isFetching, listing.isPlaceholderData, onPathChange])
+
+  useEffect(() => {
+    if (!isEditingPath) return
+    pathInputRef.current?.focus()
+    pathInputRef.current?.select()
+  }, [isEditingPath])
 
   const filterDirectories = useMemo(() => {
-    const needle = filter.trim().toLocaleLowerCase();
+    const needle = filter.trim().toLocaleLowerCase()
     return (entries: { name: string; path: string }[]) => {
-      if (!needle) return entries;
-      return entries.filter((directory) => directory.name.toLocaleLowerCase().includes(needle));
-    };
-  }, [filter]);
+      if (!needle) return entries
+      return entries.filter((directory) => directory.name.toLocaleLowerCase().includes(needle))
+    }
+  }, [filter])
 
   const directories = useMemo(
     () => filterDirectories(listing.data?.directories ?? []),
     [filterDirectories, listing.data?.directories],
-  );
+  )
 
   const parentDirectories = useMemo(
     () => filterDirectories(parentListing.data?.directories ?? []),
     [filterDirectories, parentListing.data?.directories],
-  );
+  )
 
-  const displayedPath = listing.data?.path || pathInput;
-  const currentDirectoryName = directoryLabel(displayedPath);
+  const displayedPath = listing.data?.path || pathInput
+  const currentDirectoryName = directoryLabel(displayedPath)
 
   function navigate(path: string) {
-    onFilterChange?.("");
-    setPathInput(path);
-    setIsEditingPath(false);
-    onPathChange(path);
+    onFilterChange?.("")
+    setPathInput(path)
+    setIsEditingPath(false)
+    onPathChange(path)
   }
 
   function startEditingPath() {
-    setPathInput(displayedPath);
-    setIsEditingPath(true);
+    setPathInput(displayedPath)
+    setIsEditingPath(true)
   }
 
   function cancelEditingPath() {
-    setPathInput(displayedPath);
-    setIsEditingPath(false);
+    setPathInput(displayedPath)
+    setIsEditingPath(false)
   }
 
   function submitPath() {
-    const path = pathInput.trim();
-    if (!path) return;
-    navigate(path);
+    const path = pathInput.trim()
+    if (!path) return
+    navigate(path)
   }
 
-  const crumbs = pathCrumbs(displayedPath);
+  const crumbs = pathCrumbs(displayedPath)
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2" aria-label={t("pathBrowserLabel")}>
       <div ref={rowRef} className="flex min-w-0 shrink-0 items-center gap-2">
-        <div
+        <nav
           className="flex min-w-0 flex-1 basis-0 items-stretch overflow-hidden rounded-lg border border-border shadow-xs"
           aria-label={t("pathBrowserNavigation")}
         >
@@ -530,13 +558,13 @@ export function PathBrowser({
               onChange={(event) => setPathInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitPath();
-                  return;
+                  event.preventDefault()
+                  submitPath()
+                  return
                 }
                 if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelEditingPath();
+                  event.preventDefault()
+                  cancelEditingPath()
                 }
               }}
             />
@@ -591,7 +619,7 @@ export function PathBrowser({
               <PencilIcon />
             </PathNavButton>
           )}
-        </div>
+        </nav>
         {pathActions ? <div className="shrink-0">{pathActions}</div> : null}
       </div>
 
@@ -659,5 +687,5 @@ export function PathBrowser({
         </div>
       )}
     </section>
-  );
+  )
 }

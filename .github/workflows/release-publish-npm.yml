@@ -1,5 +1,6 @@
 # Runs automatically for stable tags: dispatched by release-build-cli after the
-# CLI build and assets upload finish. Manual run (candidates that want npm):
+# CLI build and assets upload finish, with build_run_id pinned to the
+# originating run. Manual run (candidates that want npm):
 #   gh workflow run release-publish-npm.yml --ref vX.Y.Z-rc.N
 # Publishes @ip2a/mcpstore and platform packages through npm trusted publishing
 # (OIDC). No NPM_TOKEN secret is used. Every package needs a trusted publisher
@@ -9,10 +10,23 @@ name: release-publish-npm
 
 on:
   workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "release-build-cli run to take artifacts from (set by the automatic chain; empty = discover by tag+SHA)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
   id-token: write
+  # gh run list / gh run download below read workflow runs and artifacts
+  actions: read
+
+# serializes duplicate dispatches (auto chain + manual) against one tag
+concurrency:
+  group: release-publish-npm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -24,33 +38,31 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.ref }}
 
       - name: Install Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
       # Node 24 ships npm >= 11.5, required for trusted publishing (OIDC)
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.13.0"
+          node-version: "24.22.3"
           registry-url: https://registry.npmjs.org/
 
       - name: Validate release metadata
         run: python scripts/release_preflight.py --domain app --require-tag
 
       - name: Find release-build run for this tag
+        env:
+          BUILD_RUN_ID_INPUT: ${{ inputs.build_run_id }}
         run: |
-          run_id="$(gh run list --workflow=release-build-cli --branch="${{ github.ref_name }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
-          if [ -z "${run_id}" ]; then
-            echo "::error::No successful release-build-cli run found for ${{ github.ref_name }}"
-            exit 1
-          fi
-          echo "BUILD_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
+          id="$(python3 scripts/wait_release_run.py release-build-cli --run-id "$BUILD_RUN_ID_INPUT")"
+          echo "BUILD_RUN_ID=$id" >> "$GITHUB_ENV"
 
       - name: Download build artifacts
         run: |
@@ -64,25 +76,45 @@ jobs:
       - name: Assemble npm platform packages
         run: python scripts/assemble_npm_packages.py
 
-      - name: Publish @ip2a/mcpstore-bin-darwin-arm64
-        run: npm publish --access public --provenance
-        working-directory: satellite/npm/packages/mcpstore-bin-darwin-arm64
-
-      - name: Publish @ip2a/mcpstore-bin-linux-x64-gnu
-        run: npm publish --access public --provenance
-        working-directory: satellite/npm/packages/mcpstore-bin-linux-x64-gnu
-
-      - name: Publish @ip2a/mcpstore-bin-linux-arm64-gnu
-        run: npm publish --access public --provenance
-        working-directory: satellite/npm/packages/mcpstore-bin-linux-arm64-gnu
-
-      - name: Publish @ip2a/mcpstore-bin-win32-x64-msvc
-        run: npm publish --access public --provenance
-        working-directory: satellite/npm/packages/mcpstore-bin-win32-x64-msvc
-
-      - name: Publish @ip2a/mcpstore
-        run: npm publish --access public --provenance
-        working-directory: satellite/npm/packages/mcpstore
+      - name: Publish npm packages
+        run: |
+          set -euo pipefail
+          # publish_one() safe-resume contract for re-dispatch after partial
+          # uploads: absent from registry -> publish; already present with a
+          # byte-identical tarball -> verified skip; present with different
+          # content -> hard stop. Never silently skip a conflict.
+          publish_one() {
+            dir="$1"
+            name="$(node -p "require('./${dir}/package.json').name")"
+            version="$(node -p "require('./${dir}/package.json').version")"
+            registry="$(npm view "${name}@${version}" dist.integrity 2>&1)" && present=1 || present=0
+            if [ "${present}" = 1 ]; then
+              # already on the registry: only a byte-identical rebuild may resume
+              tarball="$(npm pack "./${dir}" --pack-destination "${RUNNER_TEMP}" | tail -n1)"
+              local_integrity="sha512-$(openssl dgst -sha512 -binary "${RUNNER_TEMP}/$(basename "${tarball}")" | base64 | tr -d '\n')"
+              if [ "${local_integrity}" != "${registry}" ]; then
+                echo "::error::${name}@${version} already exists on the registry with different content (registry ${registry} != local ${local_integrity}); refusing to skip or overwrite"
+                exit 1
+              fi
+              echo "[skip] ${name}@${version} already published with identical integrity"
+              return 0
+            fi
+            # absence is only proven by 404; anything else (rate limit, network)
+            # must not be misread as "unpublished" and turned into a publish
+            if ! grep -q "E404" <<<"${registry}"; then
+              echo "::error::registry lookup for ${name}@${version} failed without 404; refusing to publish on unknown registry state: ${registry}"
+              exit 1
+            fi
+            (cd "${dir}" && npm publish --access public --provenance)
+            echo "[ok] published ${name}@${version}"
+          }
+          # platform packages first: the main package resolves them through
+          # optionalDependencies at install time; the loop is driven by
+          # platforms.toml so a new platform cannot be silently skipped
+          for dir in $(python3 -c "import tomllib; print(' '.join(p['npm_dir'] for p in tomllib.load(open('satellite/platforms.toml','rb'))['platforms']))"); do
+            publish_one "satellite/npm/packages/${dir}"
+          done
+          publish_one "satellite/npm/packages/mcpstore"
 
   dispatch-finalize:
     name: dispatch-release-finalize
@@ -98,4 +130,5 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Dispatch finalize
-        run: gh workflow run release-finalize.yml --ref "${GITHUB_REF_NAME}"
+        # -R: this job has no checkout, so gh has no repo context from git
+        run: gh workflow run release-finalize.yml --ref "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}"

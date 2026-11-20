@@ -132,9 +132,7 @@ export function ToolDetailDocHeader({
       {route.enabled ? (
         <InlineRouteField
           value={tool.description || ""}
-          originalValue={
-            route.descriptionOverridden ? undefined : tool.description || ""
-          }
+          originalValue={route.descriptionOverridden ? undefined : tool.description || ""}
           overridden={route.descriptionOverridden}
           label={t("routeDescription")}
           multiline
