@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore"
-version = "2.3.1"
+version = "2.4.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2109,7 +2109,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-cli"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "async-trait",
  "axum",
